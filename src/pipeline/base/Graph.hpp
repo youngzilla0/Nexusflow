@@ -8,11 +8,11 @@
 
 struct Node {
     std::string name;
-    int modelType = -1;
 
-    Node(std::string name) : name(std::move(name)) {}
+    // Define your own properties here.
+    std::string moduleName;
 
-    Node(std::string name, int modelType) : name(std::move(name)), modelType(modelType) {}
+    Node(std::string name, std::string moduleName) : name(std::move(name)), moduleName(std::move(moduleName)) {}
 };
 
 struct Edge {
