@@ -64,11 +64,13 @@ void ModuleBase::addOutputPort(const std::string& portName, const std::shared_pt
     m_outputQueueMap[portName] = queue;
 }
 
-void ModuleBase::collectBatch(std::vector<std::shared_ptr<Message>>& batch, size_t maxBatchSize,
-                              std::chrono::milliseconds totalTimeout) {
+std::vector<std::shared_ptr<Message>> ModuleBase::tryReceiveBatch(size_t maxBatchSize, std::chrono::milliseconds totalTimeout) {
+    // Initialize the batch vector.
+    std::vector<std::shared_ptr<Message>> batchMessage;
+
     // Ensure the output vector is clean and has pre-allocated memory.
-    batch.clear();
-    batch.reserve(maxBatchSize);
+    batchMessage.clear();
+    batchMessage.reserve(maxBatchSize);
 
     auto startTime = std::chrono::steady_clock::now();
 
@@ -76,16 +78,16 @@ void ModuleBase::collectBatch(std::vector<std::shared_ptr<Message>>& batch, size
     // Quickly drain any messages that are already waiting in the queues.
     for (auto& item : m_inputQueueMap) {
         auto& queue = item.second;
-        while (batch.size() < maxBatchSize) {
+        while (batchMessage.size() < maxBatchSize) {
             if (auto msgOpt = queue->tryPop()) {
-                batch.push_back(std::move(msgOpt.value()));
+                batchMessage.push_back(std::move(msgOpt.value()));
             } else {
                 // This queue is empty, so move on to the next one.
                 break;
             }
         }
-        if (batch.size() >= maxBatchSize) {
-            return; // Batch is full, no need to wait.
+        if (batchMessage.size() >= maxBatchSize) {
+            return batchMessage; // Batch is full, no need to wait.
         }
     }
 
@@ -93,7 +95,7 @@ void ModuleBase::collectBatch(std::vector<std::shared_ptr<Message>>& batch, size
     // If the batch is not yet full, enter a polling loop that waits efficiently.
     while (!m_stopFlag.load()) {
         // Check exit condition: batch is full.
-        if (batch.size() >= maxBatchSize) {
+        if (batchMessage.size() >= maxBatchSize) {
             break;
         }
 
@@ -111,24 +113,26 @@ void ModuleBase::collectBatch(std::vector<std::shared_ptr<Message>>& batch, size
             // Wait for a very short period (e.g., 1ms). This is the key to avoiding
             // busy-waiting while remaining responsive to multiple inputs.
             if (item.second->waitAndPopFor(msg, std::chrono::milliseconds(1))) {
-                batch.push_back(std::move(msg));
+                batchMessage.push_back(std::move(msg));
 
                 // Optimization: If a message was found, this queue might have more.
                 // Try to pop more in a non-blocking way to fill the batch faster.
-                while (batch.size() < maxBatchSize) {
+                while (batchMessage.size() < maxBatchSize) {
                     if (auto msgOpt = item.second->tryPop()) {
-                        batch.push_back(std::move(msgOpt.value()));
+                        batchMessage.push_back(std::move(msgOpt.value()));
                     } else {
                         break; // The queue is now empty.
                     }
                 }
             }
             // Check if the batch became full during the inner loop.
-            if (batch.size() >= maxBatchSize) {
+            if (batchMessage.size() >= maxBatchSize) {
                 break;
             }
         }
     }
+
+    return batchMessage;
 }
 
 Optional<std::shared_ptr<Message>> ModuleBase::popFrom(const std::string& portName) {
@@ -175,11 +179,10 @@ void ModuleBase::Run() {
     // TODO: loading batch size and timeout from config.
     constexpr size_t BATCH_SIZE = 64;
     constexpr std::chrono::milliseconds BATCH_TIMEOUT(10);
-    std::vector<std::shared_ptr<Message>> batchMessage;
 
     while (!m_stopFlag.load()) {
         try {
-            collectBatch(batchMessage, BATCH_SIZE, BATCH_TIMEOUT);
+            auto batchMessage = tryReceiveBatch(BATCH_SIZE, BATCH_TIMEOUT);
             if (!batchMessage.empty()) {
                 ProcessBatch(batchMessage);
             }

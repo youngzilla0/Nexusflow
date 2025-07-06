@@ -122,7 +122,7 @@ protected:
      *     input queues to immediately collect any readily available messages.
      * 2.  **Blocking Poll Phase:** If the batch is not yet full, it enters a loop that
      *     iterates through the input queues. For each queue, it performs a short-duration
-     *     blocking wait (`waitAndPop_for`). This allows the thread to sleep efficiently
+     *     blocking wait (`waitAndPopFor`). This allows the thread to sleep efficiently
      *     if no messages are available, yielding the CPU, yet remaining highly responsive.
      *
      * The function returns when one of the following conditions is met:
@@ -130,14 +130,11 @@ protected:
      * - The `totalTimeout` is exceeded.
      * - The module's stop flag is signaled.
      *
-     * @param outBatchData [out] A reference to a vector where the collected messages will be stored.
-     *              The vector is cleared at the beginning of the call.
-     * @param maxBatchSize [in] The desired maximum number of messages to collect in the batch.
-     * @param totalTimeout [in] The maximum total time the function will spend attempting to
-     *                         collect the batch.
+     * @param maxBatchSize The maximum number of messages to collect in a single batch.
+     * @param totalTimeout The maximum time to wait for a batch to be filled.
+     * @return A vector of shared pointers to the collected messages.
      */
-    void collectBatch(std::vector<std::shared_ptr<Message>>& outBatchData, size_t maxBatchSize,
-                      std::chrono::milliseconds totalTimeout);
+    std::vector<std::shared_ptr<Message>> tryReceiveBatch(size_t maxBatchSize, std::chrono::milliseconds totalTimeout);
 
     /**
      * @brief Performs a non-blocking pop from a named input port.
