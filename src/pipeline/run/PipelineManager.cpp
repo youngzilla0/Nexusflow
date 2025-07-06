@@ -1,16 +1,23 @@
 #include "PipelineManager.hpp"
-#include "Pipeline.hpp"
+#include "GraphUtils.hpp"
+#include "base/Graph.hpp"
+#include "helper/logging.hpp"
 
-namespace pipeline_core {
+namespace pipeline_run {
 
 PipelineManager::~PipelineManager() = default;
 
-std::unique_ptr<Pipeline> PipelineManager::CreatePipeline(const Graph& graph) {
-    //
-    return Pipeline::makeByGraph(graph);
+std::unique_ptr<pipeline_core::Pipeline> PipelineManager::CreatePipelineByYamlConfig(const std::string& configPath) {
+    auto graphPtr = graphutils::loadGrapFromYaml(configPath);
+    if (graphPtr == nullptr) {
+        LOG_ERROR("Failed to load graph from yaml, configPath: {}", configPath);
+        return nullptr;
+    }
+    auto pipelinePtr = pipeline_core::Pipeline::makeByGraph(*graphPtr);
+    return pipelinePtr;
 }
 
-std::unique_ptr<Pipeline> PipelineManager::CreatePipelineMock() {
+std::unique_ptr<pipeline_core::Pipeline> PipelineManager::CreatePipelineMock() {
     Graph graph;
 
     /**
@@ -40,7 +47,7 @@ std::unique_ptr<Pipeline> PipelineManager::CreatePipelineMock() {
         throw std::runtime_error("Graph has cycle");
     }
 
-    return Pipeline::makeByGraph(graph);
+    return pipeline_core::Pipeline::makeByGraph(graph);
 }
 
-} // namespace pipeline_core
+} // namespace pipeline_run

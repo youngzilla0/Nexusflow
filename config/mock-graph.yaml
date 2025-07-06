@@ -1,0 +1,30 @@
+graph:
+  name: "MockGraphSingleInputOutput"
+  input: "InputNode"
+  output: "OutputNode"
+
+node:
+  - name: "InputNode"
+    type: "MockInputModule"
+
+  - name: "ProcessNode1"
+    type: "MockProcessModule"
+
+  - name: "ProcessNode2"
+    type: "MockProcessModule"
+
+  - name: "OutputNode"
+    type: "MockOutputModule"
+
+edge:
+  - src: "InputNode"
+    dst: "ProcessNode1"
+
+  - src: "InputNode"
+    dst: "ProcessNode2"
+
+  - src: "ProcessNode1"
+    dst: "OutputNode"
+
+  - src: "ProcessNode2"
+    dst: "OutputNode"

@@ -20,6 +20,7 @@ target_include_directories(pipeline PUBLIC
 )
 target_link_libraries(pipeline PUBLIC
     spdlog::spdlog
+    yaml-cpp::yaml-cpp
 )
 
 

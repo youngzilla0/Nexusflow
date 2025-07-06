@@ -2,10 +2,9 @@
 #define PIPELINE_MGR_HPP_
 
 #include "ErrorCode.hpp"
-#include "Pipeline.hpp"
-#include "base/Graph.hpp"
+#include "core/Pipeline.hpp"
 
-namespace pipeline_core {
+namespace pipeline_run {
 
 class PipelineManager {
 public:
@@ -16,14 +15,14 @@ public:
 
     ~PipelineManager();
 
-    std::unique_ptr<Pipeline> CreatePipeline(const Graph& graph);
+    std::unique_ptr<pipeline_core::Pipeline> CreatePipelineByYamlConfig(const std::string& configPath);
 
-    std::unique_ptr<Pipeline> CreatePipelineMock();
+    std::unique_ptr<pipeline_core::Pipeline> CreatePipelineMock();
 
 private:
     PipelineManager() = default;
 };
 
-}; // namespace pipeline_core
+} // namespace pipeline_run
 
 #endif

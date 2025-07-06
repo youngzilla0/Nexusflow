@@ -1,5 +1,5 @@
-#include "core/PipelineManager.hpp"
 #include "helper/logging.hpp"
+#include "run/PipelineManager.hpp"
 #include <chrono>
 
 int main(int argc, char* argv[]) {
@@ -9,9 +9,20 @@ int main(int argc, char* argv[]) {
 
     helper::logger::InitializeGlobalLogger(std::move(loggerParam));
 
-    auto& pipelineMgr = pipeline_core::PipelineManager::GetInstance();
+    // Get yaml config path from command line arguments
+    if (argc < 2) {
+        LOG_ERROR("Please provide a yaml config file path, e.g. ./app config.yaml");
+        return -1;
+    }
 
-    auto pipelinePtr = pipelineMgr.CreatePipelineMock();
+    const std::string yamlConfigPath = argv[1];
+
+    LOG_INFO("Yaml config file path: {}", yamlConfigPath);
+
+    auto& pipelineMgr = pipeline_run::PipelineManager::GetInstance();
+
+    // auto pipelinePtr = pipelineMgr.CreatePipelineMock();
+    auto pipelinePtr = pipelineMgr.CreatePipelineByYamlConfig(yamlConfigPath);
 
     if (pipelinePtr == nullptr) {
         LOG_ERROR("Failed to create pipeline");
