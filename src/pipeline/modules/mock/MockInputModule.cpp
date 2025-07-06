@@ -4,7 +4,7 @@
 #include "modules/ModuleFactory.hpp"
 #include <thread>
 
-MockInputModule::MockInputModule() : ModuleBase("MockInputModule", true) { LOG_TRACE("MockInputModule constructor"); }
+MockInputModule::MockInputModule() : ModuleBase("MockInputModule") { LOG_TRACE("MockInputModule constructor"); }
 
 MockInputModule::~MockInputModule() { LOG_TRACE("MockInputModule destructor"); }
 

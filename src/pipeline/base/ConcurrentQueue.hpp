@@ -61,6 +61,30 @@ public:
     }
 
     /**
+     * @brief Tries to push an item, waiting up to a specified timeout.
+     * @param item The item to push.
+     * @param timeout The maximum duration to wait.
+     * @return true if pushed, false if timed out or shutdown.
+     */
+    template <class Rep, class Per>
+    bool pushFor(T&& item, const std::chrono::duration<Rep, Per>& timeout) {
+        std::unique_lock<std::mutex> lock(m_mutex);
+        if (!m_condNotFull.wait_for(lock, timeout, [this] { return m_shutdown || !isFull(); })) {
+            // wait_for returned false, meaning it timed out.
+            return false;
+        }
+        if (m_shutdown) return false;
+        m_queue.push(std::move(item));
+        m_condNotEmpty.notify_one();
+        return true;
+    }
+
+    template <class Rep, class Per>
+    bool pushFor(const T& item, const std::chrono::duration<Rep, Per>& timeout) {
+        return pushFor(T(item), timeout);
+    }
+
+    /**
      * @brief Tries to push an item into the queue without blocking.
      * If the queue is bounded and currently full, this method will return immediately
      * with false instead of waiting for space.
@@ -84,6 +108,26 @@ public:
     bool tryPush(const T& item) {
         T temp = item;
         return tryPush(std::move(temp));
+    }
+
+    /**
+     * @brief Tries to pop an item, waiting up to a specified timeout.
+     * @param itemRef Reference to store the popped item.
+     * @param timeout The maximum duration to wait.
+     * @return true if popped, false if timed out or shutdown.
+     */
+    template <class Rep, class Per>
+    bool waitAndPopFor(T& itemRef, const std::chrono::duration<Rep, Per>& timeout) {
+        std::unique_lock<std::mutex> lock(m_mutex);
+        if (!m_condNotEmpty.wait_for(lock, timeout, [this] { return m_shutdown || !m_queue.empty(); })) {
+            // wait_for returned false, meaning it timed out.
+            return false;
+        }
+        if (m_shutdown && m_queue.empty()) return false;
+        itemRef = std::move(m_queue.front());
+        m_queue.pop();
+        m_condNotFull.notify_one();
+        return true;
     }
 
     /**

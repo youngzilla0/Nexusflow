@@ -2,8 +2,7 @@
 #include "ErrorCode.hpp"
 #include "helper/logging.hpp"
 
-ModuleBase::ModuleBase(std::string name, bool isSourceModule)
-    : m_name(std::move(name)), m_isSourceModule(isSourceModule), m_stopFlag(false) {
+ModuleBase::ModuleBase(std::string name) : m_name(std::move(name)), m_stopFlag(false) {
     // Initialize the module with the given name.
     LOG_TRACE("Module '{}' created.", m_name);
 }
@@ -65,20 +64,71 @@ void ModuleBase::addOutputPort(const std::string& portName, const std::shared_pt
     m_outputQueueMap[portName] = queue;
 }
 
-std::shared_ptr<Message> ModuleBase::selectMessage() {
-    // TODO: Implement a more sophisticated message selection mechanism if needed.
-    std::shared_ptr<Message> message = nullptr;
+void ModuleBase::collectBatch(std::vector<std::shared_ptr<Message>>& batch, size_t maxBatchSize,
+                              std::chrono::milliseconds totalTimeout) {
+    // Ensure the output vector is clean and has pre-allocated memory.
+    batch.clear();
+    batch.reserve(maxBatchSize);
+
+    auto startTime = std::chrono::steady_clock::now();
+
+    // --- Phase 1: Greedy non-blocking pull ---
+    // Quickly drain any messages that are already waiting in the queues.
     for (auto& item : m_inputQueueMap) {
-        auto& queueName = item.first;
         auto& queue = item.second;
-        auto msgOpt = queue->tryPop();
-        if (msgOpt) {
-            LOG_TRACE("Module '{}': Selected message from input port '{}'.", m_name, queueName);
-            message = msgOpt.value();
-            break;
+        while (batch.size() < maxBatchSize) {
+            if (auto msgOpt = queue->tryPop()) {
+                batch.push_back(std::move(msgOpt.value()));
+            } else {
+                // This queue is empty, so move on to the next one.
+                break;
+            }
+        }
+        if (batch.size() >= maxBatchSize) {
+            return; // Batch is full, no need to wait.
         }
     }
-    return message;
+
+    // --- Phase 2: Short-blocking polling loop ---
+    // If the batch is not yet full, enter a polling loop that waits efficiently.
+    while (!m_stopFlag.load()) {
+        // Check exit condition: batch is full.
+        if (batch.size() >= maxBatchSize) {
+            break;
+        }
+
+        // Check exit condition: total time has elapsed.
+        auto now = std::chrono::steady_clock::now();
+        auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - startTime);
+        if (elapsed >= totalTimeout) {
+            break;
+        }
+
+        // Iterate through all input queues and perform a short wait on each.
+        for (auto& item : m_inputQueueMap) {
+            std::shared_ptr<Message> msg;
+
+            // Wait for a very short period (e.g., 1ms). This is the key to avoiding
+            // busy-waiting while remaining responsive to multiple inputs.
+            if (item.second->waitAndPopFor(msg, std::chrono::milliseconds(1))) {
+                batch.push_back(std::move(msg));
+
+                // Optimization: If a message was found, this queue might have more.
+                // Try to pop more in a non-blocking way to fill the batch faster.
+                while (batch.size() < maxBatchSize) {
+                    if (auto msgOpt = item.second->tryPop()) {
+                        batch.push_back(std::move(msgOpt.value()));
+                    } else {
+                        break; // The queue is now empty.
+                    }
+                }
+            }
+            // Check if the batch became full during the inner loop.
+            if (batch.size() >= maxBatchSize) {
+                break;
+            }
+        }
+    }
 }
 
 Optional<std::shared_ptr<Message>> ModuleBase::popFrom(const std::string& portName) {
@@ -113,24 +163,26 @@ void ModuleBase::broadcast(std::shared_ptr<Message> msg) {
 }
 
 void ModuleBase::Run() {
-    LOG_DEBUG("Module '{}' run loop started.", m_name);
+    LOG_DEBUG("Module '{}' run loop started, isSourceModule={}, isSinkModule={}", m_name, isSourceModule(), isSinkModule());
+
+    if (isSourceModule()) {
+        while (!m_stopFlag.load()) {
+            Process(nullptr);
+        }
+        return;
+    }
+
+    // TODO: loading batch size and timeout from config.
+    constexpr size_t BATCH_SIZE = 64;
+    constexpr std::chrono::milliseconds BATCH_TIMEOUT(10);
+    std::vector<std::shared_ptr<Message>> batchMessage;
 
     while (!m_stopFlag.load()) {
         try {
-            // If this module is a source module, it should always process.
-            if (isSourceModule()) {
-                Process(nullptr);
-                continue;
+            collectBatch(batchMessage, BATCH_SIZE, BATCH_TIMEOUT);
+            if (!batchMessage.empty()) {
+                ProcessBatch(batchMessage);
             }
-
-            // If this module is not a source module, it should select a message to process.
-            auto message = selectMessage();
-            if (message != nullptr) {
-                Process(message);
-            } else {
-                std::this_thread::sleep_for(std::chrono::milliseconds(5)); // Sleep briefly to avoid busy-waiting.
-            }
-
         } catch (const std::exception& e) {
             LOG_ERROR("Module '{}' caught an unhandled exception in its run loop: {}", m_name, e.what());
             // Depending on strategy, you might want to stop the module on error.
@@ -143,7 +195,8 @@ void ModuleBase::Run() {
     LOG_DEBUG("Module '{}' run loop finished.", m_name);
 }
 
-void ModuleBase::Process(const std::shared_ptr<Message>& inputMessage) {
-    //
-    LOG_DEBUG("Module '{}' processing...", m_name);
+void ModuleBase::ProcessBatch(const std::vector<std::shared_ptr<Message>>& inputBatch) {
+    for (auto& msg : inputBatch) {
+        Process(msg);
+    }
 }

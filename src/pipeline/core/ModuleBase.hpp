@@ -30,9 +30,8 @@ public:
     /**
      * @brief Constructs a Module with a given name.
      * @param name A unique identifier for this module instance.
-     * @param isSourceModule A flag indicating whether this module is a source module.
      */
-    explicit ModuleBase(std::string name, bool isSourceModule = false);
+    explicit ModuleBase(std::string name);
 
     /**
      * @brief Virtual destructor to ensure proper cleanup of derived classes.
@@ -88,7 +87,9 @@ public:
     // --- Accessors ---
     const std::string& getName() const { return m_name; }
 
-    bool isSourceModule() const { return m_isSourceModule; }
+    bool isSourceModule() const { return m_inputQueueMap.empty(); }
+
+    bool isSinkModule() const { return m_outputQueueMap.empty(); }
 
 protected:
     // --- Pure virtual function for derived classes ---
@@ -99,15 +100,44 @@ protected:
      * is responsible for popping data from input ports, processing it, and dispatching
      * results to output ports.
      */
-    virtual void Process(const std::shared_ptr<Message>& inputMessage);
+    virtual void Process(const std::shared_ptr<Message>& inputMessage) = 0;
+
+    /**
+     * @brief Processes a batch of messages.
+     * This method is called when the module receives a batch of messages from its input ports.
+     * The derived class is responsible for processing the entire batch.
+     * @param inputBatch A vector of shared pointers to the input messages.
+     */
+    virtual void ProcessBatch(const std::vector<std::shared_ptr<Message>>& inputBatch);
 
     // --- Helper methods for data I/O ---
 
     /**
-     * @brief Selects a message from the input ports.
-     * @return An std::shared_ptr to the selected message, or nullptr if no message is available.
+     * @brief Collects a batch of messages from all registered input ports.
+     *
+     * @details This function implements an efficient, two-phase strategy to gather messages
+     * without causing busy-waiting on the CPU.
+     *
+     * 1.  **Greedy Phase:** It first performs a quick, non-blocking poll (`tryPop`) across all
+     *     input queues to immediately collect any readily available messages.
+     * 2.  **Blocking Poll Phase:** If the batch is not yet full, it enters a loop that
+     *     iterates through the input queues. For each queue, it performs a short-duration
+     *     blocking wait (`waitAndPop_for`). This allows the thread to sleep efficiently
+     *     if no messages are available, yielding the CPU, yet remaining highly responsive.
+     *
+     * The function returns when one of the following conditions is met:
+     * - The batch reaches the `maxBatchSize`.
+     * - The `totalTimeout` is exceeded.
+     * - The module's stop flag is signaled.
+     *
+     * @param outBatchData [out] A reference to a vector where the collected messages will be stored.
+     *              The vector is cleared at the beginning of the call.
+     * @param maxBatchSize [in] The desired maximum number of messages to collect in the batch.
+     * @param totalTimeout [in] The maximum total time the function will spend attempting to
+     *                         collect the batch.
      */
-    std::shared_ptr<Message> selectMessage();
+    void collectBatch(std::vector<std::shared_ptr<Message>>& outBatchData, size_t maxBatchSize,
+                      std::chrono::milliseconds totalTimeout);
 
     /**
      * @brief Performs a non-blocking pop from a named input port.
@@ -145,6 +175,5 @@ private:
     std::unordered_map<std::string, std::shared_ptr<MessageQueue>> m_outputQueueMap;
 
     std::thread m_thread;
-    bool m_isSourceModule = false;
     std::atomic<bool> m_stopFlag{false};
 };
