@@ -31,7 +31,7 @@ set_property(GLOBAL PROPERTY GLOBAL_TEST_SOURCES "")
 message(STATUS "Initialized global test sources list.")
 
 add_subdirectory(src)
-add_subdirectory(app)
+add_subdirectory(examples)
 
 # 
 if(ENABLE_TESTING)

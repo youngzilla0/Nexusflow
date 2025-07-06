@@ -1,30 +1,29 @@
 graph:
-  name: "MockGraphSingleInputOutput"
-  input: "InputNode"
-  output: "OutputNode"
+  name: "VideoAnalyticsPipeline"
 
-node:
-  - name: "InputNode"
-    type: "MockInputModule"
+  modules:
+    - name: "InputNode" # 模块的唯一实例名
+      class: "MockInputModule" # 在模块工厂中注册的类名
+      params: # 模板自定义参数，暂不支持
 
-  - name: "ProcessNode1"
-    type: "MockProcessModule"
+    - name: "ProcessNode1"
+      class: "MockProcessModule"
 
-  - name: "ProcessNode2"
-    type: "MockProcessModule"
+    - name: "ProcessNode2"
+      class: "MockProcessModule"
 
-  - name: "OutputNode"
-    type: "MockOutputModule"
+    - name: "OutputNode"
+      class: "MockOutputModule"
 
-edge:
-  - src: "InputNode"
-    dst: "ProcessNode1"
+  connections:
+    - from: "InputNode"
+      to: "ProcessNode1"
 
-  - src: "InputNode"
-    dst: "ProcessNode2"
+    - from: "InputNode"
+      to: "ProcessNode2"
 
-  - src: "ProcessNode1"
-    dst: "OutputNode"
+    - from: "ProcessNode1"
+      to: "OutputNode"
 
-  - src: "ProcessNode2"
-    dst: "OutputNode"
+    - from: "ProcessNode2"
+      to: "OutputNode"

@@ -1,159 +1,251 @@
-# Modern C++ Data Processing Pipeline Framework
+# NexusFlow: A High-Performance, Modern C++ Dataflow Pipeline Framework
 
-A flexible, high-performance C++ framework for building and running complex, real-time data processing pipelines. Designed with modern C++ practices, it enables developers to create decoupled, scalable, and observable systems configured dynamically via YAML.
+[![Build Status](https://img.shields.io/badge/build-passing-brightgreen)](https://github.com/your_username/nexusflow)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![C++_Version](https://img.shields.io/badge/C++-14%2B-blue.svg)]()
 
-## Core Concepts
+**NexusFlow** is a high-performance, highly-decoupled, and dynamically configurable dataflow pipeline framework designed for modern C++. It aims to help developers easily build complex, multi-stage data processing tasks, such as video analytics pipelines, real-time ETL, industrial sensor data processing, and more.
 
-The framework is built upon a few key architectural concepts inspired by the "Pipes and Filters" pattern:
+The core idea of the framework is to decompose complex processing workflows into a series of independent **Modules**, which can then be connected like LEGO bricks into a powerful **Directed Acyclic Graph (DAG)** using simple configurations.
 
-*   **`ModuleBase`**: A generic, multi-threaded processing unit. This is the single base class for all custom logic. Conceptually, a module acts as a:
-    *   **Source**: If it primarily generates data and has no inputs (e.g., `MockInputModule`).
-    *   **Filter/Transformer**: If it receives data, processes it, and forwards results (e.g., `MockProcessModule`).
-    *   **Sink**: If it terminates a data stream and has no outputs (e.g., `MockOutputModule`).
+## Core Features
 
-*   **`ConcurrentQueue`**: A thread-safe, bounded queue (a "Pipe") that connects modules. It supports efficient, timed, blocking operations and provides natural backpressure to prevent downstream services from being overwhelmed.
+*   **Modular Design, Highly Decoupled**: Each module focuses exclusively on its own business logic. Modules communicate asynchronously via message queues, remaining completely unaware of each other's existence.
+*   **Dynamic Configuration, Powerful & Flexible**: Use simple YAML files to define the entire pipeline topology, module types, and parameters. Reconfigure and refactor complex business flows without recompiling your code.
+*   **Automatic Concurrency, Simplified Development**: The framework automatically assigns dedicated threads to drive each module (or uses a defined strategy). You can focus on your business logic without manually managing complex thread synchronization and lifecycles.
+*   **Clean API, Easy to Use**: Provides two primary ways to construct a pipeline: a **programmatic approach (`PipelineBuilder`)** for rapid development and testing, and a **declarative approach (from YAML)** for production environments.
+*   **High-Performance & Modern C++**: Core components are designed for performance, leveraging modern C++ features like move semantics and a clear ownership model to ensure code is both efficient and safe.
 
-*   **`Pipeline`**: A manager for a specific data processing graph. It's responsible for the lifecycle (Init, Start, Stop) of all its modules and the connections between them.
+---
 
-*   **`PipelineManager`**: A singleton factory responsible for parsing YAML configuration files and constructing `Pipeline` instances. This decouples the pipeline's structure from the code.
+## Quick Start
 
-## Key Features
+The following example demonstrates how to build a pipeline with four modules: one input node distributes data to two parallel processing nodes, and one output node gathers the results.
 
--   **Dynamic Pipeline Creation**: Define entire pipeline graphs, including nodes, edges, and logical entry/exit points, completely within a YAML file.
--   **High Performance**:
-    -   **Multi-threaded by Design**: Each module runs in a dedicated thread for maximum parallelism.
-    -   **Efficient Batch Processing**: The core `tryReceiveBatch` mechanism minimizes per-message overhead. `ModuleBase` supports both batch and single-message processing interfaces.
-    -   **CPU-Friendly**: Uses condition variables for timed waits, eliminating busy-looping and reducing CPU usage when idle.
--   **Backpressure Support**: Bounded `ConcurrentQueue`s automatically block producers when full, preventing memory exhaustion and creating a stable, self-regulating system.
--   **Decoupled & Extensible**: Modules are completely unaware of each other, communicating only through thread-safe queues. Adding a new custom processing module is as simple as inheriting from `ModuleBase`.
+### Option 1: Declarative Build via YAML (Recommended)
 
-## Getting Started
+This is the most powerful and recommended way to use NexusFlow. It allows you to define your entire system through a configuration file, providing maximum flexibility.
 
-### 1. Define a Custom Module
-
-To create your own processing logic, inherit from `pipeline_core::ModuleBase` and override the pure virtual functions `ProcessBatch` and `Process`.
-
-```cpp
-// MockProcessModule.h
-#include "core/ModuleBase.hpp"
-
-class MockProcessModule : public pipeline_core::ModuleBase {
-public:
-    explicit MockProcessModule(const std::string& name) : ModuleBase(name) {}
-
-protected:
-    // For performance, implement your batch-aware logic here directly.
-    void ProcessBatch(const std::vector<std::shared_ptr<Message>>& batch) override {
-        // For simple cases, you can just loop and call the single-message handler.
-        for (const auto& msg : batch) {
-            this->Process(msg);
-        }
-    }
-
-    // Your core processing logic for one message.
-    void Process(const std::shared_ptr<Message>& msg) override {
-        // e.g., perform some transformation...
-        auto processed_msg = transform(msg);
-        // dispatch to all connected downstream modules
-        broadcast(processed_msg); 
-    }
-};
-```
-
-### 2. Configure the Pipeline (config.yaml)
-
-Create a YAML file to define the graph structure. The framework parses this file to build the pipeline at runtime.
+#### 1. Create a Configuration File (`graph.yaml`)
 
 ```yaml
-# config.yaml
-# Defines the overall graph properties
 graph:
-  name: "MockGraphSingleInputOutput"
-  input: "InputNode"   # The logical entry point for external data
-  output: "OutputNode"  # The logical exit point for final results
+  name: "VideoAnalyticsPipeline"
 
-# Defines all processing units (modules)
-node:
-  - name: "InputNode"
-    type: "MockInputModule"
+  # 1. Define all module instances
+  modules:
+    - name: "InputNode"          # A unique instance name for the module
+      class: "MockInputModule"   # The class name registered in the ModuleFactory
 
-  - name: "ProcessNode1"
-    type: "MockProcessModule"
+    - name: "ProcessNode1"
+      class: "MockProcessModule"
 
-  - name: "ProcessNode2"
-    type: "MockProcessModule"
+    - name: "ProcessNode2"
+      class: "MockProcessModule"
 
-  - name: "OutputNode"
-    type: "MockOutputModule"
+    - name: "OutputNode"
+      class: "MockOutputModule"
 
-# Defines the connections (data flow) between nodes
-edge:
-  - src: "InputNode"
-    dst: "ProcessNode1"
-
-  - src: "InputNode"
-    dst: "ProcessNode2"
-
-  - src: "ProcessNode1"
-    dst: "OutputNode"
-
-  - src: "ProcessNode2"
-    dst: "OutputNode"
+  # 2. Define the connections (the dataflow topology)
+  connections:
+    - from: "InputNode"
+      to: "ProcessNode1"
+    - from: "InputNode"
+      to: "ProcessNode2"
+    - from: "ProcessNode1"
+      to: "OutputNode"
+    - from: "ProcessNode2"
+      to: "OutputNode"
 ```
 
-### 3. Run the Pipeline
-
-Your `main.cpp` is responsible for managing the pipeline's lifecycle.
+#### 2. Write the C++ Entry Point (`example.cpp`)
 
 ```cpp
-#include "helper/logging.hpp"  // src/helper/logging.hpp
-#include "run/PipelineManager.hpp"  // src/pipeline/run/PipelineManager.hpp
+#include "nexusflow/Pipeline.hpp"
+#include "nexusflow/ModuleFactory.hpp"
+#include "my_module/MockInputModule.hpp"    // Include your custom module headers
+#include "my_module/MockProcessModule.hpp"
+#include "my_module/MockOutputModule.hpp"
+#include "utils/logging.hpp"               // Your logging utility
+
 #include <iostream>
+#include <chrono>
+#include <thread>
+#include <stdexcept>
+#include <memory>
 
-int main() {
-    // Initialize the global logger
-    helper::logger::LoggerParam loggerParam;
-    loggerParam.logLevel = helper::logger::LogLevel::TRACE;
-    helper::logger::InitializeGlobalLogger(std::move(loggerParam));
+using namespace nexusflow;
 
-    // Create and run the pipeline.
-    try {
-        auto& manager = pipeline_run::PipelineManager::GetInstance();
-        auto pipeline = manager.CreatePipelineByYamlConfig("path/to/config.yaml");
+// Register all custom modules with the factory at application startup.
+void registerAllModules() {
+    auto& factory = ModuleFactory::GetInstance();
+    factory.Register<MockInputModule>("MockInputModule");
+    factory.Register<MockProcessModule>("MockProcessModule");
+    factory.Register<MockOutputModule>("MockOutputModule");
+}
 
-        if (pipeline && pipeline->Init() == ErrorCode::SUCCESS) {
-            pipeline->Start();
-            
-            std::cout << "Pipeline started. Press Enter to stop.\n";
-            std::cin.get();
+// A helper function to encapsulate the pipeline execution and teardown logic.
+void executePipeline(Pipeline& pipeline) {
+    LOG_INFO("Initializing pipeline...");
+    if (pipeline.Init() != ErrorCode::SUCCESS) {
+        throw std::runtime_error("Pipeline initialization failed.");
+    }
 
-            pipeline->Stop();
-            pipeline->DeInit();
-        }
-    } catch (const std::exception& e) {
-        std::cerr << "An error occurred: " << e.what() << std::endl;
+    LOG_INFO("Pipeline starting...");
+    pipeline.Start();
+
+    LOG_INFO("Pipeline running for 10 seconds...");
+    std::this_thread::sleep_for(std::chrono::seconds(10));
+
+    LOG_INFO("Pipeline stopping...");
+    pipeline.Stop();
+
+    LOG_INFO("De-initializing pipeline...");
+    pipeline.DeInit();
+}
+
+int main(int argc, char* argv[]) {
+    utils::logger::InitializeGlobalLogger(/* ... */);
+
+    if (argc < 2) {
+        LOG_ERROR("Usage: {} <path_to_graph_yaml>", argv[0]);
         return 1;
     }
+
+    try {
+        // 1. Register modules with the factory.
+        registerAllModules();
+
+        // 2. Create the pipeline from the YAML file.
+        std::string configPath = argv[1];
+        LOG_INFO("Creating pipeline from '{}'...", configPath);
+        
+        // The Pipeline class provides a static factory method as a replacement for a PipelineManager.
+        auto pipeline = Pipeline::CreateFromYaml(configPath);
+        if (pipeline == nullptr) {
+            throw std::runtime_error("Failed to create pipeline from YAML config.");
+        }
+
+        // 3. Execute the pipeline.
+        executePipeline(*pipeline);
+
+    } catch (const std::exception& e) {
+        LOG_CRITICAL("An exception occurred: {}", e.what());
+        return 1;
+    }
+
+    LOG_INFO("Execution finished successfully.");
     return 0;
 }
 ```
 
-## Roadmap & Future Work (TODO)
+### Option 2: Programmatic Build via `PipelineBuilder`
 
--   [ ] **Architectural Refinement: Specialized Module Roles**
-    -   Introduce distinct base classes (`SourceModule`, `FilterModule`, `SinkModule`) inheriting from `ModuleBase`. This will create a strongly-typed framework, enabling intelligent, role-based operations.
+This approach is suitable for simple applications, unit tests, or scenarios where the topology needs to be generated dynamically in code.
 
--   [ ] **Graceful Shutdown**
-    -   Implement an End-of-Stream (EOS) message type and logic. This will allow the pipeline to finish processing all in-flight data before shutting down, ensuring zero data loss. This depends on the role specialization above.
+```cpp
+#include "nexusflow/Pipeline.hpp"
+#include "nexusflow/PipelineBuilder.hpp"
+#include "my_module/MockInputModule.hpp"
+#include "my_module/MockProcessModule.hpp"
+#include "my_module/MockOutputModule.hpp"
+// ... other necessary headers ...
 
--   [ ] **Fault Tolerance**
-    -   Create a failure-reporting mechanism (e.g., via callbacks) from `Module` to `Pipeline` to handle runtime exceptions gracefully and allow for pipeline-level recovery strategies.
+using namespace nexusflow;
 
--   [ ] **Centralized Metrics & Observability**
-    -   Expose a `Pipeline::getMetrics()` endpoint to aggregate metrics (queue depth, throughput, latency) from all modules. This is key for monitoring, debugging, and performance tuning.
+void runWithBuildModule() {
+    auto inputModule    = std::make_shared<MockInputModule>("InputNode");
+    auto process1Module = std::make_shared<MockProcessModule>("ProcessNode1");
+    auto process2Module = std::make_shared<MockProcessModule>("ProcessNode2");
+    auto outputModule   = std::make_shared<MockOutputModule>("OutputNode");
 
--   [ ] **Stateful Processing Patterns**
-    -   Add helper classes or formal patterns for complex stateful operations like multi-stream joins and time-windowed aggregations, including robust timeout and memory management.
+    auto pipeline = PipelineBuilder()
+                        .AddModule(inputModule)
+                        .AddModule(process1Module)
+                        .AddModule(process2Module)
+                        .AddModule(outputModule)
+                        .Connect("InputNode", "ProcessNode1")
+                        .Connect("InputNode", "ProcessNode2")
+                        .Connect("ProcessNode1", "OutputNode")
+                        .Connect("ProcessNode2", "OutputNode")
+                        .Build();
 
--   [ ] **Data Injection & Egress API**
-    -   Implement clean, backpressure-aware `Pipeline` APIs (`FeedData`, `TryGetResult`) that interact with the logical `input` and `output` nodes defined in the YAML.
+    if (pipeline == nullptr) {
+        throw std::runtime_error("Failed to build pipeline.");
+    }
+    
+    // Call the same helper function to run the pipeline.
+    executePipeline(*pipeline);
+}
+```
+
+---
+
+## How to Write a Custom Module
+
+Creating a new module is a simple two-step process:
+
+#### 1. Inherit from `nexusflow::Module` and implement `process`
+
+```cpp
+// modules/MultiplierModule.hpp
+#include "nexusflow/Module.hpp"
+#include "nexusflow/Message.hpp" // Assuming Message can wrap an int
+
+class MultiplierModule : public nexusflow::Module {
+public:
+    MultiplierModule(std::string name) : nexusflow::Module(std::move(name)) {}
+
+    // Implement the core processing logic.
+    void Process(nexusflow::Message& msg) override {
+        if (auto* data = msg.getData<int>()) {
+            // Multiply the received number by 2.
+            int result_value = (*data) * 2;
+
+            // Create a new message and broadcast it downstream.
+            Message result_msg(result_value);
+            Broadcast(std::move(result_msg));
+        }
+    }
+};
+```
+
+#### 2. Register it with the `ModuleFactory` in your application
+
+```cpp
+// main.cpp
+void registerAllModules() {
+    auto& factory = nexusflow::ModuleFactory::getInstance();
+    factory.Register<MultiplierModule>("MultiplierModule");
+    // ... register other modules
+}
+```
+That's it! You can now use `class: "MultiplierModule"` in your `graph.yaml` file.
+
+## Building the Project
+
+This project uses CMake for building.
+
+```bash
+# 1. Create a build directory
+mkdir build
+cd build
+
+# 2. Run CMake to configure the project
+# Assumes dependencies (like spdlog, yaml-cpp) are managed by CMake's FetchContent
+cmake ..
+
+# 3. Compile the project
+make -j$(nproc)
+
+# 4. Run the example
+./examples/example  path/to/your/graph.yaml
+```
+
+## Contributing
+
+Contributions of any kind are welcome! If you have ideas, suggestions, or have found a bug, please feel free to open a Pull Request or create an Issue.
+
+## License
+
+This project is licensed under the **MIT License**. See the [LICENSE](LICENSE) file for details.
