@@ -23,7 +23,6 @@ void registerAllModules() {
     factory.Register<MockOutputModule>("MockOutputModule");
 }
 
-// ⭐【新增】将重复的运行逻辑提取出来
 void executePipeline(Pipeline& pipeline) {
     LOG_INFO("Initializing pipeline...");
     if (pipeline.Init() != ErrorCode::SUCCESS) {

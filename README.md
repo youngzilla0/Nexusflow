@@ -185,7 +185,7 @@ void runWithBuildModule() {
 
 Creating a new module is a simple two-step process:
 
-#### 1. Inherit from `nexusflow::Module` and implement `process`
+#### 1. Inherit from `nexusflow::Module` and implement `Process`
 
 ```cpp
 // modules/MultiplierModule.hpp
@@ -197,13 +197,13 @@ public:
     MultiplierModule(std::string name) : nexusflow::Module(std::move(name)) {}
 
     // Implement the core processing logic.
-    void Process(nexusflow::Message& msg) override {
-        if (auto* data = msg.getData<int>()) {
+    void Process(nexusflow::SharedMessage& msg) override {
+        if (auto* data = msg.GetData<int>()) {
             // Multiply the received number by 2.
             int result_value = (*data) * 2;
 
             // Create a new message and broadcast it downstream.
-            Message result_msg(result_value);
+            nexusflow::SharedMessag result_msg(result_value);
             Broadcast(std::move(result_msg));
         }
     }
@@ -239,7 +239,8 @@ cmake ..
 make -j$(nproc)
 
 # 4. Run the example
-./examples/example  path/to/your/graph.yaml
+./examples/nexusflow_examples
+./examples/nexusflow_examples  path/to/your/graph.yaml
 ```
 
 ## Contributing

@@ -1,6 +1,7 @@
 #include "nexusflow/Module.hpp" // Adjust path as necessary
 #include "dispatcher/Dispatcher.hpp"
 #include "nexusflow/ErrorCode.hpp"
+#include "nexusflow/Message.hpp"
 #include "utils/logging.hpp"
 
 namespace nexusflow {
@@ -27,15 +28,15 @@ ErrorCode Module::DeInit() {
     return ErrorCode::SUCCESS;
 }
 
-void Module::ProcessBatch(const std::vector<std::shared_ptr<Message>>& inputBatchMessages) {
+void Module::ProcessBatch(std::vector<SharedMessage>& inputBatchMessages) {
     // Process the batch of input messages.
     LOG_DEBUG("Module '{}' processing batch of {} messages.", m_moduleName, inputBatchMessages.size());
-    for (const auto& message : inputBatchMessages) {
+    for (auto& message : inputBatchMessages) {
         Process(message);
     }
 }
 
-void Module::Broadcast(const std::shared_ptr<Message>& message) {
+void Module::Broadcast(const SharedMessage& message) {
     if (m_dispatcherPtr != nullptr) {
         LOG_DEBUG("Module '{}' broadcasting message.", m_moduleName);
         m_dispatcherPtr->Broadcast(message);

@@ -36,7 +36,7 @@ public:
      * first N-1 queues and moves the original message into the last queue.
      * @param msg The message to broadcast.
      */
-    void Broadcast(const MessagePtr& msg);
+    void Broadcast(const SharedMessage& msg);
 
     /**
      * @brief Sends a message to a specific output queue.
@@ -44,7 +44,7 @@ public:
      * @param msg The message to send.
      * @throws std::invalid_argument If the outputName is not found in the output queue map.
      */
-    void SendTo(const std::string& outputName, const MessagePtr& msg);
+    void SendTo(const std::string& outputName, const SharedMessage& msg);
 
     /**
      * @brief Adds a new output queue to the dispatcher.

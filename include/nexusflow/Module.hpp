@@ -68,7 +68,7 @@ public:
      * @note Derived classes MUST implement this method.
      * @param inputMessage The message to be processed, passed in by the framework.
      */
-    virtual void Process(const std::shared_ptr<Message>& inputMessage) = 0;
+    virtual void Process(SharedMessage& inputMessage) = 0;
 
     /**
      * @brief The core processing logic for a batch of messages.
@@ -77,7 +77,7 @@ public:
      * Override this for more efficient batch-oriented processing.
      * @param inputBatchMessages A batch of messages to be processed.
      */
-    virtual void ProcessBatch(const std::vector<std::shared_ptr<Message>>& inputBatchMessages);
+    virtual void ProcessBatch(std::vector<SharedMessage>& inputBatchMessages);
 
     // --- Getter and Setter ---
 
@@ -105,14 +105,14 @@ protected:
      * @brief Broadcasts a message to all connected downstream outputs.
      * @param msg The message to be sent.
      */
-    void Broadcast(const std::shared_ptr<Message>& msg);
+    void Broadcast(const SharedMessage& msg);
 
     /**
      * @brief Sends a message to a specific downstream output.
      * @param outputName The name of the output port to send the message to.
      * @param msg The message to be sent.
      */
-    void SendTo(const std::string& outputName, const std::shared_ptr<Message>& msg);
+    void SendTo(const std::string& outputName, const SharedMessage& msg);
 
     /**
      * @brief Gets the number of connected downstream outputs.

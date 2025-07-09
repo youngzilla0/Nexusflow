@@ -1,6 +1,0 @@
-#ifndef NEXUSFLOW_LOGGING_HPP
-#define NEXUSFLOW_LOGGING_HPP
-
-
-
-#endif

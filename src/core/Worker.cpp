@@ -1,5 +1,6 @@
 #include "Worker.hpp"
 #include "nexusflow/ErrorCode.hpp"
+#include "nexusflow/Message.hpp"
 #include "utils/logging.hpp"
 #include <memory>
 
@@ -61,7 +62,8 @@ void Worker::Run() {
     while (!m_stopFlag.load()) {
         if (isSourceModule) {
             // Source Module Loop
-            m_modulePtr->Process(nullptr);
+            SharedMessage emptyMessage;
+            m_modulePtr->Process(emptyMessage);
         } else {
             // Sink or Filter/Transformer Module Loop
             auto batchMessage = PullBatchMessage(kMaxBatchSize, kBatchTimeout);
@@ -72,9 +74,9 @@ void Worker::Run() {
     LOG_DEBUG("Worker for module '{}' finished.", m_modulePtr->GetModuleName());
 }
 
-std::vector<std::shared_ptr<Message>> Worker::PullBatchMessage(size_t maxBatchSize, std::chrono::milliseconds batchTimeout) {
+std::vector<SharedMessage> Worker::PullBatchMessage(size_t maxBatchSize, std::chrono::milliseconds batchTimeout) {
     // Initialize the batch vector.
-    std::vector<std::shared_ptr<Message>> batchMessage;
+    std::vector<SharedMessage> batchMessage;
 
     // Ensure the output vector is clean and has pre-allocated memory.
     batchMessage.clear();
@@ -87,7 +89,7 @@ std::vector<std::shared_ptr<Message>> Worker::PullBatchMessage(size_t maxBatchSi
     for (auto& item : m_inputQueueMap) {
         auto& queue = item.second;
         while (batchMessage.size() < maxBatchSize) {
-            std::shared_ptr<Message> message;
+            SharedMessage message;
             if (queue->tryPop(message)) {
                 batchMessage.push_back(std::move(message));
             } else {
@@ -118,7 +120,7 @@ std::vector<std::shared_ptr<Message>> Worker::PullBatchMessage(size_t maxBatchSi
         // Iterate through all input queues and perform a short wait on each.
         for (auto& item : m_inputQueueMap) {
             auto& queue = item.second;
-            std::shared_ptr<Message> msg;
+            SharedMessage msg;
             // Wait for a very short period (e.g., 1ms). This is the key to avoiding
             // busy-waiting while remaining responsive to multiple inputs.
             if (queue->waitAndPopFor(msg, std::chrono::milliseconds(1))) {
@@ -126,7 +128,7 @@ std::vector<std::shared_ptr<Message>> Worker::PullBatchMessage(size_t maxBatchSi
                 // Optimization: If a message was found, this queue might have more.
                 // Try to pop more in a non-blocking way to fill the batch faster.
                 while (batchMessage.size() < maxBatchSize) {
-                    std::shared_ptr<Message> message;
+                    SharedMessage message;
                     if (queue->tryPop(message)) {
                         batchMessage.push_back(std::move(message));
                     } else {

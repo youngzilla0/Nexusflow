@@ -59,11 +59,21 @@ std::pair<bool, std::vector<Edge>> Graph::checkCycleAndConvertToEdgeList(const s
 
         auto iter = m_adjList.find(node);
         if (iter != m_adjList.end()) {
+            // 为当前节点的邻居创建一个临时的集合，用于去重
+            std::unordered_set<std::shared_ptr<Node>> processedNeighbors;
+
             for (const auto& neighbor : iter->second) {
+                // 1. 入度计算：这部分逻辑必须对每一条边都执行，即使是重复的。
                 if (--inDegree[neighbor] == 0) {
                     nodeQueue.push(neighbor);
                 }
-                edgeList.push_back({node, neighbor});
+
+                // 2. 边列表构建：这部分逻辑只对唯一的邻居执行一次。
+                //    我们检查这个邻居是否在本次循环中被处理过。
+                if (processedNeighbors.find(neighbor) == processedNeighbors.end()) {
+                    edgeList.push_back({node, neighbor});
+                    processedNeighbors.insert(neighbor); // 标记为已处理
+                }
             }
         }
     }

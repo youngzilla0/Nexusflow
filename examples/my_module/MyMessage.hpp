@@ -3,7 +3,8 @@
 
 #include <nexusflow/Message.hpp>
 
-struct SeqMessage : public nexusflow::Message {
+// SeqMessage 有值(m_dataVec)以及资源(m_mutex)
+struct SeqMessage {
     void addData(const std::string& data) {
         std::lock_guard<std::mutex> lock(m_mutex);
         m_dataVec.push_back(data);
@@ -22,6 +23,8 @@ struct SeqMessage : public nexusflow::Message {
         oss << "]}";
         return oss.str();
     }
+
+    ~SeqMessage() = default;
 
 private:
     mutable std::mutex m_mutex;

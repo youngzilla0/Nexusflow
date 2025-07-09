@@ -5,8 +5,8 @@ if(NOT ALL_TEST_SOURCES)
     return()
 endif()
 
-add_executable(unit_tests main.cpp ${ALL_TEST_SOURCES})
+add_executable(nexusflow_tests gtest_main.cpp ${ALL_TEST_SOURCES})
 
-target_link_libraries(unit_tests PRIVATE pipeline GTest::gtest) # 示例，可以添加GTest
+target_link_libraries(nexusflow_tests PRIVATE nexusflow GTest::gtest)
 
-add_test(NAME all_unit_tests COMMAND unit_tests)
+add_test(NAME nexusflow_tests COMMAND nexusflow_tests)

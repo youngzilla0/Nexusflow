@@ -82,7 +82,7 @@ private:
      * @param maxBatchSize The maximum number of messages to pull.
      * @param batchTimeout The maximum time to wait for messages to become available.
      */
-    std::vector<std::shared_ptr<Message>> PullBatchMessage(size_t maxBatchSize, std::chrono::milliseconds batchTimeout);
+    std::vector<SharedMessage> PullBatchMessage(size_t maxBatchSize, std::chrono::milliseconds batchTimeout);
 
 private:
     std::shared_ptr<Module> m_modulePtr = nullptr;

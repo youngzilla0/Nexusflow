@@ -9,7 +9,7 @@ public:
     ~MockProcessModule() override;
 
 protected:
-    void Process(const std::shared_ptr<nexusflow::Message>& inputMessage) override;
+    void Process(nexusflow::SharedMessage& inputMessage) override;
 
 private:
     int m_count = 0;

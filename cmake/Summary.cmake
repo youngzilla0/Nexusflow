@@ -10,6 +10,6 @@ message(STATUS "  Name                                                 : ${PROJE
 message(STATUS "  Meta                                                 : ${PROJECT_META}")
 message(STATUS "  Version                                              : ${PROJECT_VERSION}")
 message(STATUS "Option:                                                ")
-message(STATUS "  ENABLE_TESTING                                       : ${ENABLE_TESTING}")
+message(STATUS "  WITH_TESTING                                       : ${WITH_TESTING}")
 message(STATUS "Install Dir                                            : ${CMAKE_INSTALL_PREFIX}")
 message(STATUS "*********************************************************************")

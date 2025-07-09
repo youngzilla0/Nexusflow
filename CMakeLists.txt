@@ -9,7 +9,8 @@ set(PROJECT_ROOT ${CMAKE_CURRENT_SOURCE_DIR})
 set(INSTALL_ROOT ${PROJECT_ROOT}/install)
 
 ### Define options
-option(ENABLE_TESTING "Enable testing" ON)
+option(WITH_TESTING "Enable testing" ON)
+option(WITH_BENCHMARK "Enable benchmark" ON)
 
 if(NOT DEFINED CMAKE_BUILD_TYPE)
   message(STATUS "No build type specified, defaulting to Release")
@@ -34,7 +35,11 @@ add_subdirectory(src)
 add_subdirectory(examples)
 
 # 
-if(ENABLE_TESTING)
+if(WITH_TESTING)
   enable_testing()
   add_subdirectory(tests)
+endif()
+
+if(WITH_BENCHMARK)
+  add_subdirectory(benchmarks)
 endif()

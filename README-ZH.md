@@ -185,7 +185,7 @@ void runWithBuildModule() {
 
 编写一个新模块非常简单，只需两步：
 
-#### 1. 继承 `nexusflow::Module` 并实现 `process`
+#### 1. 继承 `nexusflow::Module` 并实现 `Process`
 
 ```cpp
 // modules/MultiplierModule.hpp
@@ -197,13 +197,13 @@ public:
     MultiplierModule(std::string name) : nexusflow::Module(std::move(name)) {}
 
     // 实现核心处理逻辑
-    void Process(nexusflow::Message& msg) override {
-        if (auto* data = msg.getData<int>()) {
+    void Process(nexusflow::SharedMessage& msg) override {
+        if (auto* data = msg.GetData<int>()) {
             // 将收到的数字乘以 2
             int result_value = (*data) * 2;
 
             // 创建一个新的消息并广播到下游
-            Message result_msg(result_value);
+            nexusflow::SharedMessag result_msg(result_value);
             Broadcast(std::move(result_msg));
         }
     }
@@ -238,7 +238,8 @@ cmake ..
 make -j$(nproc)
 
 # 4. 运行示例
-./examples/example path/to/your/graph.yaml
+./examples/nexusflow_examples
+./examples/nexusflow_examples path/to/your/graph.yaml
 ```
 
 ## 贡献

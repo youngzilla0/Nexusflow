@@ -61,7 +61,7 @@ ErrorCode Pipeline::DeInit() {
     if (!m_pImpl) {
         return ErrorCode::SUCCESS; // Nothing to de-initialize
     }
-    LOG_INFO("De-initializing pipeline...");
+    LOG_DEBUG("De-initializing pipeline...");
     for (auto& pair : m_pImpl->activeNodeMap) {
         auto& activeName = pair.first;
         auto& activeNode = pair.second;
@@ -73,7 +73,7 @@ ErrorCode Pipeline::DeInit() {
         }
     }
 
-    LOG_INFO("Pipeline de-initialized successfully.");
+    LOG_DEBUG("Pipeline de-initialized successfully.");
     return ErrorCode::SUCCESS;
 }
 
@@ -82,7 +82,7 @@ ErrorCode Pipeline::Start() {
         LOG_ERROR("Cannot start pipeline: not initialized.");
         return ErrorCode::UNINITIALIZED_ERROR;
     }
-    LOG_INFO("Starting pipeline...");
+    LOG_DEBUG("Starting pipeline...");
 
     for (auto& pair : m_pImpl->activeNodeMap) {
         auto& activeName = pair.first;
@@ -94,7 +94,7 @@ ErrorCode Pipeline::Start() {
             return errCode;
         }
     }
-    LOG_INFO("Pipeline started successfully.");
+    LOG_DEBUG("Pipeline started successfully.");
     return ErrorCode::SUCCESS;
 }
 
@@ -103,7 +103,11 @@ ErrorCode Pipeline::Stop() {
         return ErrorCode::SUCCESS; // Nothing to stop.
     }
 
-    LOG_INFO("Stopping pipeline...");
+    LOG_DEBUG("Stopping pipeline...");
+    // TODO: 优化一下.
+    for (auto& queue : m_pImpl->queues) {
+        queue->shutdown();
+    }
     ErrorCode errCode = ErrorCode::SUCCESS;
     for (auto& pair : m_pImpl->activeNodeMap) {
         auto& activeName = pair.first;
@@ -114,8 +118,7 @@ ErrorCode Pipeline::Stop() {
             return errCode;
         }
     }
-
-    LOG_INFO("Pipeline stopped successfully.");
+    LOG_DEBUG("Pipeline stopped successfully.");
     return ErrorCode::SUCCESS;
 }
 
