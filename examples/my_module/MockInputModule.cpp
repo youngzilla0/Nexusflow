@@ -9,6 +9,18 @@ MockInputModule::MockInputModule(const std::string& name) : Module(name) { LOG_T
 
 MockInputModule::~MockInputModule() { LOG_TRACE("MockInputModule destructor, name={}", GetModuleName()); }
 
+void MockInputModule::Configure(const nexusflow::ConfigMap& cfgMap) {
+    LOG_INFO("Configure init, module={}", GetModuleName());
+
+    m_sendIntervalMs = GetConfigOrDefault(cfgMap, "send_interval_ms", 1000);
+
+    LOG_INFO("Configure finish, sendIntervalMs={}", m_sendIntervalMs);
+
+    for (auto& pair : cfgMap) {
+        LOG_INFO("param key={}, type={}", pair.first, pair.second.getType().name());
+    }
+}
+
 void MockInputModule::Process(nexusflow::SharedMessage& inputMessage) {
     // no input message
     if (inputMessage.HasData()) {
@@ -17,7 +29,7 @@ void MockInputModule::Process(nexusflow::SharedMessage& inputMessage) {
     }
 
     // mock 5 fps messages.
-    std::this_thread::sleep_for(std::chrono::milliseconds(1000 / 5));
+    std::this_thread::sleep_for(std::chrono::milliseconds(m_sendIntervalMs));
     static int counter = 0;
     // 因为SeqMessage有std::mutex, 所以包一层shared_ptr
     auto seqMsg = std::make_shared<SeqMessage>();

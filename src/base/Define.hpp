@@ -4,6 +4,7 @@
 #include "common/ConcurrentQueue.hpp"
 #include "nexusflow/Message.hpp"
 #include <memory>
+#include <unordered_map>
 
 namespace nexusflow {
 

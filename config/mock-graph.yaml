@@ -4,7 +4,8 @@ graph:
   modules:
     - name: "InputNode" # 模块的唯一实例名
       class: "MockInputModule" # 在模块工厂中注册的类名
-      params: # 模板自定义参数，暂不支持
+      config:
+        send_interval_ms: 200 # 5fps
 
     - name: "ProcessNode1"
       class: "MockProcessModule"

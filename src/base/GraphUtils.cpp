@@ -1,13 +1,95 @@
 #include "GraphUtils.hpp"
+#include "base/Define.hpp"
+#include "base/Graph.hpp"
+#include "nexusflow/Variant.hpp"
 #include "utils/logging.hpp"
+#include "yaml-cpp/node/node.h"
 #include "yaml-cpp/yaml.h"
+#include <nexusflow/Define.hpp>
 
 #include <memory>
+#include <regex>
 #include <string>
 #include <unordered_map>
 #include <vector>
 
 namespace graphutils {
+
+// TODO: 待优化
+nexusflow::Variant convertYamlNodeToVariant(const YAML::Node& node) {
+    using nexusflow::Variant;
+    switch (node.Type()) {
+        case YAML::NodeType::Null: return Variant();
+
+        case YAML::NodeType::Scalar: {
+            const std::string value = node.Scalar();
+            const std::string& raw = value;
+
+            // ✅ 优先检查是否是 bool（严格判断）
+            std::string lower = value;
+            std::transform(lower.begin(), lower.end(), lower.begin(), ::tolower);
+            if (lower == "true" || lower == "yes") return Variant(true);
+            if (lower == "false" || lower == "no") return Variant(false);
+
+            // ✅ 使用正则判断是否是 int / uint / float / double
+            static const std::regex int_regex(R"(^-?\d+$)");
+            static const std::regex uint_regex(R"(^\d+$)");
+            static const std::regex float_regex(R"(^-?\d+\.\d+f$)");
+            static const std::regex double_regex(R"(^-?\d+\.\d+$)");
+
+            if (std::regex_match(raw, int_regex)) {
+                try {
+                    return Variant(std::stoi(raw));
+                } catch (...) {
+                }
+            }
+
+            if (std::regex_match(raw, uint_regex)) {
+                try {
+                    return Variant(static_cast<uint32_t>(std::stoul(raw)));
+                } catch (...) {
+                }
+            }
+
+            if (std::regex_match(raw, float_regex)) {
+                try {
+                    return Variant(std::stof(raw));
+                } catch (...) {
+                }
+            }
+
+            if (std::regex_match(raw, double_regex)) {
+                try {
+                    return Variant(std::stod(raw));
+                } catch (...) {
+                }
+            }
+
+            // ❗ fallback — 永远保底是 string
+            return Variant(raw);
+        }
+
+        case YAML::NodeType::Sequence: {
+            std::vector<Variant> vec;
+            for (const auto& item : node) {
+                vec.push_back(convertYamlNodeToVariant(item));
+            }
+            return Variant(std::move(vec));
+        }
+
+        case YAML::NodeType::Map: {
+            std::map<std::string, Variant> map;
+            for (const auto& kv : node) {
+                std::string key = kv.first.as<std::string>();
+                map[key] = convertYamlNodeToVariant(kv.second);
+            }
+            return Variant(std::move(map));
+        }
+
+        case YAML::NodeType::Undefined:
+        default: throw std::runtime_error("Unsupported or undefined YAML node type.");
+    }
+}
 
 std::unique_ptr<Graph> CreateGraphFromYaml(const std::string& configPath) {
     try {
@@ -41,7 +123,18 @@ std::unique_ptr<Graph> CreateGraphFromYaml(const std::string& configPath) {
             std::string nodeName = module_item["name"].as<std::string>();
             std::string moduleClassName = module_item["class"].as<std::string>();
 
-            auto node = std::make_shared<Node>(nodeName, moduleClassName);
+            // parse custom config.
+            nexusflow::ConfigMap params;
+            const YAML::Node& configsNode = module_item["config"];
+            if (configsNode && configsNode.IsMap()) {
+                for (const auto& kv : configsNode) {
+                    std::string key = kv.first.as<std::string>();
+                    params[key] = convertYamlNodeToVariant(kv.second);
+                }
+            }
+
+            auto node = std::make_shared<NodeWithModuleClassName>(nodeName, moduleClassName, params);
+
             auto item = tempNodeMap.emplace(nodeName, node);
             if (!item.second) {
                 LOG_ERROR("Duplicate module name found: {} in '{}'", nodeName, configPath);
@@ -79,33 +172,34 @@ std::unique_ptr<Graph> CreateGraphFromYaml(const std::string& configPath) {
             LOG_INFO("Created {} connections.", connections_yaml.size());
         }
 
-        // 4. 验证图的拓扑结构 (这是关键步骤！)
-        // 尽管 Graph 不再存储输入/输出节点，但我们必须验证它们是否存在且唯一
-        std::vector<std::shared_ptr<Node>> sourceNodes;
-        for (const auto& pair : tempNodeMap) {
-            if (inDegree.at(pair.first) == 0) {
-                sourceNodes.push_back(pair.second);
-            }
-        }
-
-        if (sourceNodes.size() != 1) {
-            LOG_ERROR("Graph must have exactly one source node (in-degree 0). Found {}.", sourceNodes.size());
-            return nullptr;
-        }
-        LOG_INFO("Graph validation passed: Found a single source node '{}'.", sourceNodes[0]->name);
-
-        // 可选：同样可以验证汇节点（输出）
-        // std::vector<std::shared_ptr<Node>> sinkNodes;
+        // TODO:
+        // // 4. 验证图的拓扑结构 (这是关键步骤！)
+        // // 尽管 Graph 不再存储输入/输出节点，但我们必须验证它们是否存在且唯一
+        // std::vector<std::shared_ptr<Node>> sourceNodes;
         // for (const auto& pair : tempNodeMap) {
-        //     if (outDegree.at(pair.first) == 0) {
-        //         sinkNodes.push_back(pair.second);
+        //     if (inDegree.at(pair.first) == 0) {
+        //         sourceNodes.push_back(pair.second);
         //     }
         // }
-        // if (sinkNodes.size() != 1) {
-        //     LOG_ERROR("Graph must have exactly one sink node (out-degree 0). Found {}.", sinkNodes.size());
+
+        // if (sourceNodes.size() != 1) {
+        //     LOG_ERROR("Graph must have exactly one source node (in-degree 0). Found {}.", sourceNodes.size());
         //     return nullptr;
         // }
-        // LOG_INFO("Graph validation passed: Found a single sink node '{}'.", sinkNodes[0]->name);
+        // LOG_INFO("Graph validation passed: Found a single source node '{}'.", sourceNodes[0]->name);
+
+        // // 可选：同样可以验证汇节点（输出）
+        // // std::vector<std::shared_ptr<Node>> sinkNodes;
+        // // for (const auto& pair : tempNodeMap) {
+        // //     if (outDegree.at(pair.first) == 0) {
+        // //         sinkNodes.push_back(pair.second);
+        // //     }
+        // // }
+        // // if (sinkNodes.size() != 1) {
+        // //     LOG_ERROR("Graph must have exactly one sink node (out-degree 0). Found {}.", sinkNodes.size());
+        // //     return nullptr;
+        // // }
+        // // LOG_INFO("Graph validation passed: Found a single sink node '{}'.", sinkNodes[0]->name);
 
         // 5. 最终校验
         if (graph->hasCycle()) {

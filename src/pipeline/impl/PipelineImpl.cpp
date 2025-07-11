@@ -1,5 +1,7 @@
 #include "PipelineImpl.hpp"
+#include "base/Graph.hpp"
 #include <nexusflow/ModuleFactory.hpp>
+#include <stdexcept>
 
 namespace nexusflow {
 
@@ -14,10 +16,15 @@ std::shared_ptr<ActiveNode> Pipeline::Impl::GetOrCreateActiveNode(const std::sha
 
     // 不存在，则创建新的 ActiveNode
     // 1. 获取或创建 Module
-    std::shared_ptr<Module> module = node->modulePtr;
-    if (module == nullptr) {
+    // TODO: 使用Variant优化一下?
+    std::shared_ptr<Module> module;
+    if (auto* nodeIns = dynamic_cast<NodeWithModulePtr*>(node.get())) {
+        module = nodeIns->modulePtr;
+    } else if (auto* nodIns = dynamic_cast<NodeWithModuleClassName*>(node.get())) {
         auto& moduleFactory = ModuleFactory::GetInstance();
-        module = moduleFactory.CreateModule(node->moduleClassName, node->name);
+        module = moduleFactory.CreateModule(nodIns->moduleClassName, nodIns->name, nodIns->paramMap);
+    } else {
+        throw std::runtime_error("");
     }
 
     // 2. 创建 ActiveNode 并存入 map

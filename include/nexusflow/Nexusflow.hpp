@@ -7,5 +7,7 @@
 #include <nexusflow/ModuleFactory.hpp>
 #include <nexusflow/Pipeline.hpp>
 #include <nexusflow/PipelineBuilder.hpp>
+#include <nexusflow/TypeTraits.hpp>
+#include <nexusflow/Variant.hpp>
 
 #endif

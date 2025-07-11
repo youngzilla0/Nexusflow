@@ -63,8 +63,9 @@ std::unique_ptr<Pipeline> PipelineBuilder::Build() {
         if (!module_ptr) continue;
 
         const std::string& moduleName = module_ptr->GetModuleName();
-        auto node = std::make_shared<Node>(moduleName, "");
-        node->modulePtr = module_ptr; // Assign the pre-created module instance
+
+        // Assign the pre-created module instance
+        auto node = std::make_shared<NodeWithModulePtr>(moduleName, module_ptr);
 
         nodeLookupMap[moduleName] = node;
     }

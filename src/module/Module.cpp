@@ -1,4 +1,4 @@
-#include "nexusflow/Module.hpp" // Adjust path as necessary
+#include "nexusflow/Module.hpp"
 #include "dispatcher/Dispatcher.hpp"
 #include "nexusflow/ErrorCode.hpp"
 #include "nexusflow/Message.hpp"
@@ -15,6 +15,11 @@ Module::~Module() {
     // Ensure the module is stopped before destruction.
     LOG_TRACE("Module '{}' destroying...", m_moduleName);
 };
+
+void Module::Configure(const ConfigMap& cfgMap) {
+    //
+    LOG_TRACE("Module '{}' initializing...", m_moduleName);
+}
 
 ErrorCode Module::Init() {
     // Initialize the module.

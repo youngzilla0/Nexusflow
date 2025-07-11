@@ -1,12 +1,12 @@
-#ifndef NEXUSFLOW_MODULEFACTORY_HPP
-#define NEXUSFLOW_MODULEFACTORY_HPP
+#ifndef NEXUSFLOW_MODULE_FACTORY_HPP
+#define NEXUSFLOW_MODULE_FACTORY_HPP
 
 #include <nexusflow/Module.hpp>
 
 #include <functional>
 #include <memory>
 #include <string>
-#include <type_traits> // For std::is_base_of and std::is_constructible
+#include <type_traits>
 #include <unordered_map>
 
 namespace nexusflow {
@@ -64,11 +64,12 @@ public:
      * @brief Creates an instance of a registered module using its class name.
      *
      * @param className The string name of the class to instantiate.
-     * @param instanceName The unique instance name to pass to the module's constructor.
+     * @param moduleName The unique instance name to pass to the module's constructoro
+     * @param cfgMap The configuration map to pass to the module's constructor.
      * @return A std::shared_ptr to the newly created Module instance, or nullptr if the
      *         class name is not registered.
      */
-    std::shared_ptr<Module> CreateModule(const std::string& className, const std::string& instanceName);
+    std::shared_ptr<Module> CreateModule(const std::string& className, const std::string& moduleName, const ConfigMap& cfgMap);
 
 private:
     // A type alias for the creator function. It takes an instance name.

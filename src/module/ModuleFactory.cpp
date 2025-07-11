@@ -1,5 +1,6 @@
-#include "nexusflow/ModuleFactory.hpp"
 #include "utils/logging.hpp" // Assuming you have a logger
+#include <nexusflow/ModuleFactory.hpp>
+#include <unordered_map>
 
 namespace nexusflow {
 
@@ -11,7 +12,8 @@ ModuleFactory& ModuleFactory::GetInstance() {
 }
 
 // Implementation of the non-template member function.
-std::shared_ptr<Module> ModuleFactory::CreateModule(const std::string& className, const std::string& instanceName) {
+std::shared_ptr<Module> ModuleFactory::CreateModule(const std::string& className, const std::string& moduleName,
+                                                    const ConfigMap& cfgMap) {
     // Find the creator function associated with the class name.
     auto it = m_creators.find(className);
     if (it == m_creators.end()) {
@@ -21,14 +23,20 @@ std::shared_ptr<Module> ModuleFactory::CreateModule(const std::string& className
     }
 
     // Call the stored creator lambda function.
-    // The lambda will call the constructor: new T(instanceName)
-    try {
-        return it->second(instanceName);
-    } catch (const std::exception& e) {
-        LOG_ERROR("ModuleFactory Error: Exception caught during creation of module instance '{}' (class '{}'): {}", instanceName,
-                  className, e.what());
-        return nullptr;
+    // The lambda will call the constructor: new T(moduleName)
+    std::shared_ptr<Module> moduleInst = it->second(moduleName);
+
+    if (moduleInst) {
+        // ⭐【核心】在返回之前，调用新的 configure 方法
+        try {
+            moduleInst->Configure(cfgMap);
+        } catch (const std::exception& e) {
+            // Log an error if configuration fails
+            LOG_ERROR("Failed to configure module '{}' of class '{}': {}", moduleName, className, e.what());
+            return nullptr;
+        }
     }
+    return moduleInst;
 }
 
 } // namespace nexusflow

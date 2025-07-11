@@ -1,10 +1,13 @@
 #ifndef NEXUSFLOW_MODULE_HPP
 #define NEXUSFLOW_MODULE_HPP
 
+#include "nexusflow/TypeTraits.hpp"
+#include <nexusflow/Define.hpp>
 #include <nexusflow/ErrorCode.hpp>
 #include <nexusflow/Message.hpp>
 
 #include <memory>
+#include <unordered_map>
 
 // --- Forward Declarations ---
 // Forward-declare internal and framework classes to keep this header clean.
@@ -17,9 +20,6 @@ class Pipeline;
 }
 
 namespace nexusflow {
-
-// TODO: 去掉这个名称， 要考虑使用ModuleName还是ModuleType.
-using ModuleName = std::string;
 
 /**
  * @class Module
@@ -48,6 +48,7 @@ public:
     Module& operator=(const Module&) = delete;
 
     // --- Public User Interface ---
+    virtual void Configure(const ConfigMap& cfgMap);
 
     /**
      * @brief User-defined initialization logic.
@@ -115,10 +116,24 @@ protected:
     void SendTo(const std::string& outputName, const SharedMessage& msg);
 
     /**
-     * @brief Gets the number of connected downstream outputs.
-     * @return The count of output ports.
+     * @brief Gets a configuration parameter with a default value if not found.
+     * @tparam T The type of the configuration parameter, must be one of bool, int, uint32_t, float, double, or std::string.
+     * @param params The parameter map to search.
+     * @param key The key of the parameter to retrieve.
+     * @param defaultValue The default value to return if the parameter is not found.
+     * @return The value of the parameter if found, otherwise the default value.
+     * @note This method is a template and can be used with various types.
      */
-    // size_t GetOutputCount() const;
+    template <typename T, std::enable_if_t<is_any_of<T, bool, int, uint32_t, float, double, std::string>::value, int> = 0>
+    T GetConfigOrDefault(const nexusflow::ConfigMap& params, const std::string& key, const T& defaultValue) {
+        auto it = params.find(key);
+        if (it != params.end()) {
+            if (auto* ptr = it->second.get<T>()) {
+                return *ptr;
+            }
+        }
+        return defaultValue;
+    }
 
 private:
     // Grant Pipeline access to private members for internal setup.

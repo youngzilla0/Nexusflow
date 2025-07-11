@@ -2,6 +2,7 @@
 
 #include <cassert>
 #include <memory>
+#include <nexusflow/Define.hpp>
 #include <sstream>
 #include <string>
 #include <unordered_map>
@@ -14,11 +15,25 @@ class Module; // Forward declaration.
 struct Node {
     std::string name;
 
-    // Define your own properties here.
-    std::string moduleClassName;
-    std::shared_ptr<nexusflow::Module> modulePtr = nullptr; // The instance of the module.
+    Node(std::string name) : name(std::move(name)) {}
+    virtual ~Node() = default;
+};
 
-    Node(std::string name, std::string moduleClassName) : name(std::move(name)), moduleClassName(std::move(moduleClassName)) {}
+struct NodeWithModuleClassName : Node {
+    using Super = Node;
+    std::string moduleClassName;
+    nexusflow::ConfigMap paramMap;
+
+    NodeWithModuleClassName(std::string name, std::string moduleClassName, nexusflow::ConfigMap paramMap)
+        : Super(std::move(name)), moduleClassName(std::move(moduleClassName)), paramMap(std::move(paramMap)) {}
+};
+
+struct NodeWithModulePtr : Node {
+    using Super = Node;
+
+    std::shared_ptr<nexusflow::Module> modulePtr = nullptr; // The instance of the module.
+    NodeWithModulePtr(std::string name, const std::shared_ptr<nexusflow::Module>& modulePtr)
+        : Super(std::move(name)), modulePtr(modulePtr) {}
 };
 
 struct Edge {
