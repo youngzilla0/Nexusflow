@@ -4,6 +4,7 @@
 #include "MyMessage.hpp"
 #include "nexusflow/Message.hpp"
 #include <thread>
+#include <type_traits>
 
 MockInputModule::MockInputModule(const std::string& name) : Module(name) { LOG_TRACE("MockInputModule constructor, name={}", name); }
 
@@ -14,7 +15,7 @@ void MockInputModule::Configure(const nexusflow::ConfigMap& cfgMap) {
 
     m_sendIntervalMs = GetConfigOrDefault(cfgMap, "send_interval_ms", 1000);
 
-    LOG_INFO("Configure finish, sendIntervalMs={}", m_sendIntervalMs);
+    LOG_INFO("Configure done, m_sendIntervalMs={}", m_sendIntervalMs);
 
     for (auto& pair : cfgMap) {
         LOG_INFO("param key={}, type={}", pair.first, pair.second.getType().name());

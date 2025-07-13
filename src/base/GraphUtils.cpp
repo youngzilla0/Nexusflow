@@ -15,6 +15,41 @@
 
 namespace graphutils {
 
+namespace detail {
+
+// 判断字符串是否是整数
+inline bool isInteger(const std::string& str) {
+    if (str.empty()) return false;
+    size_t i = (str[0] == '-' || str[0] == '+') ? 1 : 0;
+    for (; i < str.size(); ++i) {
+        if (!std::isdigit(str[i])) return false;
+    }
+    return true;
+}
+
+// 判断字符串是否是浮点数
+inline bool isFloat(const std::string& str) {
+    std::istringstream iss(str);
+    float f;
+    char c;
+    return (iss >> f) && !(iss >> c);
+}
+
+// 判断是否是 bool
+inline bool isBool(const std::string& str, bool& out) {
+    if (str == "true" || str == "True" || str == "yes") {
+        out = true;
+        return true;
+    }
+    if (str == "false" || str == "False" || str == "no") {
+        out = false;
+        return true;
+    }
+    return false;
+}
+
+} // namespace detail
+
 // TODO: 待优化
 nexusflow::Variant convertYamlNodeToVariant(const YAML::Node& node) {
     using nexusflow::Variant;
@@ -22,51 +57,23 @@ nexusflow::Variant convertYamlNodeToVariant(const YAML::Node& node) {
         case YAML::NodeType::Null: return Variant();
 
         case YAML::NodeType::Scalar: {
-            const std::string value = node.Scalar();
-            const std::string& raw = value;
-
-            // ✅ 优先检查是否是 bool（严格判断）
-            std::string lower = value;
-            std::transform(lower.begin(), lower.end(), lower.begin(), ::tolower);
-            if (lower == "true" || lower == "yes") return Variant(true);
-            if (lower == "false" || lower == "no") return Variant(false);
-
-            // ✅ 使用正则判断是否是 int / uint / float / double
-            static const std::regex int_regex(R"(^-?\d+$)");
-            static const std::regex uint_regex(R"(^\d+$)");
-            static const std::regex float_regex(R"(^-?\d+\.\d+f$)");
-            static const std::regex double_regex(R"(^-?\d+\.\d+$)");
-
-            if (std::regex_match(raw, int_regex)) {
+            std::string val = node.Scalar();
+            bool b;
+            if (detail::isBool(val, b)) return Variant(b);
+            if (detail::isInteger(val)) {
                 try {
-                    return Variant(std::stoi(raw));
+                    return Variant(std::stoi(val));
                 } catch (...) {
                 }
             }
-
-            if (std::regex_match(raw, uint_regex)) {
+            if (detail::isFloat(val)) {
                 try {
-                    return Variant(static_cast<uint32_t>(std::stoul(raw)));
+                    return Variant(std::stod(val));
                 } catch (...) {
                 }
             }
-
-            if (std::regex_match(raw, float_regex)) {
-                try {
-                    return Variant(std::stof(raw));
-                } catch (...) {
-                }
-            }
-
-            if (std::regex_match(raw, double_regex)) {
-                try {
-                    return Variant(std::stod(raw));
-                } catch (...) {
-                }
-            }
-
-            // ❗ fallback — 永远保底是 string
-            return Variant(raw);
+            LOG_INFO("{} is not a valid number, fallback to string", val);
+            return Variant(val); // fallback: string
         }
 
         case YAML::NodeType::Sequence: {

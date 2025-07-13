@@ -11,6 +11,7 @@ enum ErrorCode {
     FAILED_TO_START_WORKER,
     FAILED_TO_STOP_WORKER,
     UNINITIALIZED_ERROR,
+    FAILED_TO_OPEN_FILE,
 };
 
 } // namespace nexusflow

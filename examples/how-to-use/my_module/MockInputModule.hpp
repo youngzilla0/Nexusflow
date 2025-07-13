@@ -8,7 +8,7 @@ public:
     MockInputModule(const std::string& name);
     ~MockInputModule() override;
 
-    void Configure(const nexusflow::ConfigMap& params) override;
+    void Configure(const nexusflow::ConfigMap& cfgMap) override;
 
 protected:
     void Process(nexusflow::SharedMessage& inputMessage) override;

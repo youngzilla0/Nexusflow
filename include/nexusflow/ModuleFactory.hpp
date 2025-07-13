@@ -84,4 +84,10 @@ private:
 
 } // namespace nexusflow
 
+#define NEXUSFLOW_REGISTER_MODULE(moduleClassName)                                           \
+    static bool registrar_##moduleClassName = []() {                                         \
+        nexusflow::ModuleFactory::GetInstance().Register<moduleClassName>(#moduleClassName); \
+        return true;                                                                         \
+    }();
+
 #endif // NEXUSFLOW_MODULEFACTORY_HPP

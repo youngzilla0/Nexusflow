@@ -17,10 +17,9 @@ using namespace nexusflow;
 void waitFor(const std::chrono::seconds& duration) { std::this_thread::sleep_for(duration); }
 
 void registerAllModules() {
-    auto& factory = ModuleFactory::GetInstance();
-    factory.Register<MockInputModule>("MockInputModule");
-    factory.Register<MockProcessModule>("MockProcessModule");
-    factory.Register<MockOutputModule>("MockOutputModule");
+    NEXUSFLOW_REGISTER_MODULE(MockInputModule);
+    NEXUSFLOW_REGISTER_MODULE(MockProcessModule);
+    NEXUSFLOW_REGISTER_MODULE(MockOutputModule);
 }
 
 void executePipeline(Pipeline& pipeline) {

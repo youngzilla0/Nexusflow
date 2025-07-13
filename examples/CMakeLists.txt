@@ -1,3 +1,2 @@
-file(GLOB_RECURSE SRC_FILES "**.cpp")
-add_executable(nexusflow_examples ${SRC_FILES})
-target_link_libraries(nexusflow_examples PRIVATE nexusflow)
+add_subdirectory(how-to-use)
+add_subdirectory(linear-vision-pipline)
