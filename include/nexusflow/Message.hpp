@@ -15,7 +15,7 @@ namespace nexusflow {
 
 struct MessageMeta {
     uint64_t messageId; // The unique identifier for the message
-    int64_t timstamp; // The timestamp when the message was created
+    uint64_t timstamp; // The timestamp when the message was created
     std::string sourceName; // The name of the source of the message
 };
 
@@ -58,8 +58,8 @@ public:
         static std::atomic<uint64_t> messageIdCounter{0};
         uint64_t messageId = messageIdCounter.fetch_add(1);
         auto now = std::chrono::steady_clock::now();
-        auto timestamp = std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()).count();
-        m_meta = MessageMeta{messageId, timestamp, std::move(sourceName)}; // Initialize with default values
+        uint64_t timestamp = std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()).count();
+        m_metaData = MessageMeta{messageId, timestamp, std::move(sourceName)}; // Initialize with default values
     }
 
     // --- Copy, Move, and Default Operations ---
@@ -70,6 +70,17 @@ public:
     Message& operator=(Message&& other) noexcept = default;
     ~Message() = default;
 
+    // --- Clone ---
+    Message Clone() const {
+        if (!HasData()) return {};
+
+        // Create a new Message object with the same data and metadata
+        Message clone;
+        clone.m_content = m_content->Clone();
+        clone.m_metaData = m_metaData;
+        return clone;
+    }
+
     // --- Accessors ---
     inline bool HasData() const { return m_content != nullptr; }
 
@@ -78,7 +89,9 @@ public:
         return HasData() && typeid(T) == m_content->getTypeInfo();
     }
 
-    inline MessageMeta GetMeta() const { return m_meta; }
+    inline MessageMeta GetMetaData() const { return m_metaData; }
+
+    MessageMeta& MetaData() { return m_metaData; }
 
     // --- Data Access ---
     template <typename T>
@@ -144,9 +157,8 @@ private:
     struct Concept {
         virtual ~Concept() = default;
         virtual const std::type_info& getTypeInfo() const noexcept = 0;
-
-        // A helper to get the raw data pointer for the aliasing constructor.
         virtual void* getRawDataPtr() = 0;
+        virtual std::shared_ptr<Concept> Clone() const = 0;
     };
 
     /**
@@ -161,12 +173,16 @@ private:
 
         void* getRawDataPtr() override { return &m_data; }
 
+        std::shared_ptr<Concept> Clone() const override {
+            return std::make_shared<Model<T>>(m_data); // Copy m_data
+        }
+
         T m_data; // The actual data is stored here.
     };
 
     // The single shared_ptr that manages the lifetime of the internal Model object.
     std::shared_ptr<Concept> m_content;
-    MessageMeta m_meta;
+    MessageMeta m_metaData;
 };
 
 } // namespace nexusflow

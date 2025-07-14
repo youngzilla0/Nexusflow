@@ -72,7 +72,6 @@ nexusflow::Any convertYamlNodeToAny(const YAML::Node& node) {
                 } catch (...) {
                 }
             }
-            LOG_INFO("{} is not a valid number, fallback to string", val);
             return Any(val); // fallback: string
         }
 

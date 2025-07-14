@@ -41,12 +41,21 @@ void Module::ProcessBatch(std::vector<Message>& inputBatchMessages) {
     }
 }
 
-void Module::Broadcast(const Message& message) {
+void Module::Broadcast(const Message& message, bool clone) {
     if (m_dispatcherPtr != nullptr) {
         LOG_DEBUG("Module '{}' broadcasting message.", m_moduleName);
-        m_dispatcherPtr->Broadcast(message);
+        m_dispatcherPtr->Broadcast(message, clone);
     } else {
         LOG_WARN("Module '{}' has no handle, cannot broadcast message.", m_moduleName);
+    }
+}
+
+void Module::SendTo(const std::string& outputName, const Message& msg, bool clone) {
+    if (m_dispatcherPtr != nullptr) {
+        LOG_DEBUG("Module '{}' sending message to '{}'.", m_moduleName, outputName);
+        m_dispatcherPtr->SendTo(outputName, msg, clone);
+    } else {
+        LOG_WARN("Module '{}' has no handle, cannot send message.", m_moduleName);
     }
 }
 

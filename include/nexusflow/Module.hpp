@@ -94,15 +94,17 @@ protected:
     /**
      * @brief Broadcasts a message to all connected downstream outputs.
      * @param msg The message to be sent.
+     * @param clone If true, the message is cloned for each output.
      */
-    void Broadcast(const Message& msg);
+    void Broadcast(const Message& msg, bool clone = false);
 
     /**
      * @brief Sends a message to a specific downstream output.
      * @param outputName The name of the output port to send the message to.
      * @param msg The message to be sent.
+     * @param clone If true, the message is cloned for the specified output.
      */
-    void SendTo(const std::string& outputName, const Message& msg);
+    void SendTo(const std::string& outputName, const Message& msg, bool clone = false);
 
     /**
      * @brief Gets a configuration parameter with a default value if not found.

@@ -6,18 +6,20 @@ Dispatcher::Dispatcher() = default;
 
 Dispatcher::~Dispatcher() = default;
 
-void Dispatcher::Broadcast(const Message& message) {
+void Dispatcher::Broadcast(const Message& message, bool clone) {
     for (auto& pair : m_subscriberMap) {
         auto& subscriber = pair.second;
-        subscriber->push(message);
+        auto messageClone = clone ? message.Clone() : message;
+        subscriber->push(messageClone);
     }
 }
 
-void Dispatcher::SendTo(const std::string& outputName, const Message& msg) {
+void Dispatcher::SendTo(const std::string& outputName, const Message& msg, bool clone) {
     auto it = m_subscriberMap.find(outputName);
     if (it != m_subscriberMap.end()) {
         auto& subscriber = it->second;
-        subscriber->push(msg);
+        auto messageClone = clone ? msg.Clone() : msg;
+        subscriber->push(messageClone);
     }
 }
 

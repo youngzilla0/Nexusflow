@@ -66,6 +66,8 @@ private:
      */
     void Run();
 
+    void RunFusion();
+
     /**
      * @brief Efficiently pulls a batch of messages from the input queue.
      * @details This function implements an efficient, two-phase strategy to gather messages
