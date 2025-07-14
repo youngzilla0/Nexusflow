@@ -3,7 +3,7 @@
 #include <vector>
 
 // --- Assume these headers are available ---
-#include <nexusflow/Message.hpp> // Our final, optimized SharedMessage
+#include <nexusflow/Message.hpp> // Our final, optimized Message
 
 // --- Scenario 1: Inheritance-based approach ---
 namespace inheritance {
@@ -22,7 +22,7 @@ struct DoubleMessage : MessageBase {
 
 // --- Scenario 2: Type-erasure approach ---
 namespace type_erasure {
-using SharedMessage = nexusflow::SharedMessage;
+using Message = nexusflow::Message;
 } // namespace type_erasure
 
 // ========================================================================
@@ -41,7 +41,7 @@ BENCHMARK(BM_Inheritance_Create);
 static void BM_TypeErasure_Create(benchmark::State& state) {
     for (auto _ : state) {
         // Create a message holding an int. Internally, this also heap-allocates.
-        auto msg = type_erasure::SharedMessage(42);
+        auto msg = type_erasure::Message(42);
         benchmark::DoNotOptimize(msg);
     }
 }
@@ -68,12 +68,12 @@ static void BM_Inheritance_Broadcast(benchmark::State& state) {
 BENCHMARK(BM_Inheritance_Broadcast);
 
 static void BM_TypeErasure_Broadcast(benchmark::State& state) {
-    auto original_msg = type_erasure::SharedMessage(42);
-    std::vector<type_erasure::SharedMessage> subscribers(NUM_SUBSCRIBERS);
+    auto original_msg = type_erasure::Message(42);
+    std::vector<type_erasure::Message> subscribers(NUM_SUBSCRIBERS);
 
     for (auto _ : state) {
         for (int i = 0; i < NUM_SUBSCRIBERS; ++i) {
-            subscribers[i] = original_msg; // Copy SharedMessage (which copies its internal shared_ptr)
+            subscribers[i] = original_msg; // Copy Message (which copies its internal shared_ptr)
             benchmark::DoNotOptimize(subscribers[i]);
         }
         benchmark::ClobberMemory();
@@ -108,7 +108,7 @@ BENCHMARK(BM_Inheritance_Process);
 
 static void BM_TypeErasure_Process(benchmark::State& state) {
     // Create a vector of different message types
-    std::vector<type_erasure::SharedMessage> messages;
+    std::vector<type_erasure::Message> messages;
     messages.emplace_back(1);
     messages.emplace_back(2.0);
 

@@ -34,7 +34,7 @@ nexusflow::ErrorCode MyAlarmPusherModule::DeInit() {
     return nexusflow::ErrorCode::SUCCESS;
 }
 
-void MyAlarmPusherModule::Process(nexusflow::SharedMessage& inputMessage) {
+void MyAlarmPusherModule::Process(nexusflow::Message& inputMessage) {
     if (auto* msg = inputMessage.GetData<InferenceMessage>()) {
         m_outFile << msg->toString() << std::endl;
         Broadcast(inputMessage);

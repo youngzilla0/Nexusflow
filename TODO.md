@@ -7,14 +7,6 @@
 
 ### 核心功能增强 (Core Features)
 
--   [ ] **支持模块自定义参数 (`params`)**
-    -   **目标**: 允许用户在 YAML 配置文件中的 `params` 字段为模块指定自定义配置。
-    -   **任务**:
-        -   [ ] **YAML 解析**: 在 `GraphBuilder` 中，增加解析 `params` map 的逻辑。可以考虑将其解析为 `std::unordered_map<std::string, std::any>` (C++17) 或一个自定义的 `Variant` 类型 (C++14)。
-        -   [ ] **模型扩展**: 在 `internal::FactoryNode` 结构体中增加一个成员变量来存储这些参数。
-        -   [ ] **工厂扩展**: 修改 `ModuleFactory::CreateModule` 的接口，使其能够接收并传递这些参数。
-        -   [ ] **模块API**: 在 `nexusflow::Module` 基类中增加一个新的虚方法 `virtual void configure(const ParamMap& params)`，该方法在模块实例被创建后、`Init()` 之前由框架调用。
-
 -   [ ] **实现优雅停机 (Graceful Shutdown / Draining)**
     -   **目标**: 在调用 `Pipeline::Stop()` 时，确保上游模块先停止生产数据，并让管道中正在流动的数据被下游模块完全处理完毕，避免数据丢失。
     -   **任务**:
@@ -56,12 +48,6 @@
 ---
 
 ### API 优化与导出 (API Refinements)
-
--   [ ] **导出 `Message` 模块 API**
-    -   **目标**: 让用户可以方便地创建和解包 `Message` 对象。
-    -   **任务**:
-        -   [ ] **文档完善**: 为 `Message` 类的所有公共方法（如 `getData<T>()`, 构造函数等）编写清晰的 Doxygen 注释。
-        -   [ ] **确保路径正确**: 确保 `Message.hpp` 位于 `include/nexusflow/` 目录下，并被正确安装。
 
 -   [ ] **导出日志模块 API**
     -   **目标**: 允许用户在他们自己的模块实现中，使用框架统一的日志系统。

@@ -10,7 +10,7 @@ namespace nexusflow {
 
 // Type alias for the internal message queue.
 // clang-format off
-using MessageQueue     = ConcurrentQueue<SharedMessage>;
+using MessageQueue     = ConcurrentQueue<Message>;
 using MessageQueuePtr  = std::shared_ptr<MessageQueue>;
 using MessageQueueUPtr = std::unique_ptr<MessageQueue>;
 

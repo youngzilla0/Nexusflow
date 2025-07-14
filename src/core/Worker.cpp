@@ -62,7 +62,7 @@ void Worker::Run() {
     while (!m_stopFlag.load()) {
         if (isSourceModule) {
             // Source Module Loop
-            SharedMessage emptyMessage;
+            Message emptyMessage;
             m_modulePtr->Process(emptyMessage);
         } else {
             // Sink or Filter/Transformer Module Loop
@@ -74,9 +74,9 @@ void Worker::Run() {
     LOG_DEBUG("Worker for module '{}' finished.", m_modulePtr->GetModuleName());
 }
 
-std::vector<SharedMessage> Worker::PullBatchMessage(size_t maxBatchSize, std::chrono::milliseconds batchTimeout) {
+std::vector<Message> Worker::PullBatchMessage(size_t maxBatchSize, std::chrono::milliseconds batchTimeout) {
     // Initialize the batch vector.
-    std::vector<SharedMessage> batchMessage;
+    std::vector<Message> batchMessage;
 
     // Ensure the output vector is clean and has pre-allocated memory.
     batchMessage.clear();
@@ -89,7 +89,7 @@ std::vector<SharedMessage> Worker::PullBatchMessage(size_t maxBatchSize, std::ch
     for (auto& item : m_inputQueueMap) {
         auto& queue = item.second;
         while (batchMessage.size() < maxBatchSize) {
-            SharedMessage message;
+            Message message;
             if (queue->tryPop(message)) {
                 batchMessage.push_back(std::move(message));
             } else {
@@ -120,7 +120,7 @@ std::vector<SharedMessage> Worker::PullBatchMessage(size_t maxBatchSize, std::ch
         // Iterate through all input queues and perform a short wait on each.
         for (auto& item : m_inputQueueMap) {
             auto& queue = item.second;
-            SharedMessage msg;
+            Message msg;
             // Wait for a very short period (e.g., 1ms). This is the key to avoiding
             // busy-waiting while remaining responsive to multiple inputs.
             if (queue->waitAndPopFor(msg, std::chrono::milliseconds(1))) {
@@ -128,7 +128,7 @@ std::vector<SharedMessage> Worker::PullBatchMessage(size_t maxBatchSize, std::ch
                 // Optimization: If a message was found, this queue might have more.
                 // Try to pop more in a non-blocking way to fill the batch faster.
                 while (batchMessage.size() < maxBatchSize) {
-                    SharedMessage message;
+                    Message message;
                     if (queue->tryPop(message)) {
                         batchMessage.push_back(std::move(message));
                     } else {

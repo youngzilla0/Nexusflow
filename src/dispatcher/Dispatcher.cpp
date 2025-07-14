@@ -6,14 +6,14 @@ Dispatcher::Dispatcher() = default;
 
 Dispatcher::~Dispatcher() = default;
 
-void Dispatcher::Broadcast(const SharedMessage& message) {
+void Dispatcher::Broadcast(const Message& message) {
     for (auto& pair : m_subscriberMap) {
         auto& subscriber = pair.second;
         subscriber->push(message);
     }
 }
 
-void Dispatcher::SendTo(const std::string& outputName, const SharedMessage& msg) {
+void Dispatcher::SendTo(const std::string& outputName, const Message& msg) {
     auto it = m_subscriberMap.find(outputName);
     if (it != m_subscriberMap.end()) {
         auto& subscriber = it->second;

@@ -1,6 +1,8 @@
 #ifndef NEXUSFLOW_MESSAGE_HPP
 #define NEXUSFLOW_MESSAGE_HPP
 
+#include <atomic>
+#include <cstdint>
 #include <memory>
 #include <mutex>
 #include <sstream>
@@ -11,52 +13,62 @@
 
 namespace nexusflow {
 
+struct MessageMeta {
+    uint64_t messageId; // The unique identifier for the message
+    int64_t timstamp; // The timestamp when the message was created
+    std::string sourceName; // The name of the source of the message
+};
+
 /**
- * @class SharedMessage
+ * @class Message
  * @brief A type-erased, thread-safe, shared message container for the pipeline.
  *
  * This class can hold an object of any type and allows for efficient, shared
- * ownership of the contained data across multiple threads. When a SharedMessage is
- *  copied, it creates a new SharedMessage object that shares ownership of the same
+ * ownership of the contained data across multiple threads. When a Message is
+ *  copied, it creates a new Message object that shares ownership of the same
  * underlying data, using a shared_ptr internally. This makes it ideal for
  * broadcast scenarios in a multi-threaded pipeline.
  */
-class SharedMessage {
+class Message {
 public:
-    SharedMessage() noexcept = default;
+    Message() noexcept = default;
 
     /**
-     * @brief Constructs a SharedMessage with the given data.
-     * @param data The data to store in the SharedMessage.
+     * @brief Constructs a Message with the given data.
+     * @param data The data to store in the Message.
      * @tparam T The type of the data.
      * @note The type T must be copyable or movable.
      * @note This constructor uses perfect forwarding to avoid unnecessary copies.
-     * @note This constructor is only enabled if T is not a SharedMessage, is copyable or movable, and is not a reference or pointer.
+     * @note This constructor is only enabled if T is not a Message, is copyable or movable, and is not a reference or pointer.
      */
-    template <typename T, typename = typename std::enable_if_t<!std::is_same<typename std::decay_t<T>, SharedMessage>::value &&
-                                                               (std::is_copy_constructible<typename std::decay_t<T>>::value ||
-                                                                std::is_move_constructible<typename std::decay_t<T>>::value) &&
-                                                               (!std::is_reference<typename std::decay_t<T>>::value &&
-                                                                !std::is_pointer<typename std::decay_t<T>>::value)>>
-
-    SharedMessage(T&& data) {
-        static_assert(std::is_copy_constructible<typename std::decay<T>::type>::value ||
-                          std::is_move_constructible<typename std::decay<T>::type>::value,
+    template <typename T, typename DT = typename std::decay<T>::type,
+              typename = std::enable_if_t<!std::is_same<DT, Message>::value &&
+                                          (std::is_copy_constructible<DT>::value || std::is_move_constructible<DT>::value) &&
+                                          (!std::is_reference<DT>::value && !std::is_pointer<DT>::value)>>
+    Message(T&& data, std::string sourceName = "") {
+        static_assert(std::is_copy_constructible<DT>::value || std::is_move_constructible<DT>::value,
                       "Type must be copyable or movable");
 
-        static_assert(!std::is_reference<typename std::decay<T>::type>::value && !std::is_pointer<typename std::decay<T>::type>::value,
-                      "Type must not be a reference or pointer");
+        static_assert(!std::is_reference<DT>::value && !std::is_pointer<DT>::value, "Type must not be a reference or pointer");
 
-        m_content = std::make_shared<Model<typename std::decay<T>::type>>(std::forward<T>(data));
+        // Create a shared_ptr to a Model<T> containing the data
+        m_content = std::make_shared<Model<DT>>(std::forward<T>(data));
+
+        // Create a unique message ID and timestamp
+        static std::atomic<uint64_t> messageIdCounter{0};
+        uint64_t messageId = messageIdCounter.fetch_add(1);
+        auto now = std::chrono::steady_clock::now();
+        auto timestamp = std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()).count();
+        m_meta = MessageMeta{messageId, timestamp, std::move(sourceName)}; // Initialize with default values
     }
 
     // --- Copy, Move, and Default Operations ---
     // The default copy/move/destructor work perfectly because m_content is a shared_ptr.
-    SharedMessage(const SharedMessage& other) = default;
-    SharedMessage& operator=(const SharedMessage& other) = default;
-    SharedMessage(SharedMessage&& other) noexcept = default;
-    SharedMessage& operator=(SharedMessage&& other) noexcept = default;
-    ~SharedMessage() = default;
+    Message(const Message& other) = default;
+    Message& operator=(const Message& other) = default;
+    Message(Message&& other) noexcept = default;
+    Message& operator=(Message&& other) noexcept = default;
+    ~Message() = default;
 
     // --- Accessors ---
     inline bool HasData() const { return m_content != nullptr; }
@@ -65,6 +77,8 @@ public:
     inline bool HasData() const {
         return HasData() && typeid(T) == m_content->getTypeInfo();
     }
+
+    inline MessageMeta GetMeta() const { return m_meta; }
 
     // --- Data Access ---
     template <typename T>
@@ -141,9 +155,6 @@ private:
      */
     template <typename T>
     struct Model final : Concept {
-        // ⭐ [OPTIMIZATION] The model now directly holds the data object,
-        // not a shared_ptr to it. The entire Model<T> object will be managed
-        // by the outer shared_ptr.
         explicit Model(T data) : m_data(std::move(data)) {}
 
         const std::type_info& getTypeInfo() const noexcept override { return typeid(T); }
@@ -155,6 +166,7 @@ private:
 
     // The single shared_ptr that manages the lifetime of the internal Model object.
     std::shared_ptr<Concept> m_content;
+    MessageMeta m_meta;
 };
 
 } // namespace nexusflow

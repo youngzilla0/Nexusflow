@@ -1,5 +1,5 @@
-#ifndef NEXUSFLOW_VARIANT_HPP
-#define NEXUSFLOW_VARIANT_HPP
+#ifndef NEXUSFLOW_ANY_HPP
+#define NEXUSFLOW_ANY_HPP
 
 #include <memory>
 #include <stdexcept>
@@ -10,33 +10,33 @@
 namespace nexusflow {
 
 /**
- * @class Variant
+ * @class Any
  * @brief A type-erased container for holding a single value of any type.
  *
  * A simplified, C++14-compatible implementation inspired by std::any. It allows
  * storing different types in a type-safe manner. It is used to pass
  * module-specific parameters from configuration to module instances.
  */
-class Variant {
+class Any {
 public:
     // --- Constructors ---
-    Variant() noexcept = default;
+    Any() noexcept = default;
 
-    template <typename T, typename = typename std::enable_if<!std::is_same<typename std::decay<T>::type, Variant>::value>::type>
-    Variant(T&& value) : m_content(std::make_unique<Model<typename std::decay<T>::type>>(std::forward<T>(value))) {}
+    template <typename T, typename = typename std::enable_if<!std::is_same<typename std::decay<T>::type, Any>::value>::type>
+    Any(T&& value) : m_content(std::make_unique<Model<typename std::decay<T>::type>>(std::forward<T>(value))) {}
 
     // --- Copy and Move Semantics ---
-    Variant(const Variant& other) : m_content(other.m_content ? other.m_content->clone() : nullptr) {}
+    Any(const Any& other) : m_content(other.m_content ? other.m_content->clone() : nullptr) {}
 
-    Variant& operator=(const Variant& other) {
+    Any& operator=(const Any& other) {
         if (this != &other) {
             m_content = other.m_content ? other.m_content->clone() : nullptr;
         }
         return *this;
     }
 
-    Variant(Variant&& other) noexcept = default;
-    Variant& operator=(Variant&& other) noexcept = default;
+    Any(Any&& other) noexcept = default;
+    Any& operator=(Any&& other) noexcept = default;
 
     // --- Public Interface ---
     bool hasValue() const noexcept { return m_content != nullptr; }

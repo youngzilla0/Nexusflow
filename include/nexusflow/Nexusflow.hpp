@@ -8,6 +8,6 @@
 #include <nexusflow/Pipeline.hpp>
 #include <nexusflow/PipelineBuilder.hpp>
 #include <nexusflow/TypeTraits.hpp>
-#include <nexusflow/Variant.hpp>
+#include <nexusflow/Any.hpp>
 
 #endif

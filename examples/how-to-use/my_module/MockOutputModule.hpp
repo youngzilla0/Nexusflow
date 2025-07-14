@@ -9,5 +9,5 @@ public:
     ~MockOutputModule() override;
 
 protected:
-    void Process(nexusflow::SharedMessage& inputMessage) override;
+    void Process(nexusflow::Message& inputMessage) override;
 };

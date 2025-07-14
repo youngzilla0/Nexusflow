@@ -44,7 +44,7 @@ nexusflow::ErrorCode MyPersonDetectorModule::Init() {
     return nexusflow::ErrorCode::SUCCESS;
 }
 
-void MyPersonDetectorModule::Process(nexusflow::SharedMessage& inputMessage) {
+void MyPersonDetectorModule::Process(nexusflow::Message& inputMessage) {
     if (auto* msg = inputMessage.GetData<InferenceMessage>()) {
         msg->boxes = DetectInfer();
         LOG_INFO("'{}' Send message to next module, data={}", GetModuleName(), msg->toString());

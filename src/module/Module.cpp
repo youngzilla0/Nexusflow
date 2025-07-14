@@ -33,7 +33,7 @@ ErrorCode Module::DeInit() {
     return ErrorCode::SUCCESS;
 }
 
-void Module::ProcessBatch(std::vector<SharedMessage>& inputBatchMessages) {
+void Module::ProcessBatch(std::vector<Message>& inputBatchMessages) {
     // Process the batch of input messages.
     LOG_DEBUG("Module '{}' processing batch of {} messages.", m_moduleName, inputBatchMessages.size());
     for (auto& message : inputBatchMessages) {
@@ -41,7 +41,7 @@ void Module::ProcessBatch(std::vector<SharedMessage>& inputBatchMessages) {
     }
 }
 
-void Module::Broadcast(const SharedMessage& message) {
+void Module::Broadcast(const Message& message) {
     if (m_dispatcherPtr != nullptr) {
         LOG_DEBUG("Module '{}' broadcasting message.", m_moduleName);
         m_dispatcherPtr->Broadcast(message);

@@ -12,7 +12,7 @@ public:
     void Configure(const nexusflow::ConfigMap& cfgMap) override;
 
 protected:
-    void Process(nexusflow::SharedMessage& inputMessage) override;
+    void Process(nexusflow::Message& inputMessage) override;
 
 private:
     uint32_t m_skipInterval = 1; // skip every n-th message

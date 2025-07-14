@@ -1,10 +1,10 @@
 #ifndef NEXUSFLOW_MODULE_HPP
 #define NEXUSFLOW_MODULE_HPP
 
-#include "nexusflow/TypeTraits.hpp"
 #include <nexusflow/Define.hpp>
 #include <nexusflow/ErrorCode.hpp>
 #include <nexusflow/Message.hpp>
+#include <nexusflow/TypeTraits.hpp>
 
 #include <memory>
 #include <unordered_map>
@@ -69,7 +69,7 @@ public:
      * @note Derived classes MUST implement this method.
      * @param inputMessage The message to be processed, passed in by the framework.
      */
-    virtual void Process(SharedMessage& inputMessage) = 0;
+    virtual void Process(Message& inputMessage) = 0;
 
     /**
      * @brief The core processing logic for a batch of messages.
@@ -78,7 +78,7 @@ public:
      * Override this for more efficient batch-oriented processing.
      * @param inputBatchMessages A batch of messages to be processed.
      */
-    virtual void ProcessBatch(std::vector<SharedMessage>& inputBatchMessages);
+    virtual void ProcessBatch(std::vector<Message>& inputBatchMessages);
 
     // --- Getter and Setter ---
 
@@ -88,17 +88,6 @@ public:
      */
     const std::string& GetModuleName() const;
 
-    /**
-     * @brief Gets the internal handle for the module.
-     */
-
-    bool IsHandleValid() const;
-
-    /**
-     * @brief Is source module
-     */
-    bool IsSourceModule() const;
-
 protected:
     // --- Protected API for Derived Classes ---
 
@@ -106,14 +95,14 @@ protected:
      * @brief Broadcasts a message to all connected downstream outputs.
      * @param msg The message to be sent.
      */
-    void Broadcast(const SharedMessage& msg);
+    void Broadcast(const Message& msg);
 
     /**
      * @brief Sends a message to a specific downstream output.
      * @param outputName The name of the output port to send the message to.
      * @param msg The message to be sent.
      */
-    void SendTo(const std::string& outputName, const SharedMessage& msg);
+    void SendTo(const std::string& outputName, const Message& msg);
 
     /**
      * @brief Gets a configuration parameter with a default value if not found.

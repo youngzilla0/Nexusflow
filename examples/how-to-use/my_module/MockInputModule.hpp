@@ -11,7 +11,7 @@ public:
     void Configure(const nexusflow::ConfigMap& cfgMap) override;
 
 protected:
-    void Process(nexusflow::SharedMessage& inputMessage) override;
+    void Process(nexusflow::Message& inputMessage) override;
 
 private:
     int m_sendIntervalMs = 1000 / 5; // 5fps

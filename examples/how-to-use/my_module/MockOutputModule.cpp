@@ -9,7 +9,7 @@ MockOutputModule::MockOutputModule(const std::string& name) : Module(name) {
 
 MockOutputModule::~MockOutputModule() { LOG_TRACE("MockOutputModule destructor, name={}", GetModuleName()); }
 
-void MockOutputModule::Process(nexusflow::SharedMessage& inputMessage) {
+void MockOutputModule::Process(nexusflow::Message& inputMessage) {
     if (auto& seqMsg = inputMessage.GetDataRef<std::shared_ptr<SeqMessage>>()) {
         LOG_INFO(GetModuleName() + " received message: {}", seqMsg->toString());
     }

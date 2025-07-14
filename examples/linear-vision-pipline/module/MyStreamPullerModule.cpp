@@ -32,7 +32,7 @@ MyStreamPullerModule::~MyStreamPullerModule() { LOG_TRACE("MyStreamPullerModule 
 
 void MyStreamPullerModule::Configure(const nexusflow::ConfigMap& cfgMap) {}
 
-void MyStreamPullerModule::Process(nexusflow::SharedMessage& inputMessage) {
+void MyStreamPullerModule::Process(nexusflow::Message& inputMessage) {
     // no input message
     if (inputMessage.HasData()) {
         LOG_WARN("MyStreamPullerModule: inputMessage is not nullptr");
@@ -41,6 +41,6 @@ void MyStreamPullerModule::Process(nexusflow::SharedMessage& inputMessage) {
 
     constexpr uint32_t kFPS = 25;
     auto msg = CreateMessage(kFPS);
-    nexusflow::SharedMessage dispatchMsg(msg);
+    nexusflow::Message dispatchMsg(msg);
     Broadcast(dispatchMsg);
 }

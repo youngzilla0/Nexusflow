@@ -22,7 +22,7 @@ void MockInputModule::Configure(const nexusflow::ConfigMap& cfgMap) {
     }
 }
 
-void MockInputModule::Process(nexusflow::SharedMessage& inputMessage) {
+void MockInputModule::Process(nexusflow::Message& inputMessage) {
     // no input message
     if (inputMessage.HasData()) {
         LOG_WARN("MockInputModule: inputMessage is not nullptr");
@@ -36,6 +36,6 @@ void MockInputModule::Process(nexusflow::SharedMessage& inputMessage) {
     auto seqMsg = std::make_shared<SeqMessage>();
     seqMsg->addData(GetModuleName() + "_" + std::to_string(counter++));
     LOG_INFO(GetModuleName() + ": send message: {}", seqMsg->toString());
-    nexusflow::SharedMessage newMsg(seqMsg);
+    nexusflow::Message newMsg(seqMsg);
     Broadcast(newMsg);
 }

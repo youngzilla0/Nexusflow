@@ -18,7 +18,7 @@ public:
     nexusflow::ErrorCode DeInit() override;
 
 protected:
-    void Process(nexusflow::SharedMessage& inputMessage) override;
+    void Process(nexusflow::Message& inputMessage) override;
 
 private:
     std::string m_savePath;

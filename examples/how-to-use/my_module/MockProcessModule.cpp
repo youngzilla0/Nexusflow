@@ -8,7 +8,7 @@ MockProcessModule::MockProcessModule(const std::string& name) : Module(name) {
 
 MockProcessModule::~MockProcessModule() { LOG_TRACE("MockProcessModule destructor, name={}", GetModuleName()); }
 
-void MockProcessModule::Process(nexusflow::SharedMessage& inputMessage) {
+void MockProcessModule::Process(nexusflow::Message& inputMessage) {
     if (auto& seqMsg = inputMessage.GetDataRef<std::shared_ptr<SeqMessage>>()) {
         LOG_DEBUG("Received message is {}", seqMsg->toString());
         // Add some data to the message

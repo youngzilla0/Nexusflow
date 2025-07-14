@@ -197,7 +197,7 @@ public:
     MultiplierModule(std::string name) : nexusflow::Module(std::move(name)) {}
 
     // 实现核心处理逻辑
-    void Process(nexusflow::SharedMessage& msg) override {
+    void Process(nexusflow::Message& msg) override {
         if (auto* data = msg.GetData<int>()) {
             // 将收到的数字乘以 2
             int result_value = (*data) * 2;

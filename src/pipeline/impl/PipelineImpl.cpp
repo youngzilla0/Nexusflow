@@ -16,7 +16,7 @@ std::shared_ptr<ActiveNode> Pipeline::Impl::GetOrCreateActiveNode(const std::sha
 
     // 不存在，则创建新的 ActiveNode
     // 1. 获取或创建 Module
-    // TODO: 使用Variant优化一下?
+    // TODO: 使用Any优化一下?
     std::shared_ptr<Module> module;
     if (auto* nodeIns = dynamic_cast<NodeWithModulePtr*>(node.get())) {
         module = nodeIns->modulePtr;

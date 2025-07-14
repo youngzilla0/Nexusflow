@@ -30,8 +30,8 @@ class SourceModule : public Module {
 public:
     SourceModule(std::string name) : Module(std::move(name)) {}
 
-    void Process(SharedMessage& _) override {
-        SharedMessage msg(BenchmarkPayloadMessage{steady_clock::now()});
+    void Process(Message& _) override {
+        Message msg(BenchmarkPayloadMessage{steady_clock::now()});
         Broadcast(msg);
     };
 };
@@ -44,7 +44,7 @@ class PassThroughModule : public Module {
 public:
     PassThroughModule(std::string name) : Module(std::move(name)) {}
 
-    void Process(SharedMessage& msg) override { Broadcast(msg); }
+    void Process(Message& msg) override { Broadcast(msg); }
 };
 
 /**
@@ -55,7 +55,7 @@ class SinkModule : public Module {
 public:
     SinkModule(std::string name) : Module(std::move(name)) {}
 
-    void Process(SharedMessage& msg) override {
+    void Process(Message& msg) override {
         mMessageCount++;
         if (auto* data = msg.GetData<BenchmarkPayloadMessage>()) {
             auto latency = steady_clock::now() - data->creationTime;

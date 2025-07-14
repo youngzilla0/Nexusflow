@@ -23,7 +23,7 @@ nexusflow::ErrorCode MyBehaviorAnalyzerModule::Init() {
     return nexusflow::ErrorCode::SUCCESS;
 }
 
-void MyBehaviorAnalyzerModule::Process(nexusflow::SharedMessage& inputMessage) {
+void MyBehaviorAnalyzerModule::Process(nexusflow::Message& inputMessage) {
     if (auto* msg = inputMessage.GetData<InferenceMessage>()) {
         for (auto& box : msg->boxes) {
             box.clsLabel = 999;

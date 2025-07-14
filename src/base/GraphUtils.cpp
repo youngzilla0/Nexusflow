@@ -1,7 +1,7 @@
 #include "GraphUtils.hpp"
 #include "base/Define.hpp"
 #include "base/Graph.hpp"
-#include "nexusflow/Variant.hpp"
+#include "nexusflow/Any.hpp"
 #include "utils/logging.hpp"
 #include "yaml-cpp/node/node.h"
 #include "yaml-cpp/yaml.h"
@@ -51,46 +51,46 @@ inline bool isBool(const std::string& str, bool& out) {
 } // namespace detail
 
 // TODO: 待优化
-nexusflow::Variant convertYamlNodeToVariant(const YAML::Node& node) {
-    using nexusflow::Variant;
+nexusflow::Any convertYamlNodeToAny(const YAML::Node& node) {
+    using nexusflow::Any;
     switch (node.Type()) {
-        case YAML::NodeType::Null: return Variant();
+        case YAML::NodeType::Null: return Any();
 
         case YAML::NodeType::Scalar: {
             std::string val = node.Scalar();
             bool b;
-            if (detail::isBool(val, b)) return Variant(b);
+            if (detail::isBool(val, b)) return Any(b);
             if (detail::isInteger(val)) {
                 try {
-                    return Variant(std::stoi(val));
+                    return Any(std::stoi(val));
                 } catch (...) {
                 }
             }
             if (detail::isFloat(val)) {
                 try {
-                    return Variant(std::stod(val));
+                    return Any(std::stod(val));
                 } catch (...) {
                 }
             }
             LOG_INFO("{} is not a valid number, fallback to string", val);
-            return Variant(val); // fallback: string
+            return Any(val); // fallback: string
         }
 
         case YAML::NodeType::Sequence: {
-            std::vector<Variant> vec;
+            std::vector<Any> vec;
             for (const auto& item : node) {
-                vec.push_back(convertYamlNodeToVariant(item));
+                vec.push_back(convertYamlNodeToAny(item));
             }
-            return Variant(std::move(vec));
+            return Any(std::move(vec));
         }
 
         case YAML::NodeType::Map: {
-            std::map<std::string, Variant> map;
+            std::map<std::string, Any> map;
             for (const auto& kv : node) {
                 std::string key = kv.first.as<std::string>();
-                map[key] = convertYamlNodeToVariant(kv.second);
+                map[key] = convertYamlNodeToAny(kv.second);
             }
-            return Variant(std::move(map));
+            return Any(std::move(map));
         }
 
         case YAML::NodeType::Undefined:
@@ -136,7 +136,7 @@ std::unique_ptr<Graph> CreateGraphFromYaml(const std::string& configPath) {
             if (configsNode && configsNode.IsMap()) {
                 for (const auto& kv : configsNode) {
                     std::string key = kv.first.as<std::string>();
-                    params[key] = convertYamlNodeToVariant(kv.second);
+                    params[key] = convertYamlNodeToAny(kv.second);
                 }
             }
 

@@ -18,7 +18,7 @@ void MyDecoderModule::Configure(const nexusflow::ConfigMap& cfgMap) {
     LOG_INFO("MyDecoderModule::Configure, name={}, skipInterval={}", GetModuleName(), m_skipInterval);
 }
 
-void MyDecoderModule::Process(nexusflow::SharedMessage& inputMessage) {
+void MyDecoderModule::Process(nexusflow::Message& inputMessage) {
     if (auto* msg = inputMessage.GetData<DecoderMessage>()) {
         auto& videoPackage = msg->videoPackage;
         if (m_frameIdx % m_skipInterval == 0) {
