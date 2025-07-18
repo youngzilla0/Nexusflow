@@ -78,10 +78,9 @@ using namespace nexusflow;
 
 // Register all custom modules with the factory at application startup.
 void registerAllModules() {
-    auto& factory = ModuleFactory::GetInstance();
-    factory.Register<MockInputModule>("MockInputModule");
-    factory.Register<MockProcessModule>("MockProcessModule");
-    factory.Register<MockOutputModule>("MockOutputModule");
+    NEXUSFLOW_REGISTER_MODULE(MockInputModule);
+    NEXUSFLOW_REGISTER_MODULE(MockProcessModule);
+    NEXUSFLOW_REGISTER_MODULE(MockOutputModule);
 }
 
 // A helper function to encapsulate the pipeline execution and teardown logic.
@@ -215,9 +214,8 @@ public:
 ```cpp
 // main.cpp
 void registerAllModules() {
-    auto& factory = nexusflow::ModuleFactory::getInstance();
-    factory.Register<MultiplierModule>("MultiplierModule");
-    // ... register other modules
+    // Register the MultiplierModule with the factory.
+    NEXUSFLOW_REGISTER_MODULE(MultiplierModule);
 }
 ```
 That's it! You can now use `class: "MultiplierModule"` in your `graph.yaml` file.

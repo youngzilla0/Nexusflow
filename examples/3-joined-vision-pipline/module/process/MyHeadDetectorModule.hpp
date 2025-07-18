@@ -1,7 +1,6 @@
 #pragma once
 
 #include "nexusflow/ErrorCode.hpp"
-#include <nexusflow/Define.hpp>
 #include <nexusflow/Message.hpp>
 #include <nexusflow/Module.hpp>
 
@@ -10,7 +9,7 @@ public:
     MyHeadDetectorModule(const std::string& name);
     ~MyHeadDetectorModule() override;
 
-    void Configure(const nexusflow::ConfigMap& cfgMap) override;
+    nexusflow::ErrorCode Configure(const nexusflow::Config& config) override;
 
     nexusflow::ErrorCode Init() override;
 

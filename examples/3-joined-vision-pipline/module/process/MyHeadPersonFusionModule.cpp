@@ -12,9 +12,10 @@ MyHeadPersonFusionModule::MyHeadPersonFusionModule(const std::string& name) : Mo
 
 MyHeadPersonFusionModule::~MyHeadPersonFusionModule() { LOG_TRACE("MyHeadPersonFusionModule destructor, name={}", GetModuleName()); }
 
-void MyHeadPersonFusionModule::Configure(const nexusflow::ConfigMap& cfgMap) {
-    m_modelPath = GetConfigOrDefault(cfgMap, "modelPath", std::string(""));
+nexusflow::ErrorCode MyHeadPersonFusionModule::Configure(const nexusflow::Config& config) {
+    m_modelPath = config.GetValueOrDefault("modelPath", std::string(""));
     LOG_INFO("MyHeadPersonFusionModule::Configure, name={}, modelPath={}", GetModuleName(), m_modelPath);
+    return nexusflow::ErrorCode::SUCCESS;
 }
 
 nexusflow::ErrorCode MyHeadPersonFusionModule::Init() {

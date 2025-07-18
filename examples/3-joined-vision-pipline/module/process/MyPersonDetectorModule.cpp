@@ -32,9 +32,10 @@ MyPersonDetectorModule::MyPersonDetectorModule(const std::string& name) : Module
 
 MyPersonDetectorModule::~MyPersonDetectorModule() { LOG_TRACE("MyPersonDetectorModule destructor, name={}", GetModuleName()); }
 
-void MyPersonDetectorModule::Configure(const nexusflow::ConfigMap& cfgMap) {
-    m_modelPath = GetConfigOrDefault(cfgMap, "modelPath", std::string(""));
+nexusflow::ErrorCode MyPersonDetectorModule::Configure(const nexusflow::Config& config) {
+    m_modelPath = config.GetValueOrDefault("modelPath", std::string(""));
     LOG_INFO("MyPersonDetectorModule::Configure, name={}, modelPath={}", GetModuleName(), m_modelPath);
+    return nexusflow::ErrorCode::SUCCESS;
 }
 
 nexusflow::ErrorCode MyPersonDetectorModule::Init() {

@@ -64,12 +64,12 @@ public:
      * @brief Creates an instance of a registered module using its class name.
      *
      * @param className The string name of the class to instantiate.
-     * @param moduleName The unique instance name to pass to the module's constructoro
-     * @param cfgMap The configuration map to pass to the module's constructor.
+     * @param moduleName The unique instance name to pass to the module's constructoro.
+     * @param config The modules's configuration.
      * @return A std::shared_ptr to the newly created Module instance, or nullptr if the
      *         class name is not registered.
      */
-    std::shared_ptr<Module> CreateModule(const std::string& className, const std::string& moduleName, const ConfigMap& cfgMap);
+    std::shared_ptr<Module> CreateModule(const std::string& className, const std::string& moduleName, const Config& config);
 
 private:
     // A type alias for the creator function. It takes an instance name.

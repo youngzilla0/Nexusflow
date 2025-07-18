@@ -30,8 +30,6 @@ MyStreamPullerModule::MyStreamPullerModule(const std::string& name) : Module(nam
 
 MyStreamPullerModule::~MyStreamPullerModule() { LOG_TRACE("MyStreamPullerModule destructor, name={}", GetModuleName()); }
 
-void MyStreamPullerModule::Configure(const nexusflow::ConfigMap& cfgMap) {}
-
 void MyStreamPullerModule::Process(nexusflow::Message& inputMessage) {
     // no input message
     if (inputMessage.HasData()) {

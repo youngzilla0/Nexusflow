@@ -32,14 +32,14 @@ MyHeadDetectorModule::MyHeadDetectorModule(const std::string& name) : Module(nam
 
 MyHeadDetectorModule::~MyHeadDetectorModule() { LOG_TRACE("MyHeadDetectorModule destructor, name={}", GetModuleName()); }
 
-void MyHeadDetectorModule::Configure(const nexusflow::ConfigMap& cfgMap) {
-    m_modelPath = GetConfigOrDefault(cfgMap, "modelPath", std::string(""));
+nexusflow::ErrorCode MyHeadDetectorModule::Configure(const nexusflow::Config& config) {
+    m_modelPath = config.GetValueOrDefault("modelPath", std::string(""));
     LOG_INFO("MyHeadDetectorModule::Configure, name={}, modelPath={}", GetModuleName(), m_modelPath);
+    return nexusflow::ErrorCode::SUCCESS;
 }
 
 nexusflow::ErrorCode MyHeadDetectorModule::Init() {
     LOG_INFO("Tring to load model from {}", m_modelPath);
-
     LOG_INFO("MyHeadDetectorModule::Init, name={}, modelPath={}", GetModuleName(), m_modelPath);
     return nexusflow::ErrorCode::SUCCESS;
 }

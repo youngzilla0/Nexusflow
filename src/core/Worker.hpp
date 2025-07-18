@@ -25,7 +25,7 @@ namespace nexusflow { namespace core {
  */
 class Worker {
 public:
-    Worker(const std::shared_ptr<Module>& modulePtr);
+    Worker(const std::shared_ptr<Module>& modulePtr, const ViewPtr<Config>& configPtr);
 
     /**
      * @brief Destructor. Ensures the worker thread is properly joined.
@@ -60,12 +60,9 @@ public:
     // void RemoveQueue(const std::string& name) { m_inputQueueMap.erase(name); }
     // void ClearQueues() { m_inputQueueMap.clear(); }
 
-private:
-    /**
-     * @brief The main run loop for the worker's thread.
-     */
-    void Run();
+    void WorkLoop();
 
+private:
     void RunFusion();
 
     /**
@@ -88,9 +85,9 @@ private:
 
 private:
     std::shared_ptr<Module> m_modulePtr = nullptr;
+    ViewPtr<Config> m_configPtr;
     std::unordered_map<std::string, ViewPtr<MessageQueue>> m_inputQueueMap;
 
-    std::thread m_thread;
     std::atomic<bool> m_stopFlag{false};
 };
 

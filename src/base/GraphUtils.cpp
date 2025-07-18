@@ -2,10 +2,10 @@
 #include "base/Define.hpp"
 #include "base/Graph.hpp"
 #include "nexusflow/Any.hpp"
+#include "nexusflow/Config.hpp"
 #include "utils/logging.hpp"
 #include "yaml-cpp/node/node.h"
 #include "yaml-cpp/yaml.h"
-#include <nexusflow/Define.hpp>
 
 #include <memory>
 #include <regex>
@@ -130,16 +130,16 @@ std::unique_ptr<Graph> CreateGraphFromYaml(const std::string& configPath) {
             std::string moduleClassName = module_item["class"].as<std::string>();
 
             // parse custom config.
-            nexusflow::ConfigMap params;
+            nexusflow::Config config;
             const YAML::Node& configsNode = module_item["config"];
             if (configsNode && configsNode.IsMap()) {
                 for (const auto& kv : configsNode) {
                     std::string key = kv.first.as<std::string>();
-                    params[key] = convertYamlNodeToAny(kv.second);
+                    config.Add(key, convertYamlNodeToAny(kv.second));
                 }
             }
 
-            auto node = std::make_shared<NodeWithModuleClassName>(nodeName, moduleClassName, params);
+            auto node = std::make_shared<NodeWithModuleClassName>(nodeName, moduleClassName, std::move(config));
 
             auto item = tempNodeMap.emplace(nodeName, node);
             if (!item.second) {

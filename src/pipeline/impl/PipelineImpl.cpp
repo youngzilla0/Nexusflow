@@ -5,33 +5,35 @@
 
 namespace nexusflow {
 
-std::shared_ptr<ActiveNode> Pipeline::Impl::GetOrCreateActiveNode(const std::shared_ptr<Node>& node) {
+std::shared_ptr<ActorNode> Pipeline::Impl::GetOrCreateActorNode(const std::shared_ptr<Node>& node) {
     const auto& nodeName = node->name;
 
     // 检查 activeNodeMap 中是否已存在
-    auto it = activeNodeMap.find(nodeName);
-    if (it != activeNodeMap.end()) {
+    auto it = actorModuleMap.find(nodeName);
+    if (it != actorModuleMap.end()) {
         return it->second; // 已存在，直接返回
     }
 
     // 不存在，则创建新的 ActiveNode
     // 1. 获取或创建 Module
     // TODO: 使用Any优化一下?
+    Config config;
     std::shared_ptr<Module> module;
     if (auto* nodeIns = dynamic_cast<NodeWithModulePtr*>(node.get())) {
         module = nodeIns->modulePtr;
     } else if (auto* nodIns = dynamic_cast<NodeWithModuleClassName*>(node.get())) {
         auto& moduleFactory = ModuleFactory::GetInstance();
-        module = moduleFactory.CreateModule(nodIns->moduleClassName, nodIns->name, nodIns->paramMap);
+        module = moduleFactory.CreateModule(nodIns->moduleClassName, nodIns->name, nodIns->config);
+        config = nodIns->config;
     } else {
         throw std::runtime_error("");
     }
 
     // 2. 创建 ActiveNode 并存入 map
-    auto activeNode = std::make_shared<ActiveNode>(module);
-    activeNodeMap.emplace(nodeName, activeNode);
+    auto actorNode = std::make_shared<ActorNode>(module, config);
+    actorModuleMap.emplace(nodeName, actorNode);
 
-    return activeNode;
+    return actorNode;
 }
 
 ErrorCode Pipeline::Impl::Init() {
@@ -49,8 +51,8 @@ ErrorCode Pipeline::Impl::Init() {
             throw std::runtime_error("Expired node pointer in graph edge.");
         }
 
-        auto srcActiveNode = GetOrCreateActiveNode(srcNode);
-        auto dstActiveNode = GetOrCreateActiveNode(dstNode);
+        auto srcActorNode = GetOrCreateActorNode(srcNode);
+        auto dstActorNode = GetOrCreateActorNode(dstNode);
 
         constexpr int kQueueSize = 5;
         auto queue = std::make_unique<MessageQueue>(kQueueSize);
@@ -58,8 +60,8 @@ ErrorCode Pipeline::Impl::Init() {
 
         std::string queueName = srcNode->name + " -> " + dstNode->name;
 
-        srcActiveNode->AddOutputQueue(queueName, queueView);
-        dstActiveNode->AddInputQueue(queueName, queueView);
+        srcActorNode->AddOutputQueue(queueName, queueView);
+        dstActorNode->AddInputQueue(queueName, queueView);
 
         queues.push_back(std::move(queue));
     }

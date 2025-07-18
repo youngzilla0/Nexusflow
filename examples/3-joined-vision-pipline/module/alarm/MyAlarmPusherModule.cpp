@@ -12,9 +12,10 @@ MyAlarmPusherModule::MyAlarmPusherModule(const std::string& name) : Module(name)
 
 MyAlarmPusherModule::~MyAlarmPusherModule() { LOG_TRACE("MyAlarmPusherModule destructor, name={}", GetModuleName()); }
 
-void MyAlarmPusherModule::Configure(const nexusflow::ConfigMap& cfgMap) {
-    m_savePath = GetConfigOrDefault(cfgMap, "savePath", std::string("default-result.txt"));
+nexusflow::ErrorCode MyAlarmPusherModule::Configure(const nexusflow::Config& config) {
+    m_savePath = config.GetValueOrDefault("savePath", std::string("default-result.txt"));
     LOG_INFO("MyAlarmPusherModule::Configure, name={}, savePath={}", GetModuleName(), m_savePath);
+    return nexusflow::ErrorCode::SUCCESS;
 }
 
 nexusflow::ErrorCode MyAlarmPusherModule::Init() {

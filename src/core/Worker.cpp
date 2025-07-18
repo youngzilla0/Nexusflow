@@ -9,8 +9,9 @@
 
 namespace nexusflow { namespace core {
 
-Worker::Worker(const std::shared_ptr<Module>& modulePtr) {
-    m_modulePtr = modulePtr; // Store the module pointer.
+Worker::Worker(const std::shared_ptr<Module>& modulePtr, const ViewPtr<Config>& configPtr) {
+    m_modulePtr = modulePtr;
+    m_configPtr = configPtr;
     m_stopFlag = false;
 }
 
@@ -32,7 +33,6 @@ ErrorCode Worker::Start() {
 
     // Start the worker thread.
     m_stopFlag.store(false);
-    m_thread = std::thread(&Worker::Run, this);
     return ErrorCode::SUCCESS;
 }
 
@@ -41,7 +41,6 @@ ErrorCode Worker::Stop() {
     if (!m_stopFlag.load()) {
         LOG_TRACE("Stopping worker for module: {}", m_modulePtr->GetModuleName());
         m_stopFlag.store(true);
-        if (m_thread.joinable()) m_thread.join();
         return ErrorCode::SUCCESS;
     } else {
         LOG_WARN("Worker is already stopped.");
@@ -49,7 +48,7 @@ ErrorCode Worker::Stop() {
     }
 }
 
-void Worker::Run() {
+void Worker::WorkLoop() {
     LOG_DEBUG("Worker for module '{}' started", m_modulePtr->GetModuleName());
 
     bool isSourceModule = m_inputQueueMap.empty(); // Check if this is a source module.
@@ -64,12 +63,10 @@ void Worker::Run() {
 
     // TODO: get value from config.
     bool isSyncInputs = false;
-    if (m_modulePtr != nullptr) {
-        if (m_modulePtr->GetModuleName() == "HeadPersonFusion") {
-            isSyncInputs = true;
-            LOG_INFO("Sync Inputs for module: {}", m_modulePtr->GetModuleName());
-        }
-    }
+    isSyncInputs = m_configPtr->GetValueOrDefault<bool>("syncInputs", isSyncInputs);
+
+    LOG_DEBUG("Worker for module '{}' is running. Is source module: {}. Is sync inputs: {}.", m_modulePtr->GetModuleName(),
+              isSourceModule, isSyncInputs);
 
     if (isSyncInputs) {
         assert(!isSourceModule);

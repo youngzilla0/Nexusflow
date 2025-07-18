@@ -1,6 +1,5 @@
 #pragma once
 
-#include <nexusflow/Define.hpp>
 #include <nexusflow/Message.hpp>
 #include <nexusflow/Module.hpp>
 
@@ -9,7 +8,7 @@ public:
     MyDecoderModule(const std::string& name);
     ~MyDecoderModule() override;
 
-    void Configure(const nexusflow::ConfigMap& cfgMap) override;
+    nexusflow::ErrorCode Configure(const nexusflow::Config& config) override;
 
 protected:
     void Process(nexusflow::Message& inputMessage) override;

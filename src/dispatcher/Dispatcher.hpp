@@ -3,6 +3,7 @@
 
 #include "base/Define.hpp"
 #include "common/ViewPtr.hpp"
+#include "nexusflow/Config.hpp"
 #include "nexusflow/Message.hpp"
 #include "utils/logging.hpp"
 
@@ -26,7 +27,7 @@ namespace nexusflow { namespace dispatcher {
  */
 class Dispatcher {
 public:
-    Dispatcher();
+    Dispatcher(const ViewPtr<Config>& configView);
 
     ~Dispatcher();
 
@@ -35,18 +36,16 @@ public:
      * @details To optimize performance, this method copies the message for the
      * first N-1 queues and moves the original message into the last queue.
      * @param msg The message to broadcast.
-     * @param clone If true, the message is cloned for each queue.
      */
-    void Broadcast(const Message& msg, bool clone);
+    void Broadcast(const Message& msg);
 
     /**
      * @brief Sends a message to a specific output queue.
      * @param outputName The name of the output queue to send the message to.
      * @param msg The message to send.
-     * @param clone If true, the message is cloned before sending.
      * @throws std::invalid_argument If the outputName is not found in the output queue map.
      */
-    void SendTo(const std::string& outputName, const Message& msg, bool clone);
+    void SendTo(const std::string& outputName, const Message& msg);
 
     /**
      * @brief Adds a new output queue to the dispatcher.
@@ -62,6 +61,7 @@ public:
     }
 
 private:
+    ViewPtr<Config> m_configView;
     std::unordered_map<std::string, ViewPtr<MessageQueue>> m_subscriberMap;
 };
 

@@ -2,7 +2,6 @@
 
 #include "nexusflow/ErrorCode.hpp"
 #include <fstream>
-#include <nexusflow/Define.hpp>
 #include <nexusflow/Message.hpp>
 #include <nexusflow/Module.hpp>
 
@@ -11,7 +10,7 @@ public:
     MyAlarmPusherModule(const std::string& name);
     ~MyAlarmPusherModule() override;
 
-    void Configure(const nexusflow::ConfigMap& cfgMap) override;
+    nexusflow::ErrorCode Configure(const nexusflow::Config& config) override;
 
     nexusflow::ErrorCode Init() override;
 

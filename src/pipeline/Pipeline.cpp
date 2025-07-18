@@ -26,12 +26,6 @@ void Pipeline::InitWithGraph(std::unique_ptr<Graph> graph) {
     LOG_DEBUG("Initializing pipeline with graph, graph={}", graph->toString());
     m_pImpl->graph = std::move(graph);
     m_pImpl->Init(); // Init the graph
-
-    // TODO: 优化一下.
-    for (auto& pair : m_pImpl->activeNodeMap) {
-        auto& activeNode = pair.second;
-        activeNode->GetModule()->SetDispatcher(activeNode->GetDispatcher());
-    }
 }
 
 // --- Public APIs ---
@@ -44,13 +38,13 @@ std::unique_ptr<Pipeline> Pipeline::CreateFromYaml(const std::string& configPath
 ErrorCode Pipeline::Init() {
     if (!m_pImpl) return ErrorCode::UNINITIALIZED_ERROR;
 
-    for (auto& pair : m_pImpl->activeNodeMap) {
-        auto& activeName = pair.first;
-        auto& activeNode = pair.second;
+    for (auto& pair : m_pImpl->actorModuleMap) {
+        auto& actorName = pair.first;
+        auto& actorNode = pair.second;
 
-        ErrorCode errCode = activeNode->GetModule()->Init();
+        ErrorCode errCode = actorNode->Init();
         if (errCode != ErrorCode::SUCCESS) {
-            LOG_ERROR("Init module failed, activeName={}", activeName);
+            LOG_ERROR("Init module failed, actorName={}", actorName);
             return errCode;
         }
     }
@@ -62,13 +56,13 @@ ErrorCode Pipeline::DeInit() {
         return ErrorCode::SUCCESS; // Nothing to de-initialize
     }
     LOG_DEBUG("De-initializing pipeline...");
-    for (auto& pair : m_pImpl->activeNodeMap) {
-        auto& activeName = pair.first;
-        auto& activeNode = pair.second;
+    for (auto& pair : m_pImpl->actorModuleMap) {
+        auto& actorName = pair.first;
+        auto& actorNode = pair.second;
 
-        ErrorCode errCode = activeNode->GetModule()->DeInit();
+        ErrorCode errCode = actorNode->DeInit();
         if (errCode != ErrorCode::SUCCESS) {
-            LOG_ERROR("DeInit module failed, activeName={}", activeName);
+            LOG_ERROR("DeInit module failed, actorName={}", actorName);
             return errCode;
         }
     }
@@ -84,13 +78,13 @@ ErrorCode Pipeline::Start() {
     }
     LOG_DEBUG("Starting pipeline...");
 
-    for (auto& pair : m_pImpl->activeNodeMap) {
-        auto& activeName = pair.first;
-        auto& activeNode = pair.second;
+    for (auto& pair : m_pImpl->actorModuleMap) {
+        auto& actorName = pair.first;
+        auto& actorNode = pair.second;
 
-        ErrorCode errCode = activeNode->GetWorker()->Start();
+        ErrorCode errCode = actorNode->Start();
         if (errCode != ErrorCode::SUCCESS) {
-            LOG_ERROR("Start worker failed, activeName={}", activeName);
+            LOG_ERROR("Start worker failed, actorName={}", actorName);
             return errCode;
         }
     }
@@ -109,12 +103,13 @@ ErrorCode Pipeline::Stop() {
         queue->shutdown();
     }
     ErrorCode errCode = ErrorCode::SUCCESS;
-    for (auto& pair : m_pImpl->activeNodeMap) {
-        auto& activeName = pair.first;
-        auto& activeNode = pair.second;
-        errCode = activeNode->GetWorker()->Stop();
+    for (auto& pair : m_pImpl->actorModuleMap) {
+        auto& actorName = pair.first;
+        auto& actorNode = pair.second;
+
+        errCode = actorNode->Stop();
         if (errCode != ErrorCode::SUCCESS) {
-            LOG_ERROR("Stop worker failed, activeName={}", activeName);
+            LOG_ERROR("Stop worker failed, actorName={}", actorName);
             return errCode;
         }
     }

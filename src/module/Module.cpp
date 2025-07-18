@@ -1,5 +1,6 @@
 #include "nexusflow/Module.hpp"
 #include "dispatcher/Dispatcher.hpp"
+#include "nexusflow/Config.hpp"
 #include "nexusflow/ErrorCode.hpp"
 #include "nexusflow/Message.hpp"
 #include "utils/logging.hpp"
@@ -16,9 +17,10 @@ Module::~Module() {
     LOG_TRACE("Module '{}' destroying...", m_moduleName);
 };
 
-void Module::Configure(const ConfigMap& cfgMap) {
-    //
+ErrorCode Module::Configure(const Config& config) {
+    // Initialize the module.
     LOG_TRACE("Module '{}' initializing...", m_moduleName);
+    return ErrorCode::SUCCESS;
 }
 
 ErrorCode Module::Init() {
@@ -41,19 +43,19 @@ void Module::ProcessBatch(std::vector<Message>& inputBatchMessages) {
     }
 }
 
-void Module::Broadcast(const Message& message, bool clone) {
+void Module::Broadcast(const Message& message) {
     if (m_dispatcherPtr != nullptr) {
         LOG_DEBUG("Module '{}' broadcasting message.", m_moduleName);
-        m_dispatcherPtr->Broadcast(message, clone);
+        m_dispatcherPtr->Broadcast(message);
     } else {
         LOG_WARN("Module '{}' has no handle, cannot broadcast message.", m_moduleName);
     }
 }
 
-void Module::SendTo(const std::string& outputName, const Message& msg, bool clone) {
+void Module::SendTo(const std::string& outputName, const Message& msg) {
     if (m_dispatcherPtr != nullptr) {
         LOG_DEBUG("Module '{}' sending message to '{}'.", m_moduleName, outputName);
-        m_dispatcherPtr->SendTo(outputName, msg, clone);
+        m_dispatcherPtr->SendTo(outputName, msg);
     } else {
         LOG_WARN("Module '{}' has no handle, cannot send message.", m_moduleName);
     }

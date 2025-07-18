@@ -2,6 +2,7 @@
 #include "MockInputModule.hpp"
 #include "../src/utils/logging.hpp" // TODO: remove
 #include "MyMessage.hpp"
+#include "nexusflow/ErrorCode.hpp"
 #include "nexusflow/Message.hpp"
 #include <thread>
 #include <type_traits>
@@ -10,16 +11,15 @@ MockInputModule::MockInputModule(const std::string& name) : Module(name) { LOG_T
 
 MockInputModule::~MockInputModule() { LOG_TRACE("MockInputModule destructor, name={}", GetModuleName()); }
 
-void MockInputModule::Configure(const nexusflow::ConfigMap& cfgMap) {
+nexusflow::ErrorCode MockInputModule::Configure(const nexusflow::Config& config) {
     LOG_INFO("Configure init, module={}", GetModuleName());
-
-    m_sendIntervalMs = GetConfigOrDefault(cfgMap, "send_interval_ms", 1000);
-
+    m_sendIntervalMs = config.GetValueOrDefault("send_interval_ms", 1000);
     LOG_INFO("Configure done, m_sendIntervalMs={}", m_sendIntervalMs);
-
-    for (auto& pair : cfgMap) {
+    for (auto& pair : config.GetConfigMap()) {
         LOG_INFO("param key={}, type={}", pair.first, pair.second.getType().name());
     }
+
+    return nexusflow::ErrorCode::SUCCESS;
 }
 
 void MockInputModule::Process(nexusflow::Message& inputMessage) {

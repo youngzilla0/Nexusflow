@@ -1,8 +1,8 @@
 #pragma once
 
+#include "nexusflow/Config.hpp"
 #include <cassert>
 #include <memory>
-#include <nexusflow/Define.hpp>
 #include <sstream>
 #include <string>
 #include <unordered_map>
@@ -22,10 +22,10 @@ struct Node {
 struct NodeWithModuleClassName : Node {
     using Super = Node;
     std::string moduleClassName;
-    nexusflow::ConfigMap paramMap;
+    nexusflow::Config config;
 
-    NodeWithModuleClassName(std::string name, std::string moduleClassName, nexusflow::ConfigMap paramMap)
-        : Super(std::move(name)), moduleClassName(std::move(moduleClassName)), paramMap(std::move(paramMap)) {}
+    NodeWithModuleClassName(std::string name, std::string moduleClassName, nexusflow::Config config)
+        : Super(std::move(name)), moduleClassName(std::move(moduleClassName)), config(std::move(config)) {}
 };
 
 struct NodeWithModulePtr : Node {

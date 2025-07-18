@@ -11,9 +11,10 @@ MyBehaviorAnalyzerModule::MyBehaviorAnalyzerModule(const std::string& name) : Mo
 
 MyBehaviorAnalyzerModule::~MyBehaviorAnalyzerModule() { LOG_TRACE("MyBehaviorAnalyzerModule destructor, name={}", GetModuleName()); }
 
-void MyBehaviorAnalyzerModule::Configure(const nexusflow::ConfigMap& cfgMap) {
-    m_modelPath = GetConfigOrDefault(cfgMap, "modelPath", std::string(""));
+nexusflow::ErrorCode MyBehaviorAnalyzerModule::Configure(const nexusflow::Config& config) {
+    m_modelPath = config.GetValueOrDefault("modelPath", std::string(""));
     LOG_INFO("MyBehaviorAnalyzerModule::Configure, name={}, modelPath={}", GetModuleName(), m_modelPath);
+    return nexusflow::ErrorCode::SUCCESS;
 }
 
 nexusflow::ErrorCode MyBehaviorAnalyzerModule::Init() {

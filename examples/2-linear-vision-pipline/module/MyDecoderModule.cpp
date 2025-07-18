@@ -13,9 +13,11 @@ MyDecoderModule::MyDecoderModule(const std::string& name) : Module(name) {
 
 MyDecoderModule::~MyDecoderModule() { LOG_TRACE("MyDecoderModule destructor, name={}", GetModuleName()); }
 
-void MyDecoderModule::Configure(const nexusflow::ConfigMap& cfgMap) {
-    m_skipInterval = GetConfigOrDefault(cfgMap, "skipInterval", 25);
+nexusflow::ErrorCode MyDecoderModule::Configure(const nexusflow::Config& config) {
+    m_skipInterval = config.GetValueOrDefault("skipInterval", 25);
     LOG_INFO("MyDecoderModule::Configure, name={}, skipInterval={}", GetModuleName(), m_skipInterval);
+    
+    return nexusflow::ErrorCode::SUCCESS;
 }
 
 void MyDecoderModule::Process(nexusflow::Message& inputMessage) {

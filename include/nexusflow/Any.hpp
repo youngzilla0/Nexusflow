@@ -41,6 +41,11 @@ public:
     // --- Public Interface ---
     bool hasValue() const noexcept { return m_content != nullptr; }
 
+    template <typename T>
+    bool hasValue() const noexcept {
+        return m_content && typeid(T) == m_content->getTypeInfo();
+    }
+
     const std::type_info& getType() const noexcept { return m_content ? m_content->getTypeInfo() : typeid(void); }
 
     /**

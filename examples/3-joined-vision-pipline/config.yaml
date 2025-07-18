@@ -9,6 +9,7 @@ graph:
       class: MyDecoderModule
       config:
         skipInterval: 25
+        cloneMessage: true
 
     - name: PersonDetector
       class: MyPersonDetectorModule
@@ -23,8 +24,8 @@ graph:
     - name: HeadPersonFusion
       class: MyHeadPersonFusionModule
       config:
-        sync_inputs: true  # Sync all inputs, by `MessageMeta.messageId`
-    
+        syncInputs: true # Sync all inputs, by `MessageMeta.messageId`
+
     - name: BehaviorAnalyzer
       class: MyBehaviorAnalyzerModule
       config:
@@ -52,7 +53,7 @@ graph:
       to: HeadPersonFusion
 
     - from: HeadPersonFusion
-      to: BehaviorAnalyzer 
+      to: BehaviorAnalyzer
 
     - from: BehaviorAnalyzer
       to: AlarmPusher
