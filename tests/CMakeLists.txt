@@ -5,7 +5,11 @@ if(NOT ALL_TEST_SOURCES)
     return()
 endif()
 
-add_executable(nexusflow_tests gtest_main.cpp ${ALL_TEST_SOURCES})
+
+
+file(GLOB_RECURSE CUR_TEST_SOURCES "**Test.cpp")
+
+add_executable(nexusflow_tests gtest_main.cpp ${CUR_TEST_SOURCES} ${ALL_TEST_SOURCES})
 
 target_link_libraries(nexusflow_tests PRIVATE nexusflow GTest::gtest)
 

@@ -14,7 +14,7 @@ The core idea of the framework is to decompose complex processing workflows into
 *   **Dynamic Configuration, Powerful & Flexible**: Use simple YAML files to define the entire pipeline topology, module types, and parameters. Reconfigure and refactor complex business flows without recompiling your code.
 *   **Automatic Concurrency, Simplified Development**: The framework automatically assigns dedicated threads to drive each module (or uses a defined strategy). You can focus on your business logic without manually managing complex thread synchronization and lifecycles.
 *   **Clean API, Easy to Use**: Provides two primary ways to construct a pipeline: a **programmatic approach (`PipelineBuilder`)** for rapid development and testing, and a **declarative approach (from YAML)** for production environments.
-*   **High-Performance & Modern C++**: Core components are designed for performance, leveraging modern C++ features like move semantics and a clear ownership model to ensure code is both efficient and safe.
+*   **High-Performance & Modern C++**: Core components are designed for performance, leveraging modern C++ features. Its core data container, `nexusflow::Message`, uses **Copy-On-Write (COW)** semantics for extreme efficiency in broadcast scenarios.
 
 ---
 
@@ -85,26 +85,19 @@ void registerAllModules() {
 
 // A helper function to encapsulate the pipeline execution and teardown logic.
 void executePipeline(Pipeline& pipeline) {
-    LOG_INFO("Initializing pipeline...");
     if (pipeline.Init() != ErrorCode::SUCCESS) {
         throw std::runtime_error("Pipeline initialization failed.");
     }
 
-    LOG_INFO("Pipeline starting...");
     pipeline.Start();
-
     LOG_INFO("Pipeline running for 10 seconds...");
     std::this_thread::sleep_for(std::chrono::seconds(10));
-
-    LOG_INFO("Pipeline stopping...");
     pipeline.Stop();
-
-    LOG_INFO("De-initializing pipeline...");
     pipeline.DeInit();
 }
 
 int main(int argc, char* argv[]) {
-    utils::logger::InitializeGlobalLogger(/* ... */);
+    // ... Initialize logger ...
 
     if (argc < 2) {
         LOG_ERROR("Usage: {} <path_to_graph_yaml>", argv[0]);
@@ -112,20 +105,15 @@ int main(int argc, char* argv[]) {
     }
 
     try {
-        // 1. Register modules with the factory.
         registerAllModules();
-
-        // 2. Create the pipeline from the YAML file.
         std::string configPath = argv[1];
-        LOG_INFO("Creating pipeline from '{}'...", configPath);
         
-        // The Pipeline class provides a static factory method as a replacement for a PipelineManager.
+        // The Pipeline class provides a static factory method.
         auto pipeline = Pipeline::CreateFromYaml(configPath);
-        if (pipeline == nullptr) {
+        if (!pipeline) {
             throw std::runtime_error("Failed to create pipeline from YAML config.");
         }
 
-        // 3. Execute the pipeline.
         executePipeline(*pipeline);
 
     } catch (const std::exception& e) {
@@ -145,14 +133,9 @@ This approach is suitable for simple applications, unit tests, or scenarios wher
 ```cpp
 #include "nexusflow/Pipeline.hpp"
 #include "nexusflow/PipelineBuilder.hpp"
-#include "my_module/MockInputModule.hpp"
-#include "my_module/MockProcessModule.hpp"
-#include "my_module/MockOutputModule.hpp"
 // ... other necessary headers ...
 
-using namespace nexusflow;
-
-void runWithBuildModule() {
+void runWithBuilder() {
     auto inputModule    = std::make_shared<MockInputModule>("InputNode");
     auto process1Module = std::make_shared<MockProcessModule>("ProcessNode1");
     auto process2Module = std::make_shared<MockProcessModule>("ProcessNode2");
@@ -168,14 +151,87 @@ void runWithBuildModule() {
                         .Connect("ProcessNode1", "OutputNode")
                         .Connect("ProcessNode2", "OutputNode")
                         .Build();
-
-    if (pipeline == nullptr) {
+    if (!pipeline) {
         throw std::runtime_error("Failed to build pipeline.");
     }
     
-    // Call the same helper function to run the pipeline.
     executePipeline(*pipeline);
 }
+```
+
+---
+
+## Core Component: The `nexusflow::Message`
+
+The `nexusflow::Message` is the universal, thread-safe data wrapper that flows through the pipeline. It is designed to be both highly performant and exceptionally safe.
+
+### Design Philosophy
+
+1.  **Type-Erasure**: A `Message` can hold an object of **any data type**, allowing different modules to communicate seamlessly.
+2.  **Copy-On-Write (COW)**: This is the core performance feature.
+    *   **Copying is cheap**: Copying a `Message` is a fast `shared_ptr` operation, ideal for broadcasting data to multiple downstream modules.
+    *   **Mutation is safe**: When you attempt to *modify* a shared `Message`, the framework automatically performs a deep copy of the data *before* the modification. This ensures that changes in one branch of the pipeline do not accidentally affect others.
+3.  **Expressive & Safe Accessors**: Instead of traditional getters, `Message` uses a `Borrow`/`Mut` naming convention inspired by Rust to make the developer's intent crystal clear.
+
+### How to Use `Message`
+
+#### Creating a Message
+The recommended way is to use the `nexusflow::MakeMessage` factory function.
+```cpp
+#include "nexusflow/Message.hpp"
+
+// Create a message containing a string
+auto msg1 = nexusflow::MakeMessage(std::string("Hello, Pipeline!"));
+
+// Create a message containing a vector, specifying its source
+auto msg2 = nexusflow::MakeMessage(std::vector<int>{1, 2, 3}, "SensorModule");
+```
+
+#### Immutable Access (Borrowing)
+Use "borrowing" for **read-only** access. This operation is always fast and **will never** trigger a copy.
+
+*   **`Borrow<T>()`**: Returns a `const` reference. Throws `std::runtime_error` on type mismatch.
+*   **`BorrowPtr<T>()`**: Returns a `const` pointer. Returns `nullptr` on type mismatch (no-throw).
+
+```cpp
+// Safely check for type with BorrowPtr
+if (const auto* content_ptr = msg1.BorrowPtr<std::string>()) {
+    std::cout << "Content: " << *content_ptr << std::endl;
+} else {
+    std::cout << "Message does not contain a string." << std::endl;
+}
+```
+
+#### Mutable Access (Mutating)
+Use "mutating" for **read-write** access. This **will trigger a Copy-On-Write** if the data is shared.
+
+*   **`Mut<T>()`**: Returns a non-`const` reference. Throws `std::runtime_error` on type mismatch.
+*   **`MutPtr<T>()`**: Returns a non-`const` pointer. Returns `nullptr` on type mismatch (no-throw).
+
+```cpp
+// Safely get a mutable pointer
+if (auto* vec_ptr = msg2.MutPtr<std::vector<int>>()) {
+    vec_ptr->push_back(4); // This might trigger a COW
+}
+```
+
+### Copy-On-Write in Action
+
+```cpp
+// 1. Create an original message (SharedCount: 1)
+auto original_msg = nexusflow::MakeMessage(std::vector<int>{10, 20, 30});
+
+// 2. Create a shared copy (SharedCount becomes 2)
+auto shared_copy = original_msg;
+
+// 3. One module modifies its copy. This triggers COW.
+// shared_copy creates its own data. Its SharedCount becomes 1.
+// original_msg's SharedCount reverts to 1.
+shared_copy.Mut<std::vector<int>>()[1] = 99;
+
+// 4. The data has diverged safely.
+std::cout << original_msg.Borrow<std::vector<int>>()[1]; // -> 20
+std::cout << shared_copy.Borrow<std::vector<int>>()[1];  // -> 99
 ```
 
 ---
@@ -189,21 +245,23 @@ Creating a new module is a simple two-step process:
 ```cpp
 // modules/MultiplierModule.hpp
 #include "nexusflow/Module.hpp"
-#include "nexusflow/Message.hpp" // Assuming Message can wrap an int
+#include "nexusflow/Message.hpp"
 
 class MultiplierModule : public nexusflow::Module {
 public:
-    MultiplierModule(std::string name) : nexusflow::Module(std::move(name)) {}
+    // Every module must have a constructor that accepts a name.
+    explicit MultiplierModule(std::string name) : nexusflow::Module(std::move(name)) {}
 
     // Implement the core processing logic.
     void Process(nexusflow::Message& msg) override {
-        if (auto* data = msg.GetData<int>()) {
+        // Use MutPtr for safe, mutable access.
+        if (auto* data = msg.MutPtr<int>()) {
             // Multiply the received number by 2.
-            int result_value = (*data) * 2;
-
-            // Create a new message and broadcast it downstream.
-            nexusflow::SharedMessag result_msg(result_value);
-            Broadcast(std::move(result_msg));
+            *data *= 2;
+            
+            // Broadcast the modified message downstream.
+            // The message is implicitly shared, no extra copy needed.
+            Broadcast(msg);
         }
     }
 };
@@ -213,6 +271,9 @@ public:
 
 ```cpp
 // main.cpp
+#include "nexusflow/ModuleFactory.hpp"
+#include "modules/MultiplierModule.hpp"
+
 void registerAllModules() {
     // Register the MultiplierModule with the factory.
     NEXUSFLOW_REGISTER_MODULE(MultiplierModule);
@@ -230,15 +291,14 @@ mkdir build
 cd build
 
 # 2. Run CMake to configure the project
-# Assumes dependencies (like spdlog, yaml-cpp) are managed by CMake's FetchContent
+# Assumes dependencies are managed by CMake's FetchContent or are system-installed.
 cmake ..
 
 # 3. Compile the project
 make -j$(nproc)
 
 # 4. Run the example
-./examples/nexusflow_examples
-./examples/nexusflow_examples  path/to/your/graph.yaml
+./examples/nexusflow_example path/to/your/graph.yaml
 ```
 
 ## Contributing

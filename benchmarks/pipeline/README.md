@@ -31,6 +31,16 @@ Messages Processed: 1614764
 Throughput:       161468 msg/s
 Avg. Latency:     100.415 us
 -------------------------
+
+# Latest Release Result (2025.07.19)
+--- Benchmark Results ---
+Total Duration:   10.0004 s
+Messages Processed: 2804190
+-------------------------
+Throughput:       280406 msg/s
+Avg. Latency:     35.4208 us
+-------------------------
+
 ```
 
 ### 说明

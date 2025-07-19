@@ -21,7 +21,7 @@ nexusflow::ErrorCode MyDecoderModule::Configure(const nexusflow::Config& config)
 }
 
 void MyDecoderModule::Process(nexusflow::Message& inputMessage) {
-    if (auto* msg = inputMessage.GetData<DecoderMessage>()) {
+    if (auto* msg = inputMessage.MutPtr<DecoderMessage>()) {
         auto& videoPackage = msg->videoPackage;
         if (m_frameIdx % m_skipInterval == 0) {
             msg->videoFrame.frameId = m_frameIdx;
@@ -29,7 +29,7 @@ void MyDecoderModule::Process(nexusflow::Message& inputMessage) {
             LOG_INFO("'{}' Send message to next module, data={}", GetModuleName(), msg->toString());
 
             auto outputMessage = ConvertDecoderMessageToInferenceMessage(*msg);
-            Broadcast(outputMessage /*,clone=true*/);
+            Broadcast(nexusflow::MakeMessage(std::move(outputMessage)));
         }
         m_frameIdx++;
     }

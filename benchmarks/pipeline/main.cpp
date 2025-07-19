@@ -57,7 +57,7 @@ public:
 
     void Process(Message& msg) override {
         mMessageCount++;
-        if (auto* data = msg.GetData<BenchmarkPayloadMessage>()) {
+        if (auto* data = msg.BorrowPtr<BenchmarkPayloadMessage>()) {
             auto latency = steady_clock::now() - data->creationTime;
             mTotalLatencyNs += duration_cast<nanoseconds>(latency).count();
         }

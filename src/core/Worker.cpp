@@ -128,12 +128,11 @@ void Worker::RunFusion() {
                       m_modulePtr->GetModuleName());
             if (messageMap.size() == expectedInputCount) {
                 // Construct a fused message and concat to batchMessage.
-                Message fusedMessage;
-                fusedMessage.SetData(std::move(messageMap));
+                auto fusedMessage = MakeMessage(std::move(messageMap));
                 std::vector<Message> fusedMessageVec{fusedMessage};
                 m_modulePtr->ProcessBatch(fusedMessageVec); // process the fused message
                 it = messageCache.erase(it); // remove the message from cache
-            } else if (!messageMap.empty() && messageMap.begin()->second.GetMetaData().timstamp < (currentTimeMs - timeoutMs)) {
+            } else if (!messageMap.empty() && messageMap.begin()->second.GetMetaData().timestamp < (currentTimeMs - timeoutMs)) {
                 // timeout
                 LOG_WARN("Timeout for message with ID: {}, will be removed from cache", messageId);
                 it = messageCache.erase(it);

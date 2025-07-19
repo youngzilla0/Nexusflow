@@ -30,10 +30,10 @@ void MyHeadPersonFusionModule::Process(nexusflow::Message& inputMessage) {
     const std::string personKey = "PersonDetector";
 
     using InputType = std::unordered_map<std::string, nexusflow::Message>;
-    if (auto* msg = inputMessage.GetData<InputType>()) {
+    if (auto* msg = inputMessage.MutPtr<InputType>()) {
         for (auto& pair : *msg) {
             LOG_DEBUG("'{}' Receive message from previous module, data={}", pair.first,
-                      pair.second.GetData<InferenceMessage>()->toString());
+                      pair.second.BorrowPtr<InferenceMessage>()->toString());
         }
 
         // Check if the input message contains the required keys
@@ -42,14 +42,14 @@ void MyHeadPersonFusionModule::Process(nexusflow::Message& inputMessage) {
             return;
         }
 
-        InferenceMessage* headMessage = msg->at(headKey).GetData<InferenceMessage>();
-        InferenceMessage* personMessage = msg->at(personKey).GetData<InferenceMessage>();
+        InferenceMessage* headMessage = msg->at(headKey).MutPtr<InferenceMessage>();
+        InferenceMessage* personMessage = msg->at(personKey).MutPtr<InferenceMessage>();
 
         InferenceMessage fusedMessage = DoFusion(*headMessage, *personMessage);
 
         LOG_INFO("'{}' Send message to next module, data={}", GetModuleName(), fusedMessage.toString());
 
-        Broadcast(fusedMessage);
+        Broadcast(nexusflow::MakeMessage(std::move(fusedMessage)));
     }
 }
 
