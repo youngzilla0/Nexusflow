@@ -36,6 +36,7 @@ void MockInputModule::Process(nexusflow::Message& inputMessage) {
     auto seqMsg = std::make_shared<SeqMessage>();
     seqMsg->addData(GetModuleName() + "_" + std::to_string(counter++));
     LOG_INFO(GetModuleName() + ": send message: {}", seqMsg->toString());
-    nexusflow::Message newMsg(seqMsg);
+
+    auto newMsg = nexusflow::MakeMessage(std::move(seqMsg));
     Broadcast(newMsg);
 }

@@ -25,7 +25,7 @@ nexusflow::ErrorCode MyBehaviorAnalyzerModule::Init() {
 }
 
 void MyBehaviorAnalyzerModule::Process(nexusflow::Message& inputMessage) {
-    if (auto* msg = inputMessage.GetData<InferenceMessage>()) {
+    if (auto* msg = inputMessage.MutPtr<InferenceMessage>()) {
         for (auto& box : msg->boxes) {
             box.clsLabel = 999;
             box.clsScore = 1.0f;

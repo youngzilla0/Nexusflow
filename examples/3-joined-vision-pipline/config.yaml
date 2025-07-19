@@ -9,7 +9,6 @@ graph:
       class: MyDecoderModule
       config:
         skipInterval: 25
-        cloneMessage: true
 
     - name: PersonDetector
       class: MyPersonDetectorModule

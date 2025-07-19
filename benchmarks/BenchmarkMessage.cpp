@@ -116,9 +116,9 @@ static void BM_TypeErasure_Process(benchmark::State& state) {
     for (auto _ : state) {
         for (const auto& msg : messages) {
             // The fast, type-safe GetData<T>()
-            if (const int* val = msg.GetData<int>()) {
+            if (auto* val = msg.BorrowPtr<int>()) {
                 processed_sum += *val;
-            } else if (const double* val = msg.GetData<double>()) {
+            } else if (auto* val = msg.BorrowPtr<double>()) {
                 processed_sum += static_cast<long>(*val);
             }
         }

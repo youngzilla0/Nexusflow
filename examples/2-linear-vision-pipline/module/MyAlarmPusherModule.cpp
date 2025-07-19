@@ -15,7 +15,7 @@ MyAlarmPusherModule::~MyAlarmPusherModule() { LOG_TRACE("MyAlarmPusherModule des
 nexusflow::ErrorCode MyAlarmPusherModule::Configure(const nexusflow::Config& config) {
     m_savePath = config.GetValueOrDefault("savePath", std::string("default-result.txt"));
     LOG_INFO("MyAlarmPusherModule::Configure, name={}, savePath={}", GetModuleName(), m_savePath);
-    
+
     return nexusflow::ErrorCode::SUCCESS;
 }
 
@@ -37,8 +37,7 @@ nexusflow::ErrorCode MyAlarmPusherModule::DeInit() {
 }
 
 void MyAlarmPusherModule::Process(nexusflow::Message& inputMessage) {
-    if (auto* msg = inputMessage.GetData<InferenceMessage>()) {
+    if (auto* msg = inputMessage.BorrowPtr<InferenceMessage>()) {
         m_outFile << msg->toString() << std::endl;
-        Broadcast(inputMessage);
     }
 }

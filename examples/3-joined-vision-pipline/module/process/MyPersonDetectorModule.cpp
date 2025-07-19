@@ -46,7 +46,7 @@ nexusflow::ErrorCode MyPersonDetectorModule::Init() {
 }
 
 void MyPersonDetectorModule::Process(nexusflow::Message& inputMessage) {
-    if (auto* msg = inputMessage.GetData<InferenceMessage>()) {
+    if (auto* msg = inputMessage.MutPtr<InferenceMessage>()) {
         msg->boxes = DetectInfer(msg->videoFrame.frameId);
         LOG_INFO("'{}' Send message to next module, data={}", GetModuleName(), msg->toString());
 

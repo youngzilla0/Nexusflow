@@ -16,12 +16,12 @@ MyDecoderModule::~MyDecoderModule() { LOG_TRACE("MyDecoderModule destructor, nam
 nexusflow::ErrorCode MyDecoderModule::Configure(const nexusflow::Config& config) {
     m_skipInterval = config.GetValueOrDefault("skipInterval", 25);
     LOG_INFO("MyDecoderModule::Configure, name={}, skipInterval={}", GetModuleName(), m_skipInterval);
-    
+
     return nexusflow::ErrorCode::SUCCESS;
 }
 
 void MyDecoderModule::Process(nexusflow::Message& inputMessage) {
-    if (auto* msg = inputMessage.GetData<DecoderMessage>()) {
+    if (auto* msg = inputMessage.MutPtr<DecoderMessage>()) {
         auto& videoPackage = msg->videoPackage;
         if (m_frameIdx % m_skipInterval == 0) {
             msg->videoFrame.frameId = m_frameIdx;
@@ -29,7 +29,7 @@ void MyDecoderModule::Process(nexusflow::Message& inputMessage) {
             LOG_INFO("'{}' Send message to next module, data={}", GetModuleName(), msg->toString());
 
             auto outputMessage = ConvertDecoderMessageToInferenceMessage(*msg);
-            Broadcast(outputMessage);
+            Broadcast(nexusflow::MakeMessage(std::move(outputMessage)));
         }
         m_frameIdx++;
     }

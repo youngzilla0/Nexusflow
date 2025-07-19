@@ -14,7 +14,7 @@ MyBehaviorAnalyzerModule::~MyBehaviorAnalyzerModule() { LOG_TRACE("MyBehaviorAna
 nexusflow::ErrorCode MyBehaviorAnalyzerModule::Configure(const nexusflow::Config& config) {
     m_modelPath = config.GetValueOrDefault("modelPath", std::string(""));
     LOG_INFO("MyBehaviorAnalyzerModule::Configure, name={}, modelPath={}", GetModuleName(), m_modelPath);
-    
+
     return nexusflow::ErrorCode::SUCCESS;
 }
 
@@ -26,7 +26,7 @@ nexusflow::ErrorCode MyBehaviorAnalyzerModule::Init() {
 }
 
 void MyBehaviorAnalyzerModule::Process(nexusflow::Message& inputMessage) {
-    if (auto* msg = inputMessage.GetData<InferenceMessage>()) {
+    if (auto* msg = inputMessage.MutPtr<InferenceMessage>()) {
         for (auto& box : msg->boxes) {
             box.clsLabel = 999;
             box.clsScore = 1.0f;
