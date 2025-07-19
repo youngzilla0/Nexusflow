@@ -1,4 +1,5 @@
 #include "ModuleActor.hpp"
+#include "nexusflow/ErrorCode.hpp"
 #include <memory>
 
 namespace nexusflow {
@@ -19,9 +20,9 @@ ModuleActor::ModuleActor(const std::shared_ptr<Module>& module, const Config& co
 
 ModuleActor::~ModuleActor() = default;
 
-ErrorCode ModuleActor::Init() { return ErrorCode::SUCCESS; }
+ErrorCode ModuleActor::Init() { return m_module->Init(); }
 
-ErrorCode ModuleActor::DeInit() { return ErrorCode::SUCCESS; }
+ErrorCode ModuleActor::DeInit() { return m_module->DeInit(); }
 
 ErrorCode ModuleActor::Start() {
     m_workThread = std::thread([this]() { m_worker->WorkLoop(); });

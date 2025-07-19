@@ -6,6 +6,7 @@
 namespace nexusflow {
 
 std::shared_ptr<ActorNode> Pipeline::Impl::GetOrCreateActorNode(const std::shared_ptr<Node>& node) {
+    // 此处NodeName == ModuleName
     const auto& nodeName = node->name;
 
     // 检查 activeNodeMap 中是否已存在
@@ -64,7 +65,15 @@ ErrorCode Pipeline::Impl::Init() {
         dstActorNode->AddInputQueue(queueName, queueView);
 
         queues.push_back(std::move(queue));
+
+        // store ordered actor nodes
+        actorOrderedNodes.insert(srcActorNode);
+        actorOrderedNodes.insert(dstActorNode);
     }
+
+    CHECK(actorModuleMap.size() == actorOrderedNodes.size(), "actorModuleMap size != actorOrderedNodes size, [{} != {}]",
+          actorModuleMap.size(), actorOrderedNodes.size());
+
     return ErrorCode::SUCCESS;
 }
 

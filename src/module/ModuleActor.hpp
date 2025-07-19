@@ -21,6 +21,8 @@ public:
 
     std::shared_ptr<Module>& GetModule() { return m_module; };
 
+    std::string GetModuleName() const { return m_module->GetModuleName(); }
+
     ErrorCode Init();
 
     ErrorCode DeInit();

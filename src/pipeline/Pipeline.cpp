@@ -38,14 +38,13 @@ std::unique_ptr<Pipeline> Pipeline::CreateFromYaml(const std::string& configPath
 ErrorCode Pipeline::Init() {
     if (!m_pImpl) return ErrorCode::UNINITIALIZED_ERROR;
 
-    for (auto& pair : m_pImpl->actorModuleMap) {
-        auto& actorName = pair.first;
-        auto& actorNode = pair.second;
-
+    for (auto& actorNode : m_pImpl->actorOrderedNodes) {
         ErrorCode errCode = actorNode->Init();
         if (errCode != ErrorCode::SUCCESS) {
-            LOG_ERROR("Init module failed, actorName={}", actorName);
+            LOG_ERROR("Init module failed, actorName={}", actorNode->GetModuleName());
             return errCode;
+        } else {
+            LOG_DEBUG("Init module success, actorName={}", actorNode->GetModuleName());
         }
     }
     return ErrorCode::SUCCESS;
@@ -56,14 +55,16 @@ ErrorCode Pipeline::DeInit() {
         return ErrorCode::SUCCESS; // Nothing to de-initialize
     }
     LOG_DEBUG("De-initializing pipeline...");
-    for (auto& pair : m_pImpl->actorModuleMap) {
-        auto& actorName = pair.first;
-        auto& actorNode = pair.second;
 
+    // Reverse order
+    for (auto it = m_pImpl->actorOrderedNodes.rbegin(); it != m_pImpl->actorOrderedNodes.rend(); ++it) {
+        auto& actorNode = *it;
         ErrorCode errCode = actorNode->DeInit();
         if (errCode != ErrorCode::SUCCESS) {
-            LOG_ERROR("DeInit module failed, actorName={}", actorName);
+            LOG_ERROR("DeInit module failed, actorName={}", actorNode->GetModuleName());
             return errCode;
+        } else {
+            LOG_DEBUG("DeInit module success, actorName={}", actorNode->GetModuleName());
         }
     }
 
@@ -78,14 +79,13 @@ ErrorCode Pipeline::Start() {
     }
     LOG_DEBUG("Starting pipeline...");
 
-    for (auto& pair : m_pImpl->actorModuleMap) {
-        auto& actorName = pair.first;
-        auto& actorNode = pair.second;
-
+    for (auto& actorNode : m_pImpl->actorOrderedNodes) {
         ErrorCode errCode = actorNode->Start();
         if (errCode != ErrorCode::SUCCESS) {
-            LOG_ERROR("Start worker failed, actorName={}", actorName);
+            LOG_ERROR("Start worker failed, actorName={}", actorNode->GetModuleName());
             return errCode;
+        } else {
+            LOG_DEBUG("Start module success, actorName={}", actorNode->GetModuleName());
         }
     }
     LOG_DEBUG("Pipeline started successfully.");
@@ -103,14 +103,13 @@ ErrorCode Pipeline::Stop() {
         queue->shutdown();
     }
     ErrorCode errCode = ErrorCode::SUCCESS;
-    for (auto& pair : m_pImpl->actorModuleMap) {
-        auto& actorName = pair.first;
-        auto& actorNode = pair.second;
-
+    for (auto& actorNode : m_pImpl->actorOrderedNodes) {
         errCode = actorNode->Stop();
         if (errCode != ErrorCode::SUCCESS) {
-            LOG_ERROR("Stop worker failed, actorName={}", actorName);
+            LOG_ERROR("Stop worker failed, actorName={}", actorNode->GetModuleName());
             return errCode;
+        } else {
+            LOG_DEBUG("Stop module success, actorName={}", actorNode->GetModuleName());
         }
     }
     LOG_DEBUG("Pipeline stopped successfully.");

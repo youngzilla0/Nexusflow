@@ -7,6 +7,7 @@
 #include "dispatcher/Dispatcher.hpp"
 #include "module/ModuleActor.hpp"
 #include <nexusflow/Pipeline.hpp>
+#include <set>
 #include <string>
 
 namespace nexusflow {
@@ -23,12 +24,15 @@ class Pipeline::Impl {
 public:
     std::unique_ptr<Graph> graph;
     std::vector<MessageQueueUPtr> queues;
-    std::unordered_map<ActorName, std::shared_ptr<ActorNode>> actorModuleMap;
+
+    std::set<std::shared_ptr<ActorNode>> actorOrderedNodes;
 
     ErrorCode Init();
 
 private:
     std::shared_ptr<ActorNode> GetOrCreateActorNode(const std::shared_ptr</*Graph::*/ Node>& node);
+
+    std::unordered_map<ActorName, std::shared_ptr<ActorNode>> actorModuleMap;
 };
 
 } // namespace nexusflow
