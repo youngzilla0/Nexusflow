@@ -1,4 +1,5 @@
 #include "Worker.hpp"
+#include "module/ActorContext.hpp"
 #include "nexusflow/ErrorCode.hpp"
 #include "nexusflow/Message.hpp"
 #include "utils/logging.hpp"
@@ -9,9 +10,8 @@
 
 namespace nexusflow { namespace core {
 
-Worker::Worker(const std::shared_ptr<Module>& modulePtr, const ViewPtr<Config>& configPtr) {
+Worker::Worker(const std::shared_ptr<Module>& modulePtr, const ActorContext& context) : m_context(context) {
     m_modulePtr = modulePtr;
-    m_configPtr = configPtr;
     m_stopFlag = false;
 }
 
@@ -61,9 +61,8 @@ void Worker::WorkLoop() {
     constexpr size_t kMaxBatchSize = 4;
     constexpr std::chrono::milliseconds kBatchTimeout{100};
 
-    // TODO: get value from config.
     bool isSyncInputs = false;
-    isSyncInputs = m_configPtr->GetValueOrDefault<bool>("syncInputs", isSyncInputs);
+    isSyncInputs = m_context.config->GetValueOrDefault<bool>("syncInputs", isSyncInputs);
 
     LOG_DEBUG("Worker for module '{}' is running. Is source module: {}. Is sync inputs: {}.", m_modulePtr->GetModuleName(),
               isSourceModule, isSyncInputs);

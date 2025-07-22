@@ -1,9 +1,9 @@
 #include "Dispatcher.hpp"
-#include "nexusflow/Config.hpp"
+#include "module/ActorContext.hpp"
 
 namespace nexusflow { namespace dispatcher {
 
-Dispatcher::Dispatcher(const ViewPtr<Config>& configView) { m_configView = configView; };
+Dispatcher::Dispatcher(const ActorContext& context) : m_context(context){};
 
 Dispatcher::~Dispatcher() = default;
 

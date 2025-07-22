@@ -3,6 +3,7 @@
 
 #include "base/Define.hpp"
 #include "common/ViewPtr.hpp"
+#include "module/ActorContext.hpp"
 #include "nexusflow/ErrorCode.hpp"
 #include "nexusflow/Module.hpp"
 #include "utils/logging.hpp"
@@ -25,7 +26,7 @@ namespace nexusflow { namespace core {
  */
 class Worker {
 public:
-    Worker(const std::shared_ptr<Module>& modulePtr, const ViewPtr<Config>& configPtr);
+    Worker(const std::shared_ptr<Module>& modulePtr, const ActorContext& context);
 
     /**
      * @brief Destructor. Ensures the worker thread is properly joined.
@@ -84,8 +85,8 @@ private:
     std::vector<Message> PullBatchMessage(size_t maxBatchSize, std::chrono::milliseconds batchTimeout);
 
 private:
+    const ActorContext& m_context;
     std::shared_ptr<Module> m_modulePtr = nullptr;
-    ViewPtr<Config> m_configPtr;
     std::unordered_map<std::string, ViewPtr<MessageQueue>> m_inputQueueMap;
 
     std::atomic<bool> m_stopFlag{false};

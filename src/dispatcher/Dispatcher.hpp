@@ -3,6 +3,7 @@
 
 #include "base/Define.hpp"
 #include "common/ViewPtr.hpp"
+#include "module/ActorContext.hpp"
 #include "nexusflow/Config.hpp"
 #include "nexusflow/Message.hpp"
 #include "utils/logging.hpp"
@@ -27,7 +28,7 @@ namespace nexusflow { namespace dispatcher {
  */
 class Dispatcher {
 public:
-    Dispatcher(const ViewPtr<Config>& configView);
+    Dispatcher(const ActorContext& context);
 
     ~Dispatcher();
 
@@ -61,7 +62,7 @@ public:
     }
 
 private:
-    ViewPtr<Config> m_configView;
+    const ActorContext& m_context;
     std::unordered_map<std::string, ViewPtr<MessageQueue>> m_subscriberMap;
 };
 
