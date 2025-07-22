@@ -253,7 +253,7 @@ public:
     explicit MultiplierModule(std::string name) : nexusflow::Module(std::move(name)) {}
 
     // Implement the core processing logic.
-    void Process(nexusflow::Message& msg) override {
+    nexusflow::MessageVec Process(nexusflow::Message& msg) override {
         // Use MutPtr for safe, mutable access.
         if (auto* data = msg.MutPtr<int>()) {
             // Multiply the received number by 2.

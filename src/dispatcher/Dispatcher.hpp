@@ -62,7 +62,7 @@ public:
     }
 
 private:
-    const ActorContext& m_context;
+    ActorContext m_context;
     std::unordered_map<std::string, ViewPtr<MessageQueue>> m_subscriberMap;
 };
 

@@ -9,10 +9,12 @@ MockOutputModule::MockOutputModule(const std::string& name) : Module(name) {
 
 MockOutputModule::~MockOutputModule() { LOG_TRACE("MockOutputModule destructor, name={}", GetModuleName()); }
 
-void MockOutputModule::Process(nexusflow::Message& inputMessage) {
-    if (auto seqMsg = inputMessage.Borrow<std::shared_ptr<SeqMessage>>()) {
+nexusflow::ProcessStatus MockOutputModule::Process(nexusflow::ProcessingContext& ctx) {
+    if (const std::shared_ptr<SeqMessage>* seqMsgPtr = ctx.BorrowPayload<std::shared_ptr<SeqMessage>>()) {
+        auto& seqMsg = *seqMsgPtr;
         LOG_INFO(GetModuleName() + " received message: {}", seqMsg->toString());
     }
+    return nexusflow::ProcessStatus::OK;
 }
 
 // REGISTER_MODULE(MockOutputModule);

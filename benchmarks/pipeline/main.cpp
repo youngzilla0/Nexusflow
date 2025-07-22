@@ -3,6 +3,7 @@
 #include "nexusflow/Module.hpp"
 #include "nexusflow/Pipeline.hpp"
 #include "nexusflow/PipelineBuilder.hpp"
+#include "nexusflow/ProcessingContext.hpp"
 
 #include <atomic>
 #include <chrono>
@@ -30,9 +31,9 @@ class SourceModule : public Module {
 public:
     SourceModule(std::string name) : Module(std::move(name)) {}
 
-    void Process(Message& _) override {
-        Message msg(BenchmarkPayloadMessage{steady_clock::now()});
-        Broadcast(msg);
+    ProcessStatus Process(ProcessingContext& ctx) override {
+        ctx.AddOutput(MakeMessage(BenchmarkPayloadMessage{steady_clock::now()}));
+        return ProcessStatus::OK;
     };
 };
 
@@ -44,7 +45,10 @@ class PassThroughModule : public Module {
 public:
     PassThroughModule(std::string name) : Module(std::move(name)) {}
 
-    void Process(Message& msg) override { Broadcast(msg); }
+    ProcessStatus Process(ProcessingContext& ctx) override {
+        ctx.AddOutput(std::move(ctx.TakeInput()));
+        return ProcessStatus::OK;
+    }
 };
 
 /**
@@ -55,12 +59,13 @@ class SinkModule : public Module {
 public:
     SinkModule(std::string name) : Module(std::move(name)) {}
 
-    void Process(Message& msg) override {
+    ProcessStatus Process(ProcessingContext& ctx) override {
         mMessageCount++;
-        if (auto* data = msg.BorrowPtr<BenchmarkPayloadMessage>()) {
+        if (auto* data = ctx.BorrowPayload<BenchmarkPayloadMessage>()) {
             auto latency = steady_clock::now() - data->creationTime;
             mTotalLatencyNs += duration_cast<nanoseconds>(latency).count();
         }
+        return {};
     }
 
     uint64_t GetMessageCount() const { return mMessageCount; }

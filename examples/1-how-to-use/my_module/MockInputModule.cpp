@@ -4,6 +4,7 @@
 #include "MyMessage.hpp"
 #include "nexusflow/ErrorCode.hpp"
 #include "nexusflow/Message.hpp"
+#include "nexusflow/ProcessingContext.hpp"
 #include <thread>
 #include <type_traits>
 
@@ -22,13 +23,7 @@ nexusflow::ErrorCode MockInputModule::Configure(const nexusflow::Config& config)
     return nexusflow::ErrorCode::SUCCESS;
 }
 
-void MockInputModule::Process(nexusflow::Message& inputMessage) {
-    // no input message
-    if (inputMessage.HasData()) {
-        LOG_WARN("MockInputModule: inputMessage is not nullptr");
-        return;
-    }
-
+nexusflow::ProcessStatus MockInputModule::Process(nexusflow::ProcessingContext& ctx) {
     // mock 5 fps messages.
     std::this_thread::sleep_for(std::chrono::milliseconds(m_sendIntervalMs));
     static int counter = 0;
@@ -37,6 +32,7 @@ void MockInputModule::Process(nexusflow::Message& inputMessage) {
     seqMsg->addData(GetModuleName() + "_" + std::to_string(counter++));
     LOG_INFO(GetModuleName() + ": send message: {}", seqMsg->toString());
 
-    auto newMsg = nexusflow::MakeMessage(std::move(seqMsg));
-    Broadcast(newMsg);
+    ctx.AddOutput(nexusflow::MakeMessage(std::move(seqMsg)));
+
+    return nexusflow::ProcessStatus::OK;
 }

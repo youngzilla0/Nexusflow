@@ -1,5 +1,5 @@
-#ifndef NEXUSFLOW_MONITOR_METRICS_HPP
-#define NEXUSFLOW_MONITOR_METRICS_HPP
+#ifndef NEXUSFLOW_PRIMITIVES_HPP
+#define NEXUSFLOW_PRIMITIVES_HPP
 
 #include <atomic>
 #include <chrono>
@@ -8,7 +8,7 @@
 #include <mutex>
 #include <string>
 
-namespace nexusflow { namespace monitoring {
+namespace nexusflow { namespace profiling {
 
 using MetricId = std::string;
 
@@ -64,5 +64,5 @@ private:
     std::chrono::time_point<std::chrono::high_resolution_clock> m_start;
 };
 
-}} // namespace nexusflow::monitoring
-#endif // NEXUSFLOW_MONITOR_METRICS_HPP
+}} // namespace nexusflow::profiling
+#endif // NEXUSFLOW_PROFILER_METRICS_HPP

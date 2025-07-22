@@ -4,6 +4,7 @@
 #include "MyMessage.hpp"
 #include "nexusflow/ErrorCode.hpp"
 #include "nexusflow/Message.hpp"
+#include "nexusflow/ProcessingContext.hpp"
 
 MyBehaviorAnalyzerModule::MyBehaviorAnalyzerModule(const std::string& name) : Module(name) {
     LOG_TRACE("MyBehaviorAnalyzerModule constructor, name={}", name);
@@ -25,14 +26,21 @@ nexusflow::ErrorCode MyBehaviorAnalyzerModule::Init() {
     return nexusflow::ErrorCode::SUCCESS;
 }
 
-void MyBehaviorAnalyzerModule::Process(nexusflow::Message& inputMessage) {
-    if (auto* msg = inputMessage.MutPtr<InferenceMessage>()) {
-        for (auto& box : msg->boxes) {
-            box.clsLabel = 999;
-            box.clsScore = 1.0f;
-            box.clsLabelName = "Class-" + std::to_string(box.label);
-        }
-        LOG_INFO("'{}' Send message to next module, data={}", GetModuleName(), msg->toString());
-        Broadcast(inputMessage);
+nexusflow::ProcessStatus MyBehaviorAnalyzerModule::Process(nexusflow::ProcessingContext& ctx) {
+    auto* inferMsgPtr = ctx.MutPayload<InferenceMessage>();
+
+    if (inferMsgPtr == nullptr) {
+        LOG_ERROR("'{}' Input message is null", GetModuleName());
+        return nexusflow::ProcessStatus::FAILED_GET_INPUT;
     }
+
+    for (auto& box : inferMsgPtr->boxes) {
+        box.clsLabel = 999;
+        box.clsScore = 1.0f;
+        box.clsLabelName = "Class-" + std::to_string(box.label);
+    }
+
+    LOG_INFO("'{}' Send message to next module, data={}", GetModuleName(), inferMsgPtr->toString());
+
+    return nexusflow::ProcessStatus::OK;
 }

@@ -9,5 +9,5 @@ public:
     ~MockOutputModule() override;
 
 protected:
-    void Process(nexusflow::Message& inputMessage) override;
+    nexusflow::ProcessStatus Process(nexusflow::ProcessingContext& ctx) override;
 };

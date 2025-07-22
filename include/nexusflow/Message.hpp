@@ -45,10 +45,7 @@ public:
      * @param data The data to store in the Message, moved or copied.
      * @param sourceName The name of the source of the message.
      */
-    template <typename T, typename DT = typename std::decay<T>::type,
-              typename = std::enable_if_t<!std::is_same<DT, Message>::value &&
-                                          (std::is_copy_constructible<DT>::value || std::is_move_constructible<DT>::value) &&
-                                          (!std::is_reference<DT>::value && !std::is_pointer<DT>::value)>>
+    template <typename T, typename DT = typename std::decay<T>::type, typename = std::enable_if_t<!std::is_same<DT, Message>::value>>
     explicit Message(T&& data, std::string sourceName = "") {
         static_assert(std::is_copy_constructible<DT>::value, "Type must be copy-constructible for COW semantics.");
         static_assert(!std::is_reference<DT>::value && !std::is_pointer<DT>::value, "Type must not be a reference or pointer");
@@ -83,6 +80,8 @@ public:
         clone.m_metaData = m_metaData;
         return clone;
     }
+
+    // Message Shared() const { return *this; }
 
     // --- Accessors ---
     inline bool HasData() const { return m_content != nullptr; }
@@ -221,6 +220,11 @@ private:
 template <typename T>
 static Message MakeMessage(T&& value, std::string source = "") {
     return Message(std::forward<T>(value), std::move(source));
+}
+
+template <typename T, typename... Args>
+static Message MakeMessage(Args&&... args) {
+    return Message(T(std::forward<Args>(args)...));
 }
 
 } // namespace nexusflow

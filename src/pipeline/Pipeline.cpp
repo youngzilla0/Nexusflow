@@ -18,27 +18,22 @@
 
 namespace nexusflow {
 
-Pipeline::Pipeline() : m_pImpl(std::make_unique<Pipeline::Impl>()) {}
-
-Pipeline::~Pipeline() = default;
-
-void Pipeline::InitWithGraph(std::unique_ptr<Graph> graph) {
-    LOG_DEBUG("Initializing pipeline with graph, graph={}", graph->toString());
-    m_pImpl->graph = std::move(graph);
-    m_pImpl->Init(); // Init the graph
-}
-
-// --- Public APIs ---
+// --- Static methods ---
 std::unique_ptr<Pipeline> Pipeline::CreateFromYaml(const std::string& configPath) {
     auto pipeline = std::unique_ptr<Pipeline>(new Pipeline());
     pipeline->InitWithGraph(graphutils::CreateGraphFromYaml(configPath));
     return pipeline;
 }
 
+// --- Public methods ---
+Pipeline::Pipeline() : m_pImpl(std::make_unique<Pipeline::Impl>()) {}
+
+Pipeline::~Pipeline() = default;
+
 ErrorCode Pipeline::Init() {
     if (!m_pImpl) return ErrorCode::UNINITIALIZED_ERROR;
 
-    for (auto& actorNode : m_pImpl->actorOrderedNodes) {
+    for (auto& actorNode : m_pImpl->GetActorOrderedNodes()) {
         ErrorCode errCode = actorNode->Init();
         if (errCode != ErrorCode::SUCCESS) {
             LOG_ERROR("Init module failed, actorName={}", actorNode->GetModuleName());
@@ -57,7 +52,8 @@ ErrorCode Pipeline::DeInit() {
     LOG_DEBUG("De-initializing pipeline...");
 
     // Reverse order
-    for (auto it = m_pImpl->actorOrderedNodes.rbegin(); it != m_pImpl->actorOrderedNodes.rend(); ++it) {
+    auto& actorOrderedNodes = m_pImpl->GetActorOrderedNodes();
+    for (auto it = actorOrderedNodes.rbegin(); it != actorOrderedNodes.rend(); ++it) {
         auto& actorNode = *it;
         ErrorCode errCode = actorNode->DeInit();
         if (errCode != ErrorCode::SUCCESS) {
@@ -79,7 +75,7 @@ ErrorCode Pipeline::Start() {
     }
     LOG_DEBUG("Starting pipeline...");
 
-    for (auto& actorNode : m_pImpl->actorOrderedNodes) {
+    for (auto& actorNode : m_pImpl->GetActorOrderedNodes()) {
         ErrorCode errCode = actorNode->Start();
         if (errCode != ErrorCode::SUCCESS) {
             LOG_ERROR("Start worker failed, actorName={}", actorNode->GetModuleName());
@@ -98,12 +94,11 @@ ErrorCode Pipeline::Stop() {
     }
 
     LOG_DEBUG("Stopping pipeline...");
-    // TODO: 优化一下.
-    for (auto& queue : m_pImpl->queues) {
-        queue->shutdown();
-    }
+
+    m_pImpl->StopQueues();
+
     ErrorCode errCode = ErrorCode::SUCCESS;
-    for (auto& actorNode : m_pImpl->actorOrderedNodes) {
+    for (auto& actorNode : m_pImpl->GetActorOrderedNodes()) {
         errCode = actorNode->Stop();
         if (errCode != ErrorCode::SUCCESS) {
             LOG_ERROR("Stop worker failed, actorName={}", actorNode->GetModuleName());
@@ -114,6 +109,12 @@ ErrorCode Pipeline::Stop() {
     }
     LOG_DEBUG("Pipeline stopped successfully.");
     return ErrorCode::SUCCESS;
+}
+
+// --- Private methods ---
+void Pipeline::InitWithGraph(std::unique_ptr<Graph> graph) {
+    LOG_DEBUG("Initializing pipeline with graph, graph={}", graph->toString());
+    m_pImpl->Init(graph); // Init with graph
 }
 
 }; // namespace nexusflow

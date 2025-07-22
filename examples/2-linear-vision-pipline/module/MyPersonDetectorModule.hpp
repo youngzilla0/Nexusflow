@@ -17,7 +17,7 @@ public:
     nexusflow::ErrorCode Init() override;
 
 protected:
-    void Process(nexusflow::Message& inputMessage) override;
+    nexusflow::ProcessStatus Process(nexusflow::ProcessingContext& ctx) override;
 
 private:
     std::string m_modelPath;

@@ -2,6 +2,8 @@
 #include "module/ActorContext.hpp"
 #include "nexusflow/ErrorCode.hpp"
 #include "nexusflow/Message.hpp"
+#include "nexusflow/Module.hpp"
+#include "nexusflow/ProcessingContext.hpp"
 #include "utils/logging.hpp"
 #include <chrono>
 #include <memory>
@@ -64,22 +66,33 @@ void Worker::WorkLoop() {
     bool isSyncInputs = false;
     isSyncInputs = m_context.config->GetValueOrDefault<bool>("syncInputs", isSyncInputs);
 
-    LOG_DEBUG("Worker for module '{}' is running. Is source module: {}. Is sync inputs: {}.", m_modulePtr->GetModuleName(),
-              isSourceModule, isSyncInputs);
+    LOG_INFO("Worker for module '{}' is running. Is source module: {}. Is sync inputs: {}.", m_modulePtr->GetModuleName(),
+             isSourceModule, isSyncInputs);
 
     if (isSyncInputs) {
         assert(!isSourceModule);
         RunFusion(); // Run the fusion module.
     } else {
         while (!m_stopFlag.load()) {
+            std::vector<ProcessingContext> batchProcessingContext;
+
             if (isSourceModule) {
                 // Source Module Loop
-                Message emptyMessage;
-                m_modulePtr->Process(emptyMessage);
+                batchProcessingContext.push_back(ProcessingContext(nexusflow::Message()));
+                m_modulePtr->ProcessBatch(batchProcessingContext);
             } else {
                 // Sink or Filter/Transformer Module Loop
-                auto batchMessage = PullBatchMessage(kMaxBatchSize, kBatchTimeout);
-                m_modulePtr->ProcessBatch(batchMessage);
+                batchProcessingContext = PullBatchMessage(kMaxBatchSize, kBatchTimeout);
+                m_modulePtr->ProcessBatch(batchProcessingContext);
+            }
+
+            // Get output messages from the module.
+            for (auto& processingContext : batchProcessingContext) {
+                auto outputMessages = processingContext.CollectOutputs();
+                for (auto& message : outputMessages) {
+                    // Push the message to the output queue.
+                    m_dispatcher->Broadcast(message);
+                }
             }
         }
     }
@@ -92,7 +105,7 @@ void Worker::RunFusion() {
 
     // Key: message id, value: map of source module name and message.
     std::unordered_map<int, std::unordered_map<std::string, Message>> messageCache; // Cache for messages.
-    const int expectedInputCount = m_inputQueueMap.size(); // Expected number of inputs.
+    const size_t expectedInputCount = m_inputQueueMap.size(); // Expected number of inputs.
 
     // Define a timeout period.
     constexpr std::chrono::minutes timeout{1};
@@ -120,18 +133,27 @@ void Worker::RunFusion() {
         // check message is already in cache
         for (auto it = messageCache.begin(); it != messageCache.end();) {
             auto messageId = it->first;
-            auto& messageMap = it->second;
+            auto& messageNamedMap = it->second;
 
             LOG_TRACE("Checking message with ID: {}", messageId);
-            LOG_TRACE("Number of inputs received: {}, Expected inputs: {}, module name: {}", messageMap.size(), expectedInputCount,
-                      m_modulePtr->GetModuleName());
-            if (messageMap.size() == expectedInputCount) {
+            LOG_TRACE("Number of inputs received: {}, Expected inputs: {}, module name: {}", messageNamedMap.size(),
+                      expectedInputCount, m_modulePtr->GetModuleName());
+            if (messageNamedMap.size() == expectedInputCount) {
                 // Construct a fused message and concat to batchMessage.
-                auto fusedMessage = MakeMessage(std::move(messageMap));
-                std::vector<Message> fusedMessageVec{fusedMessage};
-                m_modulePtr->ProcessBatch(fusedMessageVec); // process the fused message
+                std::vector<ProcessingContext> fusedProcessingContextVec{messageNamedMap};
+                m_modulePtr->ProcessBatch(fusedProcessingContextVec); // process the fused message
+
+                // Get output messages from the module.
+                for (auto& processingContext : fusedProcessingContextVec) {
+                    auto outputMessages = processingContext.CollectOutputs();
+                    for (auto& message : outputMessages) {
+                        // Push the message to the output queue.
+                        m_dispatcher->Broadcast(message);
+                    }
+                }
                 it = messageCache.erase(it); // remove the message from cache
-            } else if (!messageMap.empty() && messageMap.begin()->second.GetMetaData().timestamp < (currentTimeMs - timeoutMs)) {
+            } else if (!messageNamedMap.empty() &&
+                       messageNamedMap.begin()->second.GetMetaData().timestamp < (currentTimeMs - timeoutMs)) {
                 // timeout
                 LOG_WARN("Timeout for message with ID: {}, will be removed from cache", messageId);
                 it = messageCache.erase(it);
@@ -153,9 +175,10 @@ void Worker::RunFusion() {
     }
 }
 
-std::vector<Message> Worker::PullBatchMessage(size_t maxBatchSize, std::chrono::milliseconds batchTimeout) {
+std::vector<ProcessingContext> Worker::PullBatchMessage(size_t maxBatchSize, std::chrono::milliseconds batchTimeout) {
     // Initialize the batch vector.
-    std::vector<Message> batchMessage;
+    std::vector<ProcessingContext> batchProcessingContext;
+    auto& batchMessage = batchProcessingContext;
 
     // Ensure the output vector is clean and has pre-allocated memory.
     batchMessage.clear();
@@ -223,6 +246,15 @@ std::vector<Message> Worker::PullBatchMessage(size_t maxBatchSize, std::chrono::
     }
 
     return batchMessage;
+}
+
+void Worker::Broadcast(const Message& message) {
+    if (m_dispatcher != nullptr) {
+        LOG_DEBUG("Module '{}' broadcasting message.", m_modulePtr->GetModuleName());
+        m_dispatcher->Broadcast(message);
+    } else {
+        LOG_WARN("Module '{}' has no handle, cannot broadcast message.", m_modulePtr->GetModuleName());
+    }
 }
 
 }} // namespace nexusflow::core

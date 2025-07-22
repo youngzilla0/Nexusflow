@@ -4,6 +4,7 @@
 #include "MyMessage.hpp"
 #include "nexusflow/ErrorCode.hpp"
 #include "nexusflow/Message.hpp"
+#include "nexusflow/ProcessingContext.hpp"
 
 namespace {
 
@@ -46,10 +47,16 @@ nexusflow::ErrorCode MyPersonDetectorModule::Init() {
     return nexusflow::ErrorCode::SUCCESS;
 }
 
-void MyPersonDetectorModule::Process(nexusflow::Message& inputMessage) {
-    if (auto* msg = inputMessage.MutPtr<InferenceMessage>()) {
-        msg->boxes = DetectInfer();
-        LOG_INFO("'{}' Send message to next module, data={}", GetModuleName(), msg->toString());
-        Broadcast(inputMessage);
+nexusflow::ProcessStatus MyPersonDetectorModule::Process(nexusflow::ProcessingContext& ctx) {
+    auto* msg = ctx.MutPayload<InferenceMessage>();
+
+    if (msg == nullptr) {
+        LOG_ERROR("MyPersonDetectorModule::Process, name={}, msg is null", GetModuleName());
+        return nexusflow::ProcessStatus::FAILED_GET_INPUT;
     }
+
+    msg->boxes = DetectInfer();
+    LOG_INFO("'{}' Send message to next module, data={}", GetModuleName(), msg->toString());
+
+    return nexusflow::ProcessStatus::OK;
 }

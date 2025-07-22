@@ -3,9 +3,11 @@
 
 #include "base/Define.hpp"
 #include "common/ViewPtr.hpp"
+#include "dispatcher/Dispatcher.hpp"
 #include "module/ActorContext.hpp"
 #include "nexusflow/ErrorCode.hpp"
 #include "nexusflow/Module.hpp"
+#include "nexusflow/ProcessingContext.hpp"
 #include "utils/logging.hpp"
 
 #include <atomic>
@@ -57,9 +59,8 @@ public:
         }
         m_inputQueueMap[name] = std::move(queue);
     }
-    // ViewPtr<MessageQueue> GetQueue(const std::string& name) { return m_inputQueueMap[name]; }
-    // void RemoveQueue(const std::string& name) { m_inputQueueMap.erase(name); }
-    // void ClearQueues() { m_inputQueueMap.clear(); }
+
+    void SetDispatcher(const ViewPtr<dispatcher::Dispatcher>& dispatcher) { m_dispatcher = dispatcher; }
 
     void WorkLoop();
 
@@ -82,12 +83,17 @@ private:
      * @param maxBatchSize The maximum number of messages to pull.
      * @param batchTimeout The maximum time to wait for messages to become available.
      */
-    std::vector<Message> PullBatchMessage(size_t maxBatchSize, std::chrono::milliseconds batchTimeout);
+    std::vector<ProcessingContext> PullBatchMessage(size_t maxBatchSize, std::chrono::milliseconds batchTimeout);
 
 private:
-    const ActorContext& m_context;
+    void Broadcast(const Message& message);
+
+private:
+    ActorContext m_context;
     std::shared_ptr<Module> m_modulePtr = nullptr;
     std::unordered_map<std::string, ViewPtr<MessageQueue>> m_inputQueueMap;
+
+    ViewPtr<dispatcher::Dispatcher> m_dispatcher;
 
     std::atomic<bool> m_stopFlag{false};
 };

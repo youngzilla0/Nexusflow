@@ -2,9 +2,6 @@ cmake_minimum_required(VERSION 3.15 FATAL_ERROR)
 
 project(PipelineDAG VERSION 1.0.0 LANGUAGES CXX)
 
-set(CMAKE_CXX_STANDARD 14)
-set(CMAKE_CXX_EXTENSIONS ON)
-
 set(PROJECT_ROOT ${CMAKE_CURRENT_SOURCE_DIR})
 set(INSTALL_ROOT ${PROJECT_ROOT}/install)
 
@@ -22,6 +19,7 @@ if(CMAKE_INSTALL_PREFIX STREQUAL "" OR CMAKE_INSTALL_PREFIX STREQUAL "/usr/local
 endif()
 
 ### include custom cmake
+
 # list(APPEND CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/cmake")
 include("cmake/include.cmake")
 include("cmake/Utils.cmake")

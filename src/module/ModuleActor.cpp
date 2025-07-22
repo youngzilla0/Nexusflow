@@ -1,21 +1,28 @@
 #include "ModuleActor.hpp"
+#include "common/ViewPtr.hpp"
+#include "module/ActorContext.hpp"
 #include "nexusflow/ErrorCode.hpp"
 #include <memory>
 
 namespace nexusflow {
 
-ModuleActor::ModuleActor(const std::shared_ptr<Module>& module, const Config& config) {
+ModuleActor::ModuleActor(const std::shared_ptr<Module>& module, const Config& config,
+                         const ViewPtr<profiling::ProfilerRegistry>& profilerRegistry) {
+    m_module = module;
     m_config = std::make_unique<Config>(config);
 
+    ViewPtr<Module> moduleView{m_module.get()};
     ViewPtr<Config> configView{m_config.get()};
 
-    m_module = module;
-    m_worker = std::make_shared<core::Worker>(m_module, configView);
+    // Create actor context
+    ActorContext actorContext;
+    actorContext.config = configView;
+    actorContext.profilerRegistry = profilerRegistry;
 
-    ViewPtr<Module> moduleView{m_module.get()};
-    m_dispatcher = std::make_shared<dispatcher::Dispatcher>(configView);
+    m_worker = std::make_shared<core::Worker>(m_module, actorContext);
+    m_dispatcher = std::make_shared<dispatcher::Dispatcher>(actorContext);
 
-    m_module->SetDispatcher(m_dispatcher);
+    m_worker->SetDispatcher(makeViewPtr(m_dispatcher.get()));
 }
 
 ModuleActor::~ModuleActor() = default;

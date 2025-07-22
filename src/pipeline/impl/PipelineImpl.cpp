@@ -1,5 +1,8 @@
 #include "PipelineImpl.hpp"
 #include "base/Graph.hpp"
+#include "common/ViewPtr.hpp"
+#include "nexusflow/Pipeline.hpp"
+#include "profiling/ProfilerRegistry.hpp"
 #include <nexusflow/ModuleFactory.hpp>
 #include <stdexcept>
 
@@ -10,8 +13,8 @@ std::shared_ptr<ActorNode> Pipeline::Impl::GetOrCreateActorNode(const std::share
     const auto& nodeName = node->name;
 
     // 检查 activeNodeMap 中是否已存在
-    auto it = actorModuleMap.find(nodeName);
-    if (it != actorModuleMap.end()) {
+    auto it = m_actorModuleMap.find(nodeName);
+    if (it != m_actorModuleMap.end()) {
         return it->second; // 已存在，直接返回
     }
 
@@ -31,13 +34,15 @@ std::shared_ptr<ActorNode> Pipeline::Impl::GetOrCreateActorNode(const std::share
     }
 
     // 2. 创建 ActiveNode 并存入 map
-    auto actorNode = std::make_shared<ActorNode>(module, config);
-    actorModuleMap.emplace(nodeName, actorNode);
+    auto actorNode = std::make_shared<ActorNode>(module, config, makeViewPtr(m_profilerRegistry.get()));
+    m_actorModuleMap.emplace(nodeName, actorNode);
 
     return actorNode;
 }
 
-ErrorCode Pipeline::Impl::Init() {
+ErrorCode Pipeline::Impl::Init(const std::unique_ptr<Graph>& graph) {
+    m_profilerRegistry = std::make_unique<profiling::ProfilerRegistry>(graph->getName());
+
     LOG_TRACE("Try init pipeline with graph, [graphName={}]", graph->getName());
 
     auto edgeList = graph->toEdgeListBFS();
@@ -64,17 +69,23 @@ ErrorCode Pipeline::Impl::Init() {
         srcActorNode->AddOutputQueue(queueName, queueView);
         dstActorNode->AddInputQueue(queueName, queueView);
 
-        queues.push_back(std::move(queue));
+        m_queues.push_back(std::move(queue));
 
         // store ordered actor nodes
-        actorOrderedNodes.insert(srcActorNode);
-        actorOrderedNodes.insert(dstActorNode);
+        m_actorOrderedNodes.insert(srcActorNode);
+        m_actorOrderedNodes.insert(dstActorNode);
     }
 
-    CHECK(actorModuleMap.size() == actorOrderedNodes.size(), "actorModuleMap size != actorOrderedNodes size, [{} != {}]",
-          actorModuleMap.size(), actorOrderedNodes.size());
+    CHECK(m_actorModuleMap.size() == m_actorOrderedNodes.size(), "actorModuleMap size != actorOrderedNodes size, [{} != {}]",
+          m_actorModuleMap.size(), m_actorOrderedNodes.size());
 
     return ErrorCode::SUCCESS;
+}
+
+void Pipeline::Impl::StopQueues() {
+    for (auto& queue : m_queues) {
+        queue->shutdown();
+    }
 }
 
 } // namespace nexusflow

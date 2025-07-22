@@ -41,3 +41,8 @@
         -   [ ] **创建公共头文件**: 创建一个新的头文件，例如 `include/nexusflow/logging.hpp`。
         -   [ ] **提供简洁的宏**: 在该头文件中，提供一组易于使用的日志宏，如 `NEXUSFLOW_LOG_INFO(...)`, `NEXUSFLOW_LOG_WARN(...)`。这些宏内部会调用您的日志系统实现（如 spdlog）。
         -   [ ] **隐藏实现**: 确保 `spdlog` 等第三方库的头文件不会被包含在公共的 `logging.hpp` 中，避免依赖泄露。
+
+
+
+###
+- ProcessingContext使用MutInputPtr后再使用AddOutput如何自动获取Output的数据?

@@ -4,6 +4,7 @@
 #include "../src/utils/logging.hpp" // TODO: remove
 #include "nexusflow/ErrorCode.hpp"
 #include "nexusflow/Message.hpp"
+#include "nexusflow/ProcessingContext.hpp"
 #include <thread>
 
 MyAlarmPusherModule::MyAlarmPusherModule(const std::string& name) : Module(name) {
@@ -35,9 +36,9 @@ nexusflow::ErrorCode MyAlarmPusherModule::DeInit() {
     return nexusflow::ErrorCode::SUCCESS;
 }
 
-void MyAlarmPusherModule::Process(nexusflow::Message& inputMessage) {
-    if (auto* msg = inputMessage.BorrowPtr<InferenceMessage>()) {
+nexusflow::ProcessStatus MyAlarmPusherModule::Process(nexusflow::ProcessingContext& ctx) {
+    if (auto* msg = ctx.BorrowPayload<InferenceMessage>()) {
         m_outFile << msg->toString() << std::endl;
-        Broadcast(inputMessage);
     }
+    return nexusflow::ProcessStatus::OK;
 }

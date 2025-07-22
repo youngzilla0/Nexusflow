@@ -11,7 +11,7 @@ public:
     nexusflow::ErrorCode Configure(const nexusflow::Config& config) override;
 
 protected:
-    void Process(nexusflow::Message& inputMessage) override;
+    nexusflow::ProcessStatus Process(nexusflow::ProcessingContext& ctx) override;
 
 private:
     uint32_t m_skipInterval = 1; // skip every n-th message

@@ -1,6 +1,0 @@
-#ifndef NEXUSFLOW_MONITORING_HPP
-#define NEXUSFLOW_MONITORING_HPP
-
-#include "Metrics.hpp"
-
-#endif // NEXUSFLOW_MONITORING_HPP

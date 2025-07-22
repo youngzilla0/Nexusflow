@@ -4,10 +4,8 @@
 #include <nexusflow/Config.hpp>
 #include <nexusflow/ErrorCode.hpp>
 #include <nexusflow/Message.hpp>
+#include <nexusflow/ProcessingContext.hpp>
 #include <nexusflow/TypeTraits.hpp>
-
-#include <memory>
-#include <unordered_map>
 
 // --- Forward Declarations ---
 // Forward-declare internal and framework classes to keep this header clean.
@@ -65,22 +63,9 @@ public:
     virtual ErrorCode DeInit();
 
     // --- Processing ---
+    virtual ProcessStatus Process(ProcessingContext& context) = 0;
 
-    /**
-     * @brief The core processing logic for a single message.
-     * @note Derived classes MUST implement this method.
-     * @param inputMessage The message to be processed, passed in by the framework.
-     */
-    virtual void Process(Message& inputMessage) = 0;
-
-    /**
-     * @brief The core processing logic for a batch of messages.
-     * The framework calls this method by default. The base implementation
-     * simply iterates through the batch and calls `process()` for each message.
-     * Override this for more efficient batch-oriented processing.
-     * @param inputBatchMessages A batch of messages to be processed.
-     */
-    virtual void ProcessBatch(std::vector<Message>& inputBatchMessages);
+    virtual std::vector<ProcessStatus> ProcessBatch(std::vector<ProcessingContext>& inputBatchContexts);
 
     // --- Getter and Setter ---
 
@@ -90,32 +75,10 @@ public:
      */
     const std::string& GetModuleName() const;
 
-protected:
-    // --- Protected API for Derived Classes ---
-
-    /**
-     * @brief Broadcasts a message to all connected downstream outputs.
-     * @param msg The message to be sent.
-     */
-    void Broadcast(const Message& msg);
-
-    /**
-     * @brief Sends a message to a specific downstream output.
-     * @param outputName The name of the output port to send the message to.
-     * @param msg The message to be sent.
-     */
-    void SendTo(const std::string& outputName, const Message& msg);
-
 private:
     friend class ModuleActor;
 
-    // A private setter for the internal handle, callable only by the Pipeline.
-    void SetDispatcher(const std::shared_ptr<dispatcher::Dispatcher>& dispatcher);
-
     std::string m_moduleName;
-
-    // The internal dispatcher handle.
-    std::shared_ptr<dispatcher::Dispatcher> m_dispatcherPtr;
 };
 
 } // namespace nexusflow

@@ -4,6 +4,7 @@
 #include "../src/utils/logging.hpp" // TODO: remove
 #include "nexusflow/ErrorCode.hpp"
 #include "nexusflow/Message.hpp"
+#include "nexusflow/ProcessingContext.hpp"
 #include <unordered_map>
 
 MyHeadPersonFusionModule::MyHeadPersonFusionModule(const std::string& name) : Module(name) {
@@ -25,32 +26,24 @@ nexusflow::ErrorCode MyHeadPersonFusionModule::Init() {
     return nexusflow::ErrorCode::SUCCESS;
 }
 
-void MyHeadPersonFusionModule::Process(nexusflow::Message& inputMessage) {
-    const std::string headKey = "HeadDetector";
-    const std::string personKey = "PersonDetector";
+nexusflow::ProcessStatus MyHeadPersonFusionModule::Process(nexusflow::ProcessingContext& ctx) {
+    const std::string HEAD_KEY = "HeadDetector";
+    const std::string PERSON_KEY = "PersonDetector";
 
-    using InputType = std::unordered_map<std::string, nexusflow::Message>;
-    if (auto* msg = inputMessage.MutPtr<InputType>()) {
-        for (auto& pair : *msg) {
-            LOG_DEBUG("'{}' Receive message from previous module, data={}", pair.first,
-                      pair.second.BorrowPtr<InferenceMessage>()->toString());
-        }
+    auto* headMessagePtr = ctx.BorrowPayload<InferenceMessage>(HEAD_KEY);
+    auto* personMessagePtr = ctx.BorrowPayload<InferenceMessage>(PERSON_KEY);
 
-        // Check if the input message contains the required keys
-        if (msg->find(headKey) == msg->end() || msg->find(personKey) == msg->end()) {
-            LOG_ERROR("Input message does not contain the required keys");
-            return;
-        }
-
-        InferenceMessage* headMessage = msg->at(headKey).MutPtr<InferenceMessage>();
-        InferenceMessage* personMessage = msg->at(personKey).MutPtr<InferenceMessage>();
-
-        InferenceMessage fusedMessage = DoFusion(*headMessage, *personMessage);
-
-        LOG_INFO("'{}' Send message to next module, data={}", GetModuleName(), fusedMessage.toString());
-
-        Broadcast(nexusflow::MakeMessage(std::move(fusedMessage)));
+    // Check if the input message contains the required keys
+    if (headMessagePtr == nullptr || personMessagePtr == nullptr) {
+        LOG_ERROR("Input message does not contain the required keys");
+        return nexusflow::ProcessStatus::FAILED_GET_INPUT;
     }
+
+    InferenceMessage fusedMessage = DoFusion(*headMessagePtr, *personMessagePtr);
+    LOG_INFO("'{}' Send message to next module, data={}", GetModuleName(), fusedMessage.toString());
+    ctx.AddOutput(nexusflow::MakeMessage(std::move(fusedMessage)));
+
+    return nexusflow::ProcessStatus::OK;
 }
 
 InferenceMessage MyHeadPersonFusionModule::DoFusion(const InferenceMessage& headMessage, const InferenceMessage& personMessage) const {
@@ -71,9 +64,12 @@ InferenceMessage MyHeadPersonFusionModule::DoFusion(const InferenceMessage& head
         auto& resultBox = resultMessage.boxes[i];
 
         resultBox.labelName = "Fusion(" + headBox.labelName + ", " + personBox.labelName + ")";
-        resultBox.score = 0;
-        resultBox.label = 0;
-        resultBox.rect.x0 = resultBox.rect.y0 = resultBox.rect.x1 = resultBox.rect.y1 = 0;
+        resultBox.score = headBox.score + personBox.score;
+        resultBox.label = headBox.label + personBox.label;
+        resultBox.rect.x0 = headBox.rect.x0 + personBox.rect.x0;
+        resultBox.rect.y0 = headBox.rect.y0 + personBox.rect.y0;
+        resultBox.rect.x1 = headBox.rect.x1 + personBox.rect.x1;
+        resultBox.rect.y1 = headBox.rect.y1 + personBox.rect.y1;
     }
 
     return resultMessage;

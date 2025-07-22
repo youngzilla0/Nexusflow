@@ -4,6 +4,7 @@
 #include "../src/utils/logging.hpp" // TODO: remove
 #include "nexusflow/ErrorCode.hpp"
 #include "nexusflow/Message.hpp"
+#include "nexusflow/ProcessingContext.hpp"
 
 namespace {
 
@@ -15,10 +16,10 @@ std::vector<Box> DetectInfer(uint64_t id) {
         box.label = 333;
         box.labelName = "HEAD-" + std::to_string(id);
         box.score = 1.0;
-        box.rect.x0 = i * 10;
-        box.rect.y0 = i * 10;
-        box.rect.x1 = i * 10 + 100;
-        box.rect.y1 = i * 10 + 100;
+        box.rect.x0 = id;
+        box.rect.y0 = id;
+        box.rect.x1 = id + 10;
+        box.rect.y1 = id + 10;
         boxes.push_back(box);
     }
     return boxes;
@@ -44,12 +45,15 @@ nexusflow::ErrorCode MyHeadDetectorModule::Init() {
     return nexusflow::ErrorCode::SUCCESS;
 }
 
-void MyHeadDetectorModule::Process(nexusflow::Message& inputMessage) {
-    if (auto* msg = inputMessage.MutPtr<InferenceMessage>()) {
-        msg->boxes = DetectInfer(msg->videoFrame.frameId);
-        LOG_INFO("'{}' Send message to next module, data={}", GetModuleName(), msg->toString());
+nexusflow::ProcessStatus MyHeadDetectorModule::Process(nexusflow::ProcessingContext& ctx) {
+    auto inputMessage = ctx.TakeInput();
+    auto* msg = inputMessage.MutPtr<InferenceMessage>();
 
-        inputMessage.MetaData().sourceName = GetModuleName();
-        Broadcast(inputMessage);
-    }
+    msg->boxes = DetectInfer(msg->videoFrame.frameId);
+    LOG_INFO("'{}' Send message to next module, data={}", GetModuleName(), msg->toString());
+    inputMessage.MetaData().sourceName = GetModuleName();
+
+    ctx.AddOutput(std::move(inputMessage));
+
+    return nexusflow::ProcessStatus::OK;
 }

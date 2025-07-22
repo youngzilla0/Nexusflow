@@ -4,6 +4,7 @@
 #include "../src/utils/logging.hpp" // TODO: remove
 #include "nexusflow/ErrorCode.hpp"
 #include "nexusflow/Message.hpp"
+#include "nexusflow/ProcessingContext.hpp"
 #include <thread>
 #include <type_traits>
 
@@ -20,17 +21,23 @@ nexusflow::ErrorCode MyDecoderModule::Configure(const nexusflow::Config& config)
     return nexusflow::ErrorCode::SUCCESS;
 }
 
-void MyDecoderModule::Process(nexusflow::Message& inputMessage) {
-    if (auto* msg = inputMessage.MutPtr<DecoderMessage>()) {
-        auto& videoPackage = msg->videoPackage;
-        if (m_frameIdx % m_skipInterval == 0) {
-            msg->videoFrame.frameId = m_frameIdx;
-            msg->videoFrame.frameData = "frameData-" + std::to_string(m_frameIdx);
-            LOG_INFO("'{}' Send message to next module, data={}", GetModuleName(), msg->toString());
+nexusflow::ProcessStatus MyDecoderModule::Process(nexusflow::ProcessingContext& ctx) {
+    auto inputMessage = ctx.TakeInput();
+    auto* msg = inputMessage.MutPtr<DecoderMessage>();
 
-            auto outputMessage = ConvertDecoderMessageToInferenceMessage(*msg);
-            Broadcast(nexusflow::MakeMessage(std::move(outputMessage)));
-        }
-        m_frameIdx++;
+    if (msg == nullptr) {
+        LOG_ERROR("'{}' Input message is null", GetModuleName());
+        return nexusflow::ProcessStatus::FAILED_GET_INPUT;
     }
+
+    auto& videoPackage = msg->videoPackage;
+    if (m_frameIdx % m_skipInterval == 0) {
+        msg->videoFrame.frameId = m_frameIdx;
+        msg->videoFrame.frameData = "frameData-" + std::to_string(m_frameIdx);
+        LOG_INFO("'{}' Send message to next module, data={}", GetModuleName(), msg->toString());
+        auto outputMessage = ConvertDecoderMessageToInferenceMessage(*msg);
+        ctx.AddOutput(nexusflow::MakeMessage(std::move(outputMessage)));
+    }
+    m_frameIdx++;
+    return nexusflow::ProcessStatus::OK;
 }

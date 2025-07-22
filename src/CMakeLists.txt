@@ -13,6 +13,14 @@ endif()
 set(GLOBAL_TEST_SOURCES ${GLOBAL_TEST_SOURCES} ${SRC_TEST_FILES})
 
 add_library(nexusflow STATIC ${NEXUSFLOW_SRC_FILES})
+if(NOT MSVC)
+    target_compile_options(nexusflow
+        PRIVATE
+        -Wall
+        -Wextra
+        -Werror=return-type
+    )
+endif()
 target_include_directories(nexusflow PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
 )

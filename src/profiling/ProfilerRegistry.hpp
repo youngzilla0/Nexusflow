@@ -1,15 +1,17 @@
-#ifndef NEXUSFLOW_METRICS_REGISTRY_HPP
-#define NEXUSFLOW_METRICS_REGISTRY_HPP
+#ifndef NEXUSFLOW_PROFILER_REGISTRY_HPP
+#define NEXUSFLOW_PROFILER_REGISTRY_HPP
 
-#include "Metrics.hpp"
+#include "Primitives.hpp"
 #include <map>
 #include <mutex>
 #include <string>
 
-namespace nexusflow { namespace monitoring {
+namespace nexusflow { namespace profiling {
 
-class MetricsRegistry {
+class ProfilerRegistry {
 public:
+    ProfilerRegistry(std::string name) : m_name(std::move(name)) {}
+
     // Methods are now more direct. Key is a simple string, e.g., "module.InputNode.messages_processed".
     Counter& GetCounter(const MetricId& name) {
         std::lock_guard<std::mutex> lock(m_mutex);
@@ -31,11 +33,12 @@ public:
 
 private:
     mutable std::mutex m_mutex;
+    const std::string m_name;
     std::map<std::string, Counter> m_counters;
     std::map<std::string, Gauge> m_gauges;
     std::map<std::string, Summary> m_summaries;
 };
 
-}} // namespace nexusflow::monitoring
+}} // namespace nexusflow::profiling
 
 #endif
