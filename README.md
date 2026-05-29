@@ -299,6 +299,12 @@ make -j$(nproc)
 
 # 4. Run the example
 ./examples/nexusflow_example path/to/your/graph.yaml
+
+
+
+# Windows: clangd + ninja (recommended)
+cmake -S . -B build -GNinja -DCMAKE_EXPORT_COMPILE_COMMANDS=1 -DCMAKE_BUILD_TYPE=Release
+cmake --build build
 ```
 
 ## Contributing
