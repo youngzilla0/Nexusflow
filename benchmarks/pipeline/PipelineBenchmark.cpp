@@ -62,13 +62,10 @@ public:
         Message msg(now); // 消息内容为当前时间戳
         Broadcast(msg);
         mCounter++;
+        // LOG_INFO("Send message, current count: {}", mCounter);
     }
 
     void Process(Message&) override {
-        // 如果框架自动回调 Process，则在这里产生数据
-        if (mRunning.load()) {
-            GenerateOne();
-        }
     }
 
     std::atomic<bool> mRunning{false};
@@ -120,7 +117,7 @@ static void BM_Pipeline_Latency(benchmark::State& state) {
 
     pipeline->Stop();
 }
-BENCHMARK(BM_Pipeline_Latency)->Unit(benchmark::kMicrosecond);
+//BENCHMARK(BM_Pipeline_Latency)->Unit(benchmark::kMicrosecond);
 
 // -----------------------------------------------------------------------------
 // BM_Pipeline_Throughput: 测量系统极限吞吐量
