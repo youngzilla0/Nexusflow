@@ -19,6 +19,7 @@ class PipelineBuilder::Impl {
 public:
     std::vector<std::shared_ptr<Module>> modules;
     std::vector<std::pair<std::string, std::string>> connections;
+    PipelineConfig config = PipelineConfig::Default();  // Default configuration
 };
 
 // --- PipelineBuilder's Public Methods ---
@@ -42,6 +43,13 @@ PipelineBuilder& PipelineBuilder::AddModule(const std::shared_ptr<Module>& modul
 PipelineBuilder& PipelineBuilder::Connect(const std::string& srcModuleName, const std::string& dstModuleName) {
     if (m_pImpl && !srcModuleName.empty() && !dstModuleName.empty()) {
         m_pImpl->connections.emplace_back(srcModuleName, dstModuleName);
+    }
+    return *this;
+}
+
+PipelineBuilder& PipelineBuilder::WithConfig(const PipelineConfig& config) {
+    if (m_pImpl) {
+        m_pImpl->config = config;
     }
     return *this;
 }
@@ -129,7 +137,7 @@ std::unique_ptr<Pipeline> PipelineBuilder::Build() {
 
     // --- Step 6: Create the Pipeline from the fully constructed Graph ---
     auto pipeline = std::unique_ptr<Pipeline>(new Pipeline());
-    pipeline->InitWithGraph(std::move(graph));
+    pipeline->InitWithGraph(std::move(graph), m_pImpl->config);
 
     m_pImpl.reset(); // Consume the builder
 

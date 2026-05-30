@@ -24,10 +24,15 @@ class Pipeline::Impl {
 public:
     std::unique_ptr<Graph> graph;
     std::vector<MessageQueueUPtr> queues;
+    PipelineConfig config;  // Pipeline configuration
 
     std::set<std::shared_ptr<ActorNode>> actorOrderedNodes;
 
     ErrorCode Init();
+
+    // Applies topology-based join detection: finds all converge nodes
+    // (nodes with multiple incoming edges) and enables join mode on their modules.
+    void ApplyTopologyJoin();
 
 private:
     std::shared_ptr<ActorNode> GetOrCreateActorNode(const std::shared_ptr</*Graph::*/ Node>& node);

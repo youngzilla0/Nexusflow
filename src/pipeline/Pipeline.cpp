@@ -22,16 +22,17 @@ Pipeline::Pipeline() : m_pImpl(std::make_unique<Pipeline::Impl>()) {}
 
 Pipeline::~Pipeline() = default;
 
-void Pipeline::InitWithGraph(std::unique_ptr<Graph> graph) {
+void Pipeline::InitWithGraph(std::unique_ptr<Graph> graph, const PipelineConfig& config) {
     LOG_DEBUG("Initializing pipeline with graph, graph={}", graph->toString());
     m_pImpl->graph = std::move(graph);
+    m_pImpl->config = config; // Store config
     m_pImpl->Init(); // Init the graph
 }
 
 // --- Public APIs ---
 std::unique_ptr<Pipeline> Pipeline::CreateFromYaml(const std::string& configPath) {
     auto pipeline = std::unique_ptr<Pipeline>(new Pipeline());
-    pipeline->InitWithGraph(graphutils::CreateGraphFromYaml(configPath));
+    pipeline->InitWithGraph(graphutils::CreateGraphFromYaml(configPath), PipelineConfig::Default());
     return pipeline;
 }
 

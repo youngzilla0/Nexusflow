@@ -82,13 +82,64 @@ public:
      */
     virtual void ProcessBatch(std::vector<Message>& inputBatchMessages);
 
-    // --- Getter and Setter ---
+    /**
+     * @brief Whether this module requires synchronized multi-input fusion.
+     * @details When true, the Worker will wait for all input streams to have
+     * a message with the same messageId before processing (Fusion mode).
+     * Override in subclasses that need graph-style multi-input join.
+     * @return True if sync-input fusion is required (default: false).
+     */
+    /**
+     * @brief Whether this module requires multi-input join (fusion).
+     * @details When true, the Worker will wait for all input streams to have
+     * a message with the same messageId before processing (Join mode).
+     * Override in subclasses that need graph-style multi-input join.
+     * @return True if multi-input join is required (default: false).
+     */
+    virtual bool JoinInputs() const {
+        // Default: module does not need multi-input join.
+        // Subclasses that need graph-style multi-input join MUST override this.
+        // JoinHint::AlwaysJoin can also force-enable it via PipelineBuilder API.
+        return m_joinHint == JoinHint::AlwaysJoin;
+    }
+
+    /**
+     * @brief Framework hint for multi-input join mode.
+     * @details Auto = framework decides based on topology (default).
+     * AlwaysJoin = force join mode even if single input.
+     * NeverJoin = disable join mode even if multiple inputs converge.
+     */
+    enum class JoinHint { Auto, AlwaysJoin, NeverJoin };
+
+    /**
+     * @brief Gets the join hint.
+     * @return The JoinHint for this module.
+     */
+    JoinHint GetJoinHint() const { return m_joinHint; }
+
+    /**
+     * @brief Sets the join hint (called by Pipeline during topology analysis).
+     * @param hint The JoinHint to set.
+     */
+    void SetJoinHint(JoinHint hint) { m_joinHint = hint; }
+
+    /**
+     * @brief Sets the join mode (called by Pipeline during topology analysis).
+     * @param mode True to enable join mode, false to disable.
+     */
+    void SetJoinMode(bool mode) { m_joinMode = mode; }
+
+    /**
+     * @brief Gets the current join mode.
+     * @return True if join mode is enabled.
+     */
+    bool GetJoinMode() const { return m_joinMode; }
 
     /**
      * @brief Gets the unique name of the module.
      * @return A const reference to the module's name.
      */
-    const std::string& GetModuleName() const;
+    const std::string& GetModuleName() const { return m_moduleName; }
 
 protected:
     // --- Protected API for Derived Classes ---
@@ -96,15 +147,17 @@ protected:
     /**
      * @brief Broadcasts a message to all connected downstream outputs.
      * @param msg The message to be sent.
+     * @param blocking If true, blocks until all subscribers receive the message; if false, uses non-blocking tryPush (default: true).
      */
-    void Broadcast(const Message& msg);
+    void Broadcast(const Message& msg, bool blocking = true);
 
     /**
      * @brief Sends a message to a specific downstream output.
      * @param outputName The name of the output port to send the message to.
      * @param msg The message to be sent.
+     * @param blocking If true, blocks until the message is sent; if false, uses non-blocking tryPush (default: true).
      */
-    void SendTo(const std::string& outputName, const Message& msg);
+    void SendTo(const std::string& outputName, const Message& msg, bool blocking = true);
 
 private:
     friend class ModuleActor;
@@ -116,6 +169,10 @@ private:
 
     // The internal dispatcher handle.
     std::shared_ptr<dispatcher::Dispatcher> m_dispatcherPtr;
+
+    // --- Join mode (set by Pipeline during topology analysis) ---
+    bool m_joinMode = false;              // Pipeline-set join mode flag
+    JoinHint m_joinHint = JoinHint::Auto; // Join hint (user or pipeline-set)
 };
 
 } // namespace nexusflow

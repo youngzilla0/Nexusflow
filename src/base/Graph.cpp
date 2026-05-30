@@ -82,6 +82,46 @@ std::pair<bool, std::vector<Edge>> Graph::checkCycleAndConvertToEdgeList(const s
     return {visitedCount != allNodes.size(), std::move(edgeList)};
 }
 
+std::vector<std::shared_ptr<Node>> Graph::FindConvergeNodes() const {
+    std::vector<std::shared_ptr<Node>> convergeNodes;
+
+    // For each node in the graph, count incoming edges.
+    for (const auto& nodeEntry : m_nodeMap) {
+        const auto& node = nodeEntry.second;
+        int incomingCount = 0;
+
+        // Scan all adjacency list entries to count how many edges point TO this node.
+        // (This is O(V*E) but the graph is typically small. Could be optimized with inDegree map.)
+        for (const auto& adjEntry : m_adjList) {
+            for (const auto& neighbor : adjEntry.second) {
+                if (neighbor == node) {
+                    incomingCount++;
+                }
+            }
+        }
+
+        if (incomingCount >= 2) {
+            convergeNodes.push_back(node);
+        }
+    }
+
+    return convergeNodes;
+}
+
+bool Graph::IsConvergeNode(const std::shared_ptr<Node>& node) const {
+    if (!node) return false;
+
+    int incomingCount = 0;
+    for (const auto& adjEntry : m_adjList) {
+        for (const auto& neighbor : adjEntry.second) {
+            if (neighbor == node) {
+                incomingCount++;
+            }
+        }
+    }
+    return incomingCount >= 2;
+}
+
 std::string Graph::toString() const {
     auto edgeList = toEdgeListBFS();
 

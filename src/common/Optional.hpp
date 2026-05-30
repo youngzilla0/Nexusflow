@@ -2,6 +2,7 @@
 #define OPTIONAL_HPP_
 
 #include <memory>
+#include <stdexcept>
 #include <type_traits>
 
 template <class T>
