@@ -36,6 +36,9 @@ private:
     std::unordered_map<std::string, Any> m_cfgMap;
 };
 
+// Module-level configuration alias (semantic clarity)
+using ModuleConfig = Config;
+
 } // namespace nexusflow
 
 #endif

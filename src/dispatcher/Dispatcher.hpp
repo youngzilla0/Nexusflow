@@ -3,7 +3,6 @@
 
 #include "base/Define.hpp"
 #include "common/ViewPtr.hpp"
-#include "nexusflow/Config.hpp"
 #include "nexusflow/Message.hpp"
 #include "utils/logging.hpp"
 
@@ -27,25 +26,27 @@ namespace nexusflow { namespace dispatcher {
  */
 class Dispatcher {
 public:
-    Dispatcher(const ViewPtr<Config>& configView);
+    Dispatcher();
 
     ~Dispatcher();
 
     /**
-     * @brief Broadcasts a message to all configured output queues.
-     * @details To optimize performance, this method copies the message for the
-     * first N-1 queues and moves the original message into the last queue.
-     * @param msg The message to broadcast.
-     */
-    void Broadcast(const Message& msg);
+         * @brief Broadcasts a message to all configured output queues.
+         * @details To optimize performance, this method copies the message for the
+         * first N-1 queues and moves the original message into the last queue.
+         * @param msg The message to broadcast.
+         * @param blocking If true, blocks until all subscribers receive the message; if false, uses non-blocking tryPush.
+         */
+        void Broadcast(const Message& msg, bool blocking = true);
 
-    /**
-     * @brief Sends a message to a specific output queue.
-     * @param outputName The name of the output queue to send the message to.
-     * @param msg The message to send.
-     * @throws std::invalid_argument If the outputName is not found in the output queue map.
-     */
-    void SendTo(const std::string& outputName, const Message& msg);
+        /**
+         * @brief Sends a message to a specific output queue.
+         * @param outputName The name of the output queue to send the message to.
+         * @param msg The message to send.
+         * @param blocking If true, blocks until the message is sent; if false, uses non-blocking tryPush.
+         * @throws std::invalid_argument If the outputName is not found in the output queue map.
+         */
+        void SendTo(const std::string& outputName, const Message& msg, bool blocking = true);
 
     /**
      * @brief Adds a new output queue to the dispatcher.
@@ -61,7 +62,6 @@ public:
     }
 
 private:
-    ViewPtr<Config> m_configView;
     std::unordered_map<std::string, ViewPtr<MessageQueue>> m_subscriberMap;
 };
 

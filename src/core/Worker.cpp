@@ -9,9 +9,10 @@
 
 namespace nexusflow { namespace core {
 
-Worker::Worker(const std::shared_ptr<Module>& modulePtr, const ViewPtr<Config>& configPtr) {
+Worker::Worker(const std::shared_ptr<Module>& modulePtr,
+               const PipelineConfig& runtimeConfig) {
     m_modulePtr = modulePtr;
-    m_configPtr = configPtr;
+    m_runtimeConfig = runtimeConfig;
     m_stopFlag = false;
 }
 
@@ -53,22 +54,16 @@ void Worker::WorkLoop() {
 
     bool isSourceModule = m_inputQueueMap.empty(); // Check if this is a source module.
 
-    /**
-     * TODO: yzl
-     * 1. Add try-catch block to handle exceptions.
-     * 2. Configure variables for batch size and timeout from config.
-     */
-    constexpr size_t kMaxBatchSize = 4;
-    constexpr std::chrono::milliseconds kBatchTimeout{100};
+    // Read batch parameters from runtimeConfig
+    size_t maxBatchSize = m_runtimeConfig.maxBatchSize;
+    auto batchTimeout = std::chrono::milliseconds(m_runtimeConfig.batchTimeoutMs);
 
-    // TODO: get value from config.
-    bool isSyncInputs = false;
-    isSyncInputs = m_configPtr->GetValueOrDefault<bool>("syncInputs", isSyncInputs);
+    bool isJoinInputs = m_modulePtr->JoinInputs();
 
-    LOG_DEBUG("Worker for module '{}' is running. Is source module: {}. Is sync inputs: {}.", m_modulePtr->GetModuleName(),
-              isSourceModule, isSyncInputs);
+    LOG_DEBUG("Worker for module '{}' is running. Is source module: {}. Is join inputs: {}. Batch size: {}, Timeout: {}ms.",
+              m_modulePtr->GetModuleName(), isSourceModule, isJoinInputs, maxBatchSize, m_runtimeConfig.batchTimeoutMs);
 
-    if (isSyncInputs) {
+    if (isJoinInputs) {
         assert(!isSourceModule);
         RunFusion(); // Run the fusion module.
     } else {
@@ -79,7 +74,7 @@ void Worker::WorkLoop() {
                 m_modulePtr->Process(emptyMessage);
             } else {
                 // Sink or Filter/Transformer Module Loop
-                auto batchMessage = PullBatchMessage(kMaxBatchSize, kBatchTimeout);
+                auto batchMessage = PullBatchMessage(maxBatchSize, batchTimeout);
                 m_modulePtr->ProcessBatch(batchMessage);
             }
         }
