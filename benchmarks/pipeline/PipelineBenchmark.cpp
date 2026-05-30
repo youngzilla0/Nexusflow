@@ -116,7 +116,7 @@ static void BM_Pipeline_Latency(benchmark::State& state) {
 
         // 等待所有消息到达 Sink (菱形拓扑，Sink 应该收到 2 * test_count 条)
         while (sink->GetMessageCount() < test_count * 2) {
-            std::this_thread::yield();
+            std::this_thread::sleep_for(std::chrono::microseconds(100));
         }
 
         // 计算平均延迟：总延迟 / 总接收数

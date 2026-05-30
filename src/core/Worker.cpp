@@ -177,44 +177,42 @@ std::vector<Message> Worker::PullBatchMessage(size_t maxBatchSize, std::chrono::
         }
     }
 
-    // --- Phase 2: Short-blocking polling loop ---
-    // If the batch is not yet full, enter a polling loop that waits efficiently.
-    while (!m_stopFlag.load()) {
-        // Check exit condition: batch is full.
-        if (batchMessage.size() >= maxBatchSize) {
-            break;
-        }
-
-        // Check exit condition: total time has elapsed.
+    // --- Phase 2: Non-blocking polling loop (eliminates syscall overhead) ---
+    // Instead of using blocking waitAndPopFor which causes mutex contention,
+    // use a tight non-blocking poll with sleep when queue is empty.
+    // This reduces context switches and lock contention significantly.
+    while (!m_stopFlag.load() && batchMessage.size() < maxBatchSize) {
         auto now = std::chrono::steady_clock::now();
         auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - startTime);
         if (elapsed >= batchTimeout) {
             break;
         }
 
-        // Iterate through all input queues and perform a short wait on each.
+        bool foundMessage = false;
         for (auto& item : m_inputQueueMap) {
             auto& queue = item.second;
             Message msg;
-            // Wait for a very short period (e.g., 1ms). This is the key to avoiding
-            // busy-waiting while remaining responsive to multiple inputs.
-            if (queue->waitAndPopFor(msg, std::chrono::milliseconds(1))) {
+            // Non-blocking pop - avoids mutex contention from waitAndPopFor
+            if (queue->tryPop(msg)) {
                 batchMessage.push_back(std::move(msg));
-                // Optimization: If a message was found, this queue might have more.
-                // Try to pop more in a non-blocking way to fill the batch faster.
+                foundMessage = true;
+                // Drain this queue quickly
                 while (batchMessage.size() < maxBatchSize) {
                     Message message;
                     if (queue->tryPop(message)) {
                         batchMessage.push_back(std::move(message));
                     } else {
-                        break; // The queue is now empty.
+                        break;
                     }
                 }
             }
-            // Check if the batch became full during the inner loop.
-            if (batchMessage.size() >= maxBatchSize) {
-                break;
-            }
+            if (batchMessage.size() >= maxBatchSize) break;
+        }
+
+        // If no messages found, sleep briefly to avoid busy-spinning
+        // Use a small sleep to reduce CPU usage when queue is empty
+        if (!foundMessage && batchMessage.size() < maxBatchSize) {
+            std::this_thread::sleep_for(std::chrono::microseconds(50));
         }
     }
 
