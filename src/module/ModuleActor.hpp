@@ -11,7 +11,8 @@ namespace nexusflow {
 
 class ModuleActor {
 public:
-    ModuleActor(const std::shared_ptr<Module>& module, const Config& config);
+    ModuleActor(const std::shared_ptr<Module>& module,
+                const PipelineConfig& runtimeConfig);
 
     ~ModuleActor();
 
@@ -38,7 +39,6 @@ private:
     std::shared_ptr<Module> m_module;
     std::shared_ptr<core::Worker> m_worker;
     std::shared_ptr<dispatcher::Dispatcher> m_dispatcher;
-    std::unique_ptr<Config> m_config;
 
     std::thread m_workThread;
 };

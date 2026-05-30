@@ -48,8 +48,9 @@ public:
 
 class PassThroughModule : public Module {
 public:
-    PassThroughModule(std::string name) : Module(std::move(name)) {}
-    void Process(Message& msg) override { Broadcast(msg); }
+    PassThroughModule(std::string name, bool blocking = true) : Module(std::move(name)), m_blocking(blocking) {}
+    void Process(Message& msg) override { Broadcast(msg, m_blocking); }
+    bool m_blocking;
 };
 
 class SourceModule : public Module {
@@ -76,10 +77,17 @@ public:
 // BM_Pipeline_Latency: 测量平均单次端到端延迟
 // -----------------------------------------------------------------------------
 static void BM_Pipeline_Latency(benchmark::State& state) {
+    // Latency test: use blocking send for reliable delivery
     auto source = std::make_shared<SourceModule>("Source");
-    auto pass1 = std::make_shared<PassThroughModule>("Pass1");
-    auto pass2 = std::make_shared<PassThroughModule>("Pass2");
+    auto pass1 = std::make_shared<PassThroughModule>("Pass1", true);
+    auto pass2 = std::make_shared<PassThroughModule>("Pass2", true);
     auto sink = std::make_shared<SinkModule>("Sink");
+
+    // Create pipeline config with optimized settings
+    PipelineConfig config;
+    config.maxBatchSize = 32;
+    config.batchTimeoutMs = 0;  // Low latency: no batching wait
+    config.queueSize = 100;
 
     auto pipeline = PipelineBuilder()
                         .AddModule(source)
@@ -90,6 +98,7 @@ static void BM_Pipeline_Latency(benchmark::State& state) {
                         .Connect("Source", "Pass2")
                         .Connect("Pass1", "Sink")
                         .Connect("Pass2", "Sink")
+                        .WithConfig(config)
                         .Build();
 
     pipeline->Init();
@@ -117,16 +126,23 @@ static void BM_Pipeline_Latency(benchmark::State& state) {
 
     pipeline->Stop();
 }
-//BENCHMARK(BM_Pipeline_Latency)->Unit(benchmark::kMicrosecond);
+BENCHMARK(BM_Pipeline_Latency)->Unit(benchmark::kMicrosecond);
 
 // -----------------------------------------------------------------------------
 // BM_Pipeline_Throughput: 测量系统极限吞吐量
 // -----------------------------------------------------------------------------
 static void BM_Pipeline_Throughput(benchmark::State& state) {
+    // Throughput test: use non-blocking send for maximum throughput
     auto source = std::make_shared<SourceModule>("Source");
-    auto pass1 = std::make_shared<PassThroughModule>("Pass1");
-    auto pass2 = std::make_shared<PassThroughModule>("Pass2");
+    auto pass1 = std::make_shared<PassThroughModule>("Pass1", false);
+    auto pass2 = std::make_shared<PassThroughModule>("Pass2", false);
     auto sink = std::make_shared<SinkModule>("Sink");
+
+    // Create pipeline config with high-throughput settings
+    PipelineConfig config;
+    config.maxBatchSize = 64;     // Larger batches for throughput
+    config.batchTimeoutMs = 5;     // Allow some wait for batching
+    config.queueSize = 1000;      // Large queue to absorb bursts
 
     auto pipeline = PipelineBuilder()
                         .AddModule(source)
@@ -137,6 +153,7 @@ static void BM_Pipeline_Throughput(benchmark::State& state) {
                         .Connect("Source", "Pass2")
                         .Connect("Pass1", "Sink")
                         .Connect("Pass2", "Sink")
+                        .WithConfig(config)
                         .Build();
 
     pipeline->Init();

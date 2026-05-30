@@ -1,316 +1,371 @@
-# NexusFlow: A High-Performance, Modern C++ Dataflow Pipeline Framework
+# NexusFlow: High-Performance Modern C++ Dataflow Pipeline Framework
 
-[![Build Status](https://img.shields.io/badge/build-passing-brightgreen)](https://github.com/your_username/nexusflow)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Build Status](https://img.shields.io/badge/build-passing-brightgreen)]()
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)]()
 [![C++_Version](https://img.shields.io/badge/C++-14%2B-blue.svg)]()
 
-**NexusFlow** is a high-performance, highly-decoupled, and dynamically configurable dataflow pipeline framework designed for modern C++. It aims to help developers easily build complex, multi-stage data processing tasks, such as video analytics pipelines, real-time ETL, industrial sensor data processing, and more.
+**NexusFlow** is a high-performance, decoupled, dynamically configurable dataflow pipeline framework for modern C++. It helps you build complex multi-stage data processing tasks — video analytics, real-time ETL, sensor processing, AI inference pipelines — by composing independent **Modules** into a **DAG** like LEGO bricks.
 
-The core idea of the framework is to decompose complex processing workflows into a series of independent **Modules**, which can then be connected like LEGO bricks into a powerful **Directed Acyclic Graph (DAG)** using simple configurations.
+---
 
-## Core Features
+##Core Features
 
-*   **Modular Design, Highly Decoupled**: Each module focuses exclusively on its own business logic. Modules communicate asynchronously via message queues, remaining completely unaware of each other's existence.
-*   **Dynamic Configuration, Powerful & Flexible**: Use simple YAML files to define the entire pipeline topology, module types, and parameters. Reconfigure and refactor complex business flows without recompiling your code.
-*   **Automatic Concurrency, Simplified Development**: The framework automatically assigns dedicated threads to drive each module (or uses a defined strategy). You can focus on your business logic without manually managing complex thread synchronization and lifecycles.
-*   **Clean API, Easy to Use**: Provides two primary ways to construct a pipeline: a **programmatic approach (`PipelineBuilder`)** for rapid development and testing, and a **declarative approach (from YAML)** for production environments.
-*   **High-Performance & Modern C++**: Core components are designed for performance, leveraging modern C++ features. Its core data container, `nexusflow::Message`, uses **Copy-On-Write (COW)** semantics for extreme efficiency in broadcast scenarios.
+- **Modular & Decoupled**: Modules communicate only via message queues, never aware of each other.
+- **YAML-Driven**: Define topology, modules, parameters in a single YAML — no recompile.
+- **Auto-Concurrency**: Framework spawns a dedicated thread per Module.
+- **Two Construction Styles**: `PipelineBuilder` (programmatic) or `CreateFromYaml` (declarative).
+- **High-Performance COW**: `Message` uses Copy-On-Write — broadcast is cheap, mutation is safe.
+- **Clean Config Separation**: `ModuleConfig` (business params) and `PipelineConfig` (runtime params) are kept strictly separate.
 
 ---
 
 ## Quick Start
 
-The following example demonstrates how to build a pipeline with four modules: one input node distributes data to two parallel processing nodes, and one output node gathers the results.
+### Option1: Declarative (YAML) — Recommended
 
-### Option 1: Declarative Build via YAML (Recommended)
-
-This is the most powerful and recommended way to use NexusFlow. It allows you to define your entire system through a configuration file, providing maximum flexibility.
-
-#### 1. Create a Configuration File (`graph.yaml`)
+####1. `graph.yaml`
 
 ```yaml
 graph:
-  name: "VideoAnalyticsPipeline"
+ name: "VideoAnalyticsPipeline"
 
-  # 1. Define all module instances
-  modules:
-    - name: "InputNode"          # A unique instance name for the module
-      class: "MockInputModule"   # The class name registered in the ModuleFactory
+ modules:
+ - name: "InputNode"
+ class: "MockInputModule"
 
-    - name: "ProcessNode1"
-      class: "MockProcessModule"
+ - name: "ProcessNode1"
+ class: "MockProcessModule"
 
-    - name: "ProcessNode2"
-      class: "MockProcessModule"
+ - name: "OutputNode"
+ class: "MockOutputModule"
 
-    - name: "OutputNode"
-      class: "MockOutputModule"
-
-  # 2. Define the connections (the dataflow topology)
-  connections:
-    - from: "InputNode"
-      to: "ProcessNode1"
-    - from: "InputNode"
-      to: "ProcessNode2"
-    - from: "ProcessNode1"
-      to: "OutputNode"
-    - from: "ProcessNode2"
-      to: "OutputNode"
+ connections:
+ - from: "InputNode"
+ to: "ProcessNode1"
+ - from: "ProcessNode1"
+ to: "OutputNode"
 ```
 
-#### 2. Write the C++ Entry Point (`example.cpp`)
+####2. `main.cpp`
 
 ```cpp
 #include "nexusflow/Pipeline.hpp"
 #include "nexusflow/ModuleFactory.hpp"
-#include "my_module/MockInputModule.hpp"    // Include your custom module headers
+#include "my_module/MockInputModule.hpp"
 #include "my_module/MockProcessModule.hpp"
 #include "my_module/MockOutputModule.hpp"
-#include "utils/logging.hpp"               // Your logging utility
-
-#include <iostream>
-#include <chrono>
-#include <thread>
-#include <stdexcept>
-#include <memory>
 
 using namespace nexusflow;
 
-// Register all custom modules with the factory at application startup.
 void registerAllModules() {
-    NEXUSFLOW_REGISTER_MODULE(MockInputModule);
-    NEXUSFLOW_REGISTER_MODULE(MockProcessModule);
-    NEXUSFLOW_REGISTER_MODULE(MockOutputModule);
-}
-
-// A helper function to encapsulate the pipeline execution and teardown logic.
-void executePipeline(Pipeline& pipeline) {
-    if (pipeline.Init() != ErrorCode::SUCCESS) {
-        throw std::runtime_error("Pipeline initialization failed.");
-    }
-
-    pipeline.Start();
-    LOG_INFO("Pipeline running for 10 seconds...");
-    std::this_thread::sleep_for(std::chrono::seconds(10));
-    pipeline.Stop();
-    pipeline.DeInit();
+ NEXUSFLOW_REGISTER_MODULE(MockInputModule);
+ NEXUSFLOW_REGISTER_MODULE(MockProcessModule);
+ NEXUSFLOW_REGISTER_MODULE(MockOutputModule);
 }
 
 int main(int argc, char* argv[]) {
-    // ... Initialize logger ...
+ registerAllModules();
 
-    if (argc < 2) {
-        LOG_ERROR("Usage: {} <path_to_graph_yaml>", argv[0]);
-        return 1;
-    }
+ auto pipeline = Pipeline::CreateFromYaml(argv[1]);
+ pipeline->Init();
+ pipeline->Start();
 
-    try {
-        registerAllModules();
-        std::string configPath = argv[1];
-        
-        // The Pipeline class provides a static factory method.
-        auto pipeline = Pipeline::CreateFromYaml(configPath);
-        if (!pipeline) {
-            throw std::runtime_error("Failed to create pipeline from YAML config.");
-        }
+ std::this_thread::sleep_for(std::chrono::seconds(10));
 
-        executePipeline(*pipeline);
-
-    } catch (const std::exception& e) {
-        LOG_CRITICAL("An exception occurred: {}", e.what());
-        return 1;
-    }
-
-    LOG_INFO("Execution finished successfully.");
-    return 0;
+ pipeline->Stop();
+ pipeline->DeInit();
+ return0;
 }
 ```
 
-### Option 2: Programmatic Build via `PipelineBuilder`
-
-This approach is suitable for simple applications, unit tests, or scenarios where the topology needs to be generated dynamically in code.
+### Option2: Programmatic (`PipelineBuilder`)
 
 ```cpp
-#include "nexusflow/Pipeline.hpp"
 #include "nexusflow/PipelineBuilder.hpp"
-// ... other necessary headers ...
 
-void runWithBuilder() {
-    auto inputModule    = std::make_shared<MockInputModule>("InputNode");
-    auto process1Module = std::make_shared<MockProcessModule>("ProcessNode1");
-    auto process2Module = std::make_shared<MockProcessModule>("ProcessNode2");
-    auto outputModule   = std::make_shared<MockOutputModule>("OutputNode");
+auto pipeline = PipelineBuilder()
+ .AddModule(std::make_shared<MockInputModule>("InputNode"))
+ .AddModule(std::make_shared<MockProcessModule>("ProcessNode1"))
+ .AddModule(std::make_shared<MockOutputModule>("OutputNode"))
+ .Connect("InputNode", "ProcessNode1")
+ .Connect("ProcessNode1", "OutputNode")
+ .WithConfig(PipelineConfig{
+ .maxBatchSize =32,
+ .batchTimeoutMs =5,
+ .queueSize =100
+ })
+ .Build();
 
-    auto pipeline = PipelineBuilder()
-                        .AddModule(inputModule)
-                        .AddModule(process1Module)
-                        .AddModule(process2Module)
-                        .AddModule(outputModule)
-                        .Connect("InputNode", "ProcessNode1")
-                        .Connect("InputNode", "ProcessNode2")
-                        .Connect("ProcessNode1", "OutputNode")
-                        .Connect("ProcessNode2", "OutputNode")
-                        .Build();
-    if (!pipeline) {
-        throw std::runtime_error("Failed to build pipeline.");
-    }
-    
-    executePipeline(*pipeline);
-}
+pipeline->Init();
+pipeline->Start();
 ```
 
 ---
 
-## Core Component: The `nexusflow::Message`
+##Architecture Overview
 
-The `nexusflow::Message` is the universal, thread-safe data wrapper that flows through the pipeline. It is designed to be both highly performant and exceptionally safe.
+For full architecture details, see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
-### Design Philosophy
+```
+┌────────────────────────────────────────────────┐
+│ Public API │
+│ Pipeline / PipelineBuilder / Module / Message │
+└────────────────┬───────────────────────────────┘
+ │
+┌─────────────┴─────────────┐
+ ▼ ▼
+┌────────────┐┌─────────────┐
+│ Graph (DAG)│ │ PipelineConfig│
+└────────────┘ └─────────────┘
+ │
+ ▼
+┌──────────────────────────────┐
+│ ModuleActor (per Module) │
+│┌────────────────────────┐ │
+│ │ Worker (thread) │ ← batch/queue params
+│ ├────────────────────────┤ │
+│ │ Module (user code) │ ← business params
+│ ├────────────────────────┤ │
+│ │ Dispatcher │ ← broadcasts to next stage
+│ └────────────────────────┘ │
+└──────────────────────────────┘
+ │
+ ▼
+┌──────────────────┐
+│ MessageQueue │ ← bounded blocking queue
+└──────────────────┘
+```
 
-1.  **Type-Erasure**: A `Message` can hold an object of **any data type**, allowing different modules to communicate seamlessly.
-2.  **Copy-On-Write (COW)**: This is the core performance feature.
-    *   **Copying is cheap**: Copying a `Message` is a fast `shared_ptr` operation, ideal for broadcasting data to multiple downstream modules.
-    *   **Mutation is safe**: When you attempt to *modify* a shared `Message`, the framework automatically performs a deep copy of the data *before* the modification. This ensures that changes in one branch of the pipeline do not accidentally affect others.
-3.  **Expressive & Safe Accessors**: Instead of traditional getters, `Message` uses a `Borrow`/`Mut` naming convention inspired by Rust to make the developer's intent crystal clear.
+**Key design decisions:**
 
-### How to Use `Message`
+1. **Module is pure business logic** — only knows about `Message` and `Broadcast/SendTo`.
+2. **Worker drives the thread** — owns the batch/queue runtime parameters.
+3. **Dispatcher routes output** — knows nothing about Module internals.
+4. **Two configs, not one** — see [Configuration](#configuration) below.
 
-#### Creating a Message
-The recommended way is to use the `nexusflow::MakeMessage` factory function.
+---
+
+##Core Component: `nexusflow::Message`
+
+The universal thread-safe data wrapper.
+
+### Design
+
+1. **Type-Erasure**: A `Message` can hold any type.
+2. **Copy-On-Write (COW)**: Copy is a cheap `shared_ptr` op. Mutation triggers deep-copy only if shared.
+3. **Rust-inspired accessors**: `Borrow`/`Mut` make intent clear.
+
+### Usage
+
 ```cpp
 #include "nexusflow/Message.hpp"
 
-// Create a message containing a string
-auto msg1 = nexusflow::MakeMessage(std::string("Hello, Pipeline!"));
+//Create
+auto msg1 = nexusflow::MakeMessage(std::string("Hello"));
+auto msg2 = nexusflow::MakeMessage(std::vector<int>{1,2,3}, "SensorModule");
 
-// Create a message containing a vector, specifying its source
-auto msg2 = nexusflow::MakeMessage(std::vector<int>{1, 2, 3}, "SensorModule");
-```
-
-#### Immutable Access (Borrowing)
-Use "borrowing" for **read-only** access. This operation is always fast and **will never** trigger a copy.
-
-*   **`Borrow<T>()`**: Returns a `const` reference. Throws `std::runtime_error` on type mismatch.
-*   **`BorrowPtr<T>()`**: Returns a `const` pointer. Returns `nullptr` on type mismatch (no-throw).
-
-```cpp
-// Safely check for type with BorrowPtr
-if (const auto* content_ptr = msg1.BorrowPtr<std::string>()) {
-    std::cout << "Content: " << *content_ptr << std::endl;
-} else {
-    std::cout << "Message does not contain a string." << std::endl;
+//Read-only (never COW)
+if (const auto* p = msg1.BorrowPtr<std::string>()) {
+ std::cout << *p;
 }
-```
 
-#### Mutable Access (Mutating)
-Use "mutating" for **read-write** access. This **will trigger a Copy-On-Write** if the data is shared.
-
-*   **`Mut<T>()`**: Returns a non-`const` reference. Throws `std::runtime_error` on type mismatch.
-*   **`MutPtr<T>()`**: Returns a non-`const` pointer. Returns `nullptr` on type mismatch (no-throw).
-
-```cpp
-// Safely get a mutable pointer
-if (auto* vec_ptr = msg2.MutPtr<std::vector<int>>()) {
-    vec_ptr->push_back(4); // This might trigger a COW
+//Mutable (triggers COW if shared)
+if (auto* p = msg2.MutPtr<std::vector<int>>()) {
+ p->push_back(4);
 }
-```
 
-### Copy-On-Write in Action
-
-```cpp
-// 1. Create an original message (SharedCount: 1)
-auto original_msg = nexusflow::MakeMessage(std::vector<int>{10, 20, 30});
-
-// 2. Create a shared copy (SharedCount becomes 2)
-auto shared_copy = original_msg;
-
-// 3. One module modifies its copy. This triggers COW.
-// shared_copy creates its own data. Its SharedCount becomes 1.
-// original_msg's SharedCount reverts to 1.
-shared_copy.Mut<std::vector<int>>()[1] = 99;
-
-// 4. The data has diverged safely.
-std::cout << original_msg.Borrow<std::vector<int>>()[1]; // -> 20
-std::cout << shared_copy.Borrow<std::vector<int>>()[1];  // -> 99
+//Broadcast is cheap (shared_ptr copy)
+Broadcast(msg2);
 ```
 
 ---
 
-## How to Write a Custom Module
+##Configuration
 
-Creating a new module is a simple two-step process:
+NexusFlow has **two distinct configuration systems** with strictly separated concerns.
 
-#### 1. Inherit from `nexusflow::Module` and implement `Process`
+### `ModuleConfig` — Business Parameters (YAML)
+
+Per-module settings, loaded from `modules[name].params` in YAML:
+
+```yaml
+modules:
+ - name: "Decoder"
+ class: "DecoderModule"
+ params:
+ modelPath: "/models/yolo.engine" # ← business
+ confidence: 0.7 # ← business
+```
+
+> **Note**: `syncInputs` is NOT a YAML field. To enable Fusion mode,
+> override `Module::RequiresSyncInputs()` in your derived class instead.
+
+### `PipelineConfig` — Runtime Parameters (Code)
+
+Pipeline-wide settings, set via `PipelineBuilder::WithConfig()`:
 
 ```cpp
-// modules/MultiplierModule.hpp
-#include "nexusflow/Module.hpp"
-#include "nexusflow/Message.hpp"
+PipelineConfig{
+ .maxBatchSize =32, // Max messages per Worker batch
+ .batchTimeoutMs =5, // Wait time before flushing partial batch
+ .queueSize =100 // Capacity of each inter-module queue
+}
+```
 
+### Why Separate?
+
+| Concern | ModuleConfig | PipelineConfig |
+|---------|--------------|----------------|
+| Origin | YAML `params:` | `PipelineBuilder::WithConfig()` |
+| Scope | Single module | Entire pipeline |
+| Examples | `modelPath`, `threshold`, `syncInputs` | `maxBatchSize`, `queueSize` |
+| Mutability | Per-module, can differ | Uniform across all modules |
+
+**Rule of thumb**: If it's about *what the module does*, it's `ModuleConfig`. If it's about *how the framework schedules*, it's `PipelineConfig`.
+
+---
+
+##Writing a Custom Module
+
+```cpp
+//1. Inherit from Module
 class MultiplierModule : public nexusflow::Module {
 public:
-    // Every module must have a constructor that accepts a name.
-    explicit MultiplierModule(std::string name) : nexusflow::Module(std::move(name)) {}
+ explicit MultiplierModule(std::string name) : Module(std::move(name)) {}
 
-    // Implement the core processing logic.
-    void Process(nexusflow::Message& msg) override {
-        // Use MutPtr for safe, mutable access.
-        if (auto* data = msg.MutPtr<int>()) {
-            // Multiply the received number by 2.
-            *data *= 2;
-            
-            // Broadcast the modified message downstream.
-            // The message is implicitly shared, no extra copy needed.
-            Broadcast(msg);
-        }
-    }
+ void Process(nexusflow::Message& msg) override {
+ if (auto* data = msg.MutPtr<int>()) {
+ *data *=2;
+ Broadcast(msg); // Send to all downstream
+ }
+ }
+};
+
+//2. Register
+NEXUSFLOW_REGISTER_MODULE(MultiplierModule);
+
+//3. Use in YAML
+// modules:
+// - name: "Doubler"
+// class: "MultiplierModule"
+```
+
+### Advanced: Synchronized Multi-Input Fusion
+
+For modules that need to wait for all input streams to arrive at the same `messageId`
+before processing (e.g., graph-style multi-stream join), override `RequiresSyncInputs()`:
+
+```cpp
+class FusionModule : public nexusflow::Module {
+public:
+ FusionModule(std::string name) : Module(std::move(name)) {}
+
+ // Wait for all input streams to deliver the same messageId before processing
+ bool RequiresSyncInputs() const override { return true; }
+
+ void ProcessBatch(std::vector<Message>& inputBatchMessages) override {
+ // Input arrives pre-sorted by messageId across all streams
+ // ... join / fuse logic
+ Broadcast(resultMsg);
+ }
 };
 ```
 
-#### 2. Register it with the `ModuleFactory` in your application
+### Advanced: Blocking vs Non-Blocking Send
 
 ```cpp
-// main.cpp
-#include "nexusflow/ModuleFactory.hpp"
-#include "modules/MultiplierModule.hpp"
+//Reliable delivery (default) — blocks if downstream queue full
+Broadcast(msg, /*blocking=*/true);
 
-void registerAllModules() {
-    // Register the MultiplierModule with the factory.
-    NEXUSFLOW_REGISTER_MODULE(MultiplierModule);
-}
+//Maximum throughput — drops messages if queue full
+Broadcast(msg, /*blocking=*/false);
 ```
-That's it! You can now use `class: "MultiplierModule"` in your `graph.yaml` file.
 
-## Building the Project
+---
 
-This project uses CMake for building.
+##Building
 
 ```bash
-# 1. Create a build directory
-mkdir build
-cd build
-
-# 2. Run CMake to configure the project
-# Assumes dependencies are managed by CMake's FetchContent or are system-installed.
+mkdir build && cd build
 cmake ..
-
-# 3. Compile the project
 make -j$(nproc)
 
-# 4. Run the example
-./examples/nexusflow_example path/to/your/graph.yaml
+#Run tests
+./tests/nexusflow_tests
 
-
-
-# Windows: clangd + ninja (recommended)
-cmake -S . -B build -GNinja -DCMAKE_EXPORT_COMPILE_COMMANDS=1 -DCMAKE_BUILD_TYPE=Release
-cmake --build build
+#Run benchmark
+./benchmarks/pipeline/pipeline_benchmark
 ```
 
-## Contributing
+### CMake Options
 
-Contributions of any kind are welcome! If you have ideas, suggestions, or have found a bug, please feel free to open a Pull Request or create an Issue.
+| Option | Default | Description |
+|--------|---------|-------------|
+| `WITH_TESTING` | ON | Build unit tests |
+| `WITH_BENCHMARK` | ON | Build benchmarks |
+| `WITH_EXAMPLES` | ON | Build examples |
 
-## License
+```bash
+#Build without tests/benchmarks
+cmake -DWITH_TESTING=OFF -DWITH_BENCHMARK=OFF ..
+```
 
-This project is licensed under the **MIT License**. See the [LICENSE](LICENSE) file for details.
+---
+
+##Project Layout
+
+```
+include/nexusflow/ # Public API headers
+├── Pipeline.hpp # Pipeline + PipelineConfig
+├── PipelineBuilder.hpp # Fluent builder
+├── Module.hpp # User-implemented base class
+├── Message.hpp # Type-erased COW data
+├── Config.hpp # Config + ModuleConfig alias
+└── ModuleFactory.hpp # Reflection registration
+
+src/ # Internal implementation
+├── pipeline/ # Pipeline orchestration
+├── module/ # ModuleActor + ModuleFactory
+├── core/ # Worker (thread driver)
+├── dispatcher/ # Message routing
+├── base/ # Graph, Define (type aliases)
+├── builder/ # PipelineBuilder impl
+└── common/ # ConcurrentQueue, ViewPtr, Any
+```
+
+See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for full architectural details.
+
+---
+
+##Examples
+
+| Example | Description |
+|---------|-------------|
+| [1-how-to-use](examples/1-how-to-use/) | Minimal pipeline: Input → Process → Output |
+| [2-linear-vision-pipline](examples/2-linear-vision-pipline/) | Linear video decoding + inference pipeline |
+| [3-joined-vision-pipline](examples/3-joined-vision-pipline/) | Multi-stream Fusion pipeline (syncInputs demo) |
+
+---
+
+##Performance
+
+Latest benchmark (Apple M-series,8 cores):
+
+```
+BM_Pipeline_Latency       2347 us          955 us         3549 AvgLatencyNs=43.04k
+BM_Pipeline_Throughput    50.1 ms         34.8 ms         ~119  items_per_second=40k/s
+```
+
+---
+
+##License
+
+MIT License. See [LICENSE](LICENSE).
+
+---
+
+##Related Docs
+
+- [Architecture](docs/ARCHITECTURE.md) — Full architecture & component design
+- [Benchmarks](benchmarks/README.md) — Performance benchmark details
+- [Examples](examples/) — Working example pipelines

@@ -43,25 +43,23 @@ void Module::ProcessBatch(std::vector<Message>& inputBatchMessages) {
     }
 }
 
-void Module::Broadcast(const Message& message) {
+void Module::Broadcast(const Message& message, bool blocking) {
     if (m_dispatcherPtr != nullptr) {
-        LOG_DEBUG("Module '{}' broadcasting message.", m_moduleName);
-        m_dispatcherPtr->Broadcast(message);
+        LOG_DEBUG("Module '{}' broadcasting message (blocking={}).", m_moduleName, blocking);
+        m_dispatcherPtr->Broadcast(message, blocking);
     } else {
         LOG_WARN("Module '{}' has no handle, cannot broadcast message.", m_moduleName);
     }
 }
 
-void Module::SendTo(const std::string& outputName, const Message& msg) {
+void Module::SendTo(const std::string& outputName, const Message& msg, bool blocking) {
     if (m_dispatcherPtr != nullptr) {
-        LOG_DEBUG("Module '{}' sending message to '{}'.", m_moduleName, outputName);
-        m_dispatcherPtr->SendTo(outputName, msg);
+        LOG_DEBUG("Module '{}' sending message to '{}' (blocking={}).", m_moduleName, outputName, blocking);
+        m_dispatcherPtr->SendTo(outputName, msg, blocking);
     } else {
         LOG_WARN("Module '{}' has no handle, cannot send message.", m_moduleName);
     }
 }
-
-const std::string& Module::GetModuleName() const { return m_moduleName; }
 
 void Module::SetDispatcher(const std::shared_ptr<dispatcher::Dispatcher>& dispatcher) { m_dispatcherPtr = dispatcher; }
 

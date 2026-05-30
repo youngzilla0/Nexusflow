@@ -5,6 +5,7 @@
 #include "common/ViewPtr.hpp"
 #include "nexusflow/ErrorCode.hpp"
 #include "nexusflow/Module.hpp"
+#include "nexusflow/Pipeline.hpp"
 #include "utils/logging.hpp"
 
 #include <atomic>
@@ -25,7 +26,8 @@ namespace nexusflow { namespace core {
  */
 class Worker {
 public:
-    Worker(const std::shared_ptr<Module>& modulePtr, const ViewPtr<Config>& configPtr);
+    Worker(const std::shared_ptr<Module>& modulePtr,
+           const PipelineConfig& runtimeConfig);
 
     /**
      * @brief Destructor. Ensures the worker thread is properly joined.
@@ -85,9 +87,8 @@ private:
 
 private:
     std::shared_ptr<Module> m_modulePtr = nullptr;
-    ViewPtr<Config> m_configPtr;
+    PipelineConfig m_runtimeConfig;
     std::unordered_map<std::string, ViewPtr<MessageQueue>> m_inputQueueMap;
-
     std::atomic<bool> m_stopFlag{false};
 };
 

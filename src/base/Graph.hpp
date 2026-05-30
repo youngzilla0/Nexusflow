@@ -55,6 +55,12 @@ public:
     // Converts the graph to a list of edges.
     std::vector<Edge> toEdgeListBFS(const std::shared_ptr<Node>& inputNodePtr = nullptr) const;
 
+    // Finds all nodes that have multiple incoming edges (converge points / fusion candidates).
+    std::vector<std::shared_ptr<Node>> FindConvergeNodes() const;
+
+    // Checks if a given node has multiple incoming edges.
+    bool IsConvergeNode(const std::shared_ptr<Node>& node) const;
+
 public:
     // Checks if the graph is empty.
     inline bool isEmpty() const { return m_name.empty() || m_nodeMap.empty() || m_adjList.empty(); }

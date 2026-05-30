@@ -2,6 +2,7 @@
 #define NEXUSFLOW_PIPELINE_BUILDER_HPP
 
 #include <nexusflow/Module.hpp>
+#include <nexusflow/Pipeline.hpp>
 
 #include <memory>
 #include <string>
@@ -46,6 +47,13 @@ public:
      * @return A reference to this builder for chaining.
      */
     PipelineBuilder& Connect(const std::string& srcModuleName, const std::string& dstModuleName);
+
+    /**
+     * @brief Sets the pipeline configuration.
+     * @param config The PipelineConfig to use.
+     * @return A reference to this builder for chaining.
+     */
+    PipelineBuilder& WithConfig(const PipelineConfig& config);
 
     /**
      * @brief Builds the Pipeline instance from the defined configuration.
