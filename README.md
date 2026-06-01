@@ -349,12 +349,30 @@ See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for full architectural details.
 
 ##Performance
 
-Latest benchmark (Apple M-series,8 cores):
+Latest benchmark (Apple M-series, 8 cores, macOS 14.5):
 
 ```
-BM_Pipeline_Latency       2347 us          955 us         3549 AvgLatencyNs=43.04k
-BM_Pipeline_Throughput    50.1 ms         34.8 ms         ~119  items_per_second=40k/s
+Topology                     TrueThroughput    Sent         Ratio
+BM_Pipeline_Linear_Throughput     ~2.4M/s    ~2.4M/s      1.0x  (baseline)
+BM_Pipeline_SingleOutput          ~2.3M/s    ~2.3M/s      1.0x
+BM_Pipeline_Throughput            ~370k/s    ~370k/s      6.5x  (Diamond: fan-out → fan-in)
+BM_Pipeline_Latency               Avg 39.5k ns/msg
 ```
+
+**Diamond (fan-out → fan-in) is ~6.5x slower than Linear** — root cause is architectural,
+not lock contention:
+- Source broadcasts to two parallel modules (fan-out), each on its own thread
+- Each parallel module independently sends to the shared Sink (fan-in)
+- Sink's JoinMode drains two queues in turn: if one queue is empty, Worker spins on
+  tryPop + 50µs sleep before switching to the other queue
+- This creates a synchronization bottleneck: the faster upstream module is often blocked
+  waiting for the slower downstream pair to consume
+- Linear/SingleOutput have no such fan-in join overhead
+
+**Optimization opportunities (not yet implemented):**
+- Lock-free queues (boost::lockfree::queue) to eliminate mutex contention on hot paths
+- Batch dispatch: accumulate messages across multiple source ticks before broadcasting
+- Per-queue backpressure signaling so fast producers can throttle early
 
 ---
 
