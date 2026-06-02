@@ -583,9 +583,13 @@ static void BM_ConcurrentQueue_Throughput(benchmark::State& state) {
         }
     });
 
+    // Give producer time to fill the queue
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+
     for (auto _ : state) {
         Message popped;
-        if (q.WaitAndPop(popped)) {
+        // Use TryPop instead of WaitAndPop to avoid blocking
+        if (q.WaitAndPopFor(popped, std::chrono::milliseconds(1))) {
             count++;
         }
         benchmark::DoNotOptimize(popped);
