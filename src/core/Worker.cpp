@@ -84,68 +84,57 @@ void Worker::WorkLoop() {
 }
 
 void Worker::RunFusion() {
-    // TODO: 如何优化呢，现在只有单Batch, 并且需要测试下内存占用.
-
-    // Key: message id, value: map of source module name and message.
-    std::unordered_map<int, std::unordered_map<std::string, Message>> messageCache; // Cache for messages.
-    const int expectedInputCount = m_inputQueueMap.size(); // Expected number of inputs.
+    // Key: message id (uint64_t, matches Message::messageId nanoseconds timestamp).
+    // Value: map of input queue name -> message (using queue name not sourceName
+    // because sourceName is "" for both Pass1 and Pass2 in Diamond pipeline).
+    std::unordered_map<uint64_t, std::unordered_map<std::string, Message>> messageCache;
+    const int expectedInputCount = m_inputQueueMap.size();
+    uint64_t iterCount = 0;
 
     // Define a timeout period.
     constexpr std::chrono::minutes timeout{1};
     uint64_t timeoutMs = std::chrono::duration_cast<std::chrono::milliseconds>(timeout).count();
 
     while (!m_stopFlag.load()) {
+        iterCount++;
+
         uint64_t currentTimeMs =
             std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
 
         // collect message from all inputs
-        std::vector<Message> batchMessage;
         for (auto& queuePair : m_inputQueueMap) {
             auto& queue = queuePair.second;
-
             Message message;
             if (queue->tryPop(message)) {
-                auto messageMeta = message.GetMetaData();
-                auto messageId = messageMeta.messageId;
-                auto& sourceModuleName = messageMeta.sourceName;
-                messageCache[messageId][sourceModuleName] = message;
-                LOG_DEBUG("Message with ID: {} received from source module: {}", messageId, sourceModuleName);
+                auto messageId = message.GetMetaData().messageId;
+                // Use queue name (e.g. "Pass1 -> Sink") as key to distinguish inputs
+                messageCache[messageId][queuePair.first] = message;
             }
         }
 
-        // check message is already in cache
+        // check message cache for entries ready to process
         for (auto it = messageCache.begin(); it != messageCache.end();) {
             auto messageId = it->first;
             auto& messageMap = it->second;
 
-            LOG_TRACE("Checking message with ID: {}", messageId);
-            LOG_TRACE("Number of inputs received: {}, Expected inputs: {}, module name: {}", messageMap.size(), expectedInputCount,
-                      m_modulePtr->GetModuleName());
             if (messageMap.size() == expectedInputCount) {
-                // Construct a fused message and concat to batchMessage.
+                // All inputs received for this message id -> fuse and process
                 auto fusedMessage = MakeMessage(std::move(messageMap));
                 std::vector<Message> fusedMessageVec{fusedMessage};
-                m_modulePtr->ProcessBatch(fusedMessageVec); // process the fused message
-                it = messageCache.erase(it); // remove the message from cache
+                m_modulePtr->ProcessBatch(fusedMessageVec);
+                it = messageCache.erase(it);
             } else if (!messageMap.empty() && messageMap.begin()->second.GetMetaData().timestamp < (currentTimeMs - timeoutMs)) {
-                // timeout
-                LOG_WARN("Timeout for message with ID: {}, will be removed from cache", messageId);
+                // timeout: remove stale entry
                 it = messageCache.erase(it);
             } else {
                 ++it;
             }
         }
 
-#if 0
-        // Print the current state of the message cache.
-        LOG_TRACE("Message cache state:");
-        for (auto& pair : messageCache) {
-            LOG_TRACE("Message ID: {}", pair.first);
-            for (auto& innerPair : pair.second) {
-                LOG_TRACE("Source module: {}, Timestamp: {}", innerPair.first, innerPair.second.GetMetaData().timstamp);
-            }
+        // Adaptive sleep: avoid busy-spinning when cache is empty (no messages waiting)
+        if (messageCache.empty()) {
+            std::this_thread::sleep_for(std::chrono::microseconds(5));
         }
-#endif
     }
 }
 

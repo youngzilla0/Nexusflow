@@ -97,9 +97,12 @@ public:
      * @return True if multi-input join is required (default: false).
      */
     virtual bool JoinInputs() const {
-        // Default: module does not need multi-input join.
-        // Subclasses that need graph-style multi-input join MUST override this.
-        // JoinHint::AlwaysJoin can also force-enable it via PipelineBuilder API.
+        // Note: m_joinMode is set by PipelineBuilder.ApplyTopologyJoin for converge nodes.
+        // Diamond Sink is a converge node with 2 inputs, so ApplyTopologyJoin sets m_joinMode=true.
+        // However, Diamond does NOT need fusion join (Pass1 and Pass2 are independent fan-out).
+        // The join is needed only when outputs from MULTIPLE modules need to be synchronized
+        // (e.g., HeadDet + PedDet both need to complete before FusionModule).
+        // So we only check m_joinHint here, NOT m_joinMode.
         return m_joinHint == JoinHint::AlwaysJoin;
     }
 
