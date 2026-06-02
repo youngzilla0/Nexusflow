@@ -1,6 +1,7 @@
-#include "../../src/common/ConcurrentQueue.hpp"
-#include "../../src/utils/logging.hpp"
+#include "common/ConcurrentQueue.hpp"
 #include <benchmark/benchmark.h>
+#include <cstdint>
+#include <iomanip>
 #include <nexusflow/Message.hpp>
 #include <nexusflow/Module.hpp>
 #include <nexusflow/Pipeline.hpp>
@@ -20,6 +21,16 @@ using namespace std::chrono;
 // -----------------------------------------------------------------------------
 
 inline uint64_t GetNowNs() { return duration_cast<nanoseconds>(steady_clock::now().time_since_epoch()).count(); }
+
+// 格式化为保留两位小数的double
+inline double FormatDouble(double value, int precision = 4) {
+    std::stringstream ss;
+    ss << std::fixed << std::setprecision(precision) << value;
+
+    double result;
+    ss >> result;
+    return result;
+}
 
 class SinkModule : public Module {
 public:
@@ -64,7 +75,8 @@ public:
 
 class SourceModule : public Module {
 public:
-    SourceModule(std::string name, bool blocking = true) : Module(std::move(name)), mRunning(false), mCounter(0), m_blocking(blocking) {}
+    SourceModule(std::string name, bool blocking = true)
+        : Module(std::move(name)), mRunning(false), mCounter(0), m_blocking(blocking) {}
 
     // 手动触发发送一条消息
     void GenerateOne() {
@@ -75,8 +87,7 @@ public:
         // LOG_INFO("Send message, current count: {}", mCounter);
     }
 
-    void Process(Message&) override {
-    }
+    void Process(Message&) override {}
 
     std::atomic<bool> mRunning{false};
     std::atomic<uint64_t> mCounter{0};
@@ -96,7 +107,7 @@ static void BM_Pipeline_Latency(benchmark::State& state) {
     // Create pipeline config with optimized settings
     PipelineConfig config;
     config.maxBatchSize = 32;
-    config.batchTimeoutMs = 0;  // Low latency: no batching wait
+    config.batchTimeoutMs = 0; // Low latency: no batching wait
     config.queueSize = 100;
 
     auto pipeline = PipelineBuilder()
@@ -151,8 +162,8 @@ static void BM_Pipeline_Throughput(benchmark::State& state) {
 
     PipelineConfig config;
     config.maxBatchSize = 64;
-    config.batchTimeoutMs = 0;  // Low latency mode
-    config.queueSize = 10000;   // Large queue to avoid drops
+    config.batchTimeoutMs = 0; // Low latency mode
+    config.queueSize = 10000; // Large queue to avoid drops
 
     auto pipeline = PipelineBuilder()
                         .AddModule(source)
@@ -188,17 +199,29 @@ static void BM_Pipeline_Throughput(benchmark::State& state) {
         // 菱形拓扑: Source -> [Pass1, Pass2] -> Sink, 所以 Sink 收到的是 Sent 的 2 倍
         uint64_t sent = source->mCounter.load();
         uint64_t received = sink->GetMessageCount();
-        uint64_t dropped = sent > 0 ? sent - (received / 2) : 0;  // 去掉广播倍增后的真实发送数
+        uint64_t trueReceived = received / 2; // 去掉广播倍增后的真实接收数
+        uint64_t dropped = sent > 0 ? sent - trueReceived : 0; // 去掉广播倍增后的真实发送数
 
         double throughput = (received * 1e9) / elapsed;
 
         state.SetItemsProcessed(received);
         state.counters["Throughput"] = throughput;
+
+        // 统计发送和接收情况
         state.counters["Sent"] = sent;
+        state.counters["Recv"] = received;
+        state.counters["TrueRecv"] = trueReceived;
         state.counters["Dropped"] = dropped;
-        state.counters["DropsPct"] = sent > 0 ? (dropped * 100.0 / sent) : 0;
-        // 修正 throughput: 菱形拓扑每个消息被复制2份
-        state.counters["TrueThroughput"] = (received / 2 * 1e9) / elapsed;
+
+        // 统计丢包率
+        if (dropped > 0) {
+            double dropRate = double(dropped) / sent;
+            state.counters["DropRate"] = FormatDouble(dropRate);
+        }
+
+        // 统计每条消息的平均处理时间
+        double avg_latency = static_cast<double>(sink->GetTotalLatencyNs()) / received;
+        state.counters["AvgLatencyNs"] = avg_latency;
     }
 
     pipeline->Stop();
@@ -248,15 +271,27 @@ static void BM_Pipeline_Linear_Throughput(benchmark::State& state) {
 
         uint64_t sent = source->mCounter.load();
         uint64_t received = sink->GetMessageCount();
-        uint64_t dropped = sent > received ? sent - received : 0;
+        uint64_t dropped = sent > 0 ? sent - received : 0; // 去掉广播倍增后的真实发送数
 
         double throughput = (received * 1e9) / elapsed;
 
         state.SetItemsProcessed(received);
         state.counters["Throughput"] = throughput;
+
+        // 统计发送和接收情况
         state.counters["Sent"] = sent;
+        state.counters["Recv"] = received;
         state.counters["Dropped"] = dropped;
-        state.counters["DropsPct"] = sent > 0 ? (dropped * 100.0 / sent) : 0;
+
+        // 统计丢包率
+        if (dropped > 0) {
+            double dropRate = double(dropped) / sent;
+            state.counters["DropRate"] = FormatDouble(dropRate);
+        }
+
+        // 统计每条消息的平均处理时间
+        double avg_latency = static_cast<double>(sink->GetTotalLatencyNs()) / received;
+        state.counters["AvgLatencyNs"] = avg_latency;
     }
 
     pipeline->Stop();
@@ -265,6 +300,7 @@ BENCHMARK(BM_Pipeline_Linear_Throughput)->Unit(benchmark::kMicrosecond);
 
 // -----------------------------------------------------------------------------
 // BM_Pipeline_Linear_Throughput_WithLatency: 线性拓扑 + 处理延迟
+// 每个 PassThroughModule 模拟 100us 实际处理（如视频解码）
 // -----------------------------------------------------------------------------
 static void BM_Pipeline_Linear_Throughput_WithLatency(benchmark::State& state) {
     auto source = std::make_shared<SourceModule>("Source");
@@ -302,18 +338,29 @@ static void BM_Pipeline_Linear_Throughput_WithLatency(benchmark::State& state) {
 
         auto end_time = steady_clock::now();
         auto elapsed = std::chrono::duration_cast<std::chrono::nanoseconds>(end_time - start_time).count();
-
         uint64_t sent = source->mCounter.load();
         uint64_t received = sink->GetMessageCount();
-        uint64_t dropped = sent > received ? sent - received : 0;
+        uint64_t dropped = sent > 0 ? sent - received : 0; // 去掉广播倍增后的真实发送数
 
         double throughput = (received * 1e9) / elapsed;
 
         state.SetItemsProcessed(received);
         state.counters["Throughput"] = throughput;
+
+        // 统计发送和接收情况
         state.counters["Sent"] = sent;
+        state.counters["Recv"] = received;
         state.counters["Dropped"] = dropped;
-        state.counters["DropsPct"] = sent > 0 ? (dropped * 100.0 / sent) : 0;
+
+        // 统计丢包率
+        if (dropped > 0) {
+            double dropRate = double(dropped) / sent;
+            state.counters["DropRate"] = FormatDouble(dropRate);
+        }
+
+        // 统计每条消息的平均处理时间
+        double avg_latency = static_cast<double>(sink->GetTotalLatencyNs()) / received;
+        state.counters["AvgLatencyNs"] = avg_latency;
     }
 
     pipeline->Stop();
@@ -321,14 +368,13 @@ static void BM_Pipeline_Linear_Throughput_WithLatency(benchmark::State& state) {
 BENCHMARK(BM_Pipeline_Linear_Throughput_WithLatency)->Unit(benchmark::kMicrosecond);
 
 // -----------------------------------------------------------------------------
-// BM_Pipeline_Throughput_SingleOutput: Diamond 但只有一个下游
-// Source -> Pass1 -> Sink, Pass2 存在但不连接
-// 用来验证是否是"两个输出"导致的竞争
+// BM_Pipeline_Throughput_SingleOutput: Diamond 但只有 Pass1 连接到 Sink
+// Pass2 存在但不连接，排除"两个输出"的竞争影响
 // -----------------------------------------------------------------------------
 static void BM_Pipeline_Throughput_SingleOutput(benchmark::State& state) {
     auto source = std::make_shared<SourceModule>("Source");
     auto pass1 = std::make_shared<PassThroughModule>("Pass1", true);
-    auto pass2 = std::make_shared<PassThroughModule>("Pass2", true);  // 不连接
+    auto pass2 = std::make_shared<PassThroughModule>("Pass2", true); // 不连接
     auto sink = std::make_shared<SinkModule>("Sink");
 
     PipelineConfig config;
@@ -341,7 +387,7 @@ static void BM_Pipeline_Throughput_SingleOutput(benchmark::State& state) {
                         .AddModule(pass1)
                         .AddModule(pass2)
                         .AddModule(sink)
-                        .Connect("Source", "Pass1")  // 只连接到 Pass1
+                        .Connect("Source", "Pass1") // 只连接到 Pass1
                         .Connect("Pass1", "Sink")
                         .WithConfig(config)
                         .Build();
@@ -360,18 +406,29 @@ static void BM_Pipeline_Throughput_SingleOutput(benchmark::State& state) {
 
         auto end_time = steady_clock::now();
         auto elapsed = std::chrono::duration_cast<std::chrono::nanoseconds>(end_time - start_time).count();
-
         uint64_t sent = source->mCounter.load();
         uint64_t received = sink->GetMessageCount();
-        uint64_t dropped = sent > received ? sent - received : 0;
+        uint64_t dropped = sent > 0 ? sent - received : 0; // 去掉广播倍增后的真实发送数
 
         double throughput = (received * 1e9) / elapsed;
 
         state.SetItemsProcessed(received);
         state.counters["Throughput"] = throughput;
+
+        // 统计发送和接收情况
         state.counters["Sent"] = sent;
+        state.counters["Recv"] = received;
         state.counters["Dropped"] = dropped;
-        state.counters["DropsPct"] = sent > 0 ? (dropped * 100.0 / sent) : 0;
+
+        // 统计丢包率
+        if (dropped > 0) {
+            double dropRate = double(dropped) / sent;
+            state.counters["DropRate"] = FormatDouble(dropRate);
+        }
+
+        // 统计每条消息的平均处理时间
+        double avg_latency = static_cast<double>(sink->GetTotalLatencyNs()) / received;
+        state.counters["AvgLatencyNs"] = avg_latency;
     }
 
     pipeline->Stop();
@@ -418,19 +475,30 @@ static void BM_Pipeline_Throughput_LargeSinkQueue(benchmark::State& state) {
 
         auto end_time = steady_clock::now();
         auto elapsed = std::chrono::duration_cast<std::chrono::nanoseconds>(end_time - start_time).count();
-
         uint64_t sent = source->mCounter.load();
         uint64_t received = sink->GetMessageCount();
-        uint64_t dropped = sent > 0 ? sent - (received / 2) : 0;
+        uint64_t trueReceived = received / 2; // 去掉广播倍增后的真实接收数
+        uint64_t dropped = sent > 0 ? sent - trueReceived : 0; // 去掉广播倍增后的真实发送数
 
         double throughput = (received * 1e9) / elapsed;
 
         state.SetItemsProcessed(received);
         state.counters["Throughput"] = throughput;
+
+        // 统计发送和接收情况
         state.counters["Sent"] = sent;
+        state.counters["Recv"] = received;
+        state.counters["TrueRecv"] = trueReceived;
         state.counters["Dropped"] = dropped;
-        state.counters["DropsPct"] = sent > 0 ? (dropped * 100.0 / sent) : 0;
-        state.counters["TrueThroughput"] = (received / 2 * 1e9) / elapsed;
+
+        // 统计丢包率
+        if (dropped > 0) {
+            double dropRate = double(dropped) / sent;
+            state.counters["DropRate"] = FormatDouble(dropRate);
+        }
+        // 统计每条消息的平均处理时间
+        double avg_latency = static_cast<double>(sink->GetTotalLatencyNs()) / received;
+        state.counters["AvgLatencyNs"] = avg_latency;
     }
 
     pipeline->Stop();
@@ -478,19 +546,31 @@ static void BM_Pipeline_Throughput_WithLatency(benchmark::State& state) {
 
         auto end_time = steady_clock::now();
         auto elapsed = std::chrono::duration_cast<std::chrono::nanoseconds>(end_time - start_time).count();
-
         uint64_t sent = source->mCounter.load();
         uint64_t received = sink->GetMessageCount();
-        uint64_t dropped = sent > 0 ? sent - (received / 2) : 0;
+        uint64_t trueReceived = received / 2; // 去掉广播倍增后的真实接收数
+        uint64_t dropped = sent > 0 ? sent - trueReceived : 0; // 去掉广播倍增后的真实发送数
 
         double throughput = (received * 1e9) / elapsed;
 
         state.SetItemsProcessed(received);
         state.counters["Throughput"] = throughput;
+
+        // 统计发送和接收情况
         state.counters["Sent"] = sent;
+        state.counters["Recv"] = received;
+        state.counters["TrueRecv"] = trueReceived;
         state.counters["Dropped"] = dropped;
-        state.counters["DropsPct"] = sent > 0 ? (dropped * 100.0 / sent) : 0;
-        state.counters["TrueThroughput"] = (received / 2 * 1e9) / elapsed;
+
+        // 统计丢包率
+        if (dropped > 0) {
+            double dropRate = double(dropped) / sent;
+            state.counters["DropRate"] = FormatDouble(dropRate);
+        }
+
+        // 统计每条消息的平均处理时间
+        double avg_latency = static_cast<double>(sink->GetTotalLatencyNs()) / received;
+        state.counters["AvgLatencyNs"] = avg_latency;
     }
 
     pipeline->Stop();
@@ -583,9 +663,13 @@ static void BM_ConcurrentQueue_Throughput(benchmark::State& state) {
         }
     });
 
+    // Give producer time to fill the queue
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+
     for (auto _ : state) {
         Message popped;
-        if (q.WaitAndPop(popped)) {
+        // Use TryPop instead of WaitAndPop to avoid blocking
+        if (q.TryPop(popped)) {
             count++;
         }
         benchmark::DoNotOptimize(popped);
@@ -666,10 +750,18 @@ static void BM_Pipeline_Throughput_Warmup(benchmark::State& state) {
 
         state.SetItemsProcessed(received);
         state.counters["Throughput"] = throughput;
+        // 统计发送和接收情况
         state.counters["Sent"] = sent;
+        state.counters["Received"] = received;
         state.counters["Dropped"] = dropped;
-        state.counters["DropsPct"] = sent > 0 ? (dropped * 100.0 / sent) : 0;
-        state.counters["TrueThroughput"] = (received / 2 * 1e9) / elapsed;
+
+        // 统计丢包率
+        double dropRate = static_cast<double>(dropped) / sent * 100;
+        state.counters["DropRate"] = dropRate;
+
+        // 统计每条消息的平均处理时间
+        double avg_latency = static_cast<double>(sink->GetTotalLatencyNs()) / received;
+        state.counters["AvgLatencyNs"] = avg_latency;
     }
 
     pipeline->Stop();
@@ -681,7 +773,7 @@ BENCHMARK(BM_Pipeline_Throughput_Warmup)->Unit(benchmark::kMicrosecond);
 // 验证 blocking vs non-blocking 对吞吐量的影响
 // -----------------------------------------------------------------------------
 static void BM_Pipeline_Throughput_NonBlocking(benchmark::State& state) {
-    auto source = std::make_shared<SourceModule>("Source", false);  // non-blocking
+    auto source = std::make_shared<SourceModule>("Source", false); // non-blocking
     auto pass1 = std::make_shared<PassThroughModule>("Pass1", false); // non-blocking
     auto pass2 = std::make_shared<PassThroughModule>("Pass2", false); // non-blocking
     auto sink = std::make_shared<SinkModule>("Sink");
@@ -726,14 +818,20 @@ static void BM_Pipeline_Throughput_NonBlocking(benchmark::State& state) {
 
         state.SetItemsProcessed(received);
         state.counters["Throughput"] = throughput;
+        // 统计发送和接收情况
         state.counters["Sent"] = sent;
+        state.counters["Received"] = received;
         state.counters["Dropped"] = dropped;
-        state.counters["DropsPct"] = sent > 0 ? (dropped * 100.0 / sent) : 0;
-        state.counters["TrueThroughput"] = (received / 2 * 1e9) / elapsed;
+
+        // 统计丢包率
+        double dropRate = static_cast<double>(dropped) / sent * 100;
+        state.counters["DropRate"] = dropRate;
+
+        // 统计每条消息的平均处理时间
+        double avg_latency = static_cast<double>(sink->GetTotalLatencyNs()) / received;
+        state.counters["AvgLatencyNs"] = avg_latency;
     }
 
     pipeline->Stop();
 }
 BENCHMARK(BM_Pipeline_Throughput_NonBlocking)->Unit(benchmark::kMicrosecond);
-
-BENCHMARK_MAIN();

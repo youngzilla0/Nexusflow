@@ -1,4 +1,4 @@
-#include "../Graph.hpp"
+#include "base/Graph.hpp"
 #include <cstdlib>
 #include <gtest/gtest.h>
 

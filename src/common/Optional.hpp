@@ -8,11 +8,10 @@
 template <class T>
 struct is_always_false : std::false_type {};
 
-namespace {
-struct OptionalNullStruct {};
-} // namespace
+namespace nexusflow {
 
-static constexpr OptionalNullStruct nullOpt{};
+struct Nullopt_t {};
+static constexpr Nullopt_t nullopt{};
 
 // Optional is a class template that provides a way to represent an optional value.
 // It can be used to avoid null pointer dereferencing and to handle cases where a value may or may not be present.
@@ -23,7 +22,7 @@ public:
     // Constructors and destructors
     Optional() noexcept : m_hasValue(false) {}
 
-    Optional(const OptionalNullStruct&) noexcept : m_hasValue(false) {}
+    Optional(const Nullopt_t&) noexcept : m_hasValue(false) {}
 
     Optional(T value) : m_hasValue(true) { new (&m_value) T(std::move(value)); }
 
@@ -123,6 +122,13 @@ public:
         return m_value;
     }
 
+    T value_or(T val) const {
+        if (hasValue()) {
+            return value();
+        }
+        return val;
+    }
+
     T orElse(T val) const {
         if (hasValue()) {
             return value();
@@ -154,5 +160,7 @@ template <class T>
 class Optional<std::reference_wrapper<T>> {
     static_assert(is_always_false<T>::value, "Not Support Refernce Type Now.");
 };
+
+} // namespace nexusflow
 
 #endif // OPTIONAL_HPP_

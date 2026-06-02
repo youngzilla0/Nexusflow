@@ -157,10 +157,10 @@ public:
      * @return An std::optional containing the item if the queue was not empty,
      *         otherwise std::nullopt.
      */
-    Optional<T> TryPop() {
+    nexusflow::Optional<T> TryPop() {
         std::lock_guard<std::mutex> lock(m_mutex);
         if (m_queue.empty()) {
-            return nullOpt;
+            return nexusflow::nullopt;
         }
         T item = std::move(m_queue.front());
         m_queue.pop();
