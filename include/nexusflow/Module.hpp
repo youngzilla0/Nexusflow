@@ -150,15 +150,15 @@ protected:
     /**
      * @brief Broadcasts a message to all connected downstream outputs.
      * @param msg The message to be sent.
-     * @param blocking If true, blocks until all subscribers receive the message; if false, uses non-blocking tryPush (default: true).
+     * @param blocking If true, blocks until all subscribers receive the message; if false, uses non-blocking tryPush (default: false for fan-out efficiency).
      */
-    void Broadcast(const Message& msg, bool blocking = true);
+    void Broadcast(const Message& msg, bool blocking = false);
 
     /**
      * @brief Sends a message to a specific downstream output.
      * @param outputName The name of the output port to send the message to.
      * @param msg The message to be sent.
-     * @param blocking If true, blocks until the message is sent; if false, uses non-blocking tryPush (default: true).
+     * @param blocking If true, blocks until the message is sent; if false, uses non-blocking tryPush (default: false for fan-out efficiency).
      */
     void SendTo(const std::string& outputName, const Message& msg, bool blocking = true);
 
