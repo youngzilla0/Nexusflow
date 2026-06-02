@@ -101,7 +101,7 @@ ErrorCode Pipeline::Stop() {
     LOG_DEBUG("Stopping pipeline...");
     // TODO: 优化一下.
     for (auto& queue : m_pImpl->queues) {
-        queue->shutdown();
+        queue->Shutdown();
     }
     ErrorCode errCode = ErrorCode::SUCCESS;
     for (auto& actorNode : m_pImpl->actorOrderedNodes) {

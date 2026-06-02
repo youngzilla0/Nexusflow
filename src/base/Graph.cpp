@@ -7,7 +7,7 @@
 #include <unordered_map>
 #include <unordered_set>
 
-void Graph::addEdge(const std::shared_ptr<Node>& srcNodePtr, const std::shared_ptr<Node>& dstNodePtr) {
+void Graph::AddEdge(const std::shared_ptr<Node>& srcNodePtr, const std::shared_ptr<Node>& dstNodePtr) {
     if (srcNodePtr == nullptr || dstNodePtr == nullptr) return;
 
     m_nodeMap[srcNodePtr->name] = srcNodePtr;

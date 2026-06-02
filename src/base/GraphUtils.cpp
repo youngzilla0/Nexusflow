@@ -114,8 +114,8 @@ std::unique_ptr<Graph> CreateGraphFromYaml(const std::string& configPath) {
             LOG_ERROR("Graph configuration must have a 'name' under 'graph' section in '{}'", configPath);
             return nullptr;
         }
-        graph->setName(graph_yaml["name"].as<std::string>());
-        LOG_INFO("Start creating graph '{}' from config: {}", graph->getName(), configPath);
+        graph->SetName(graph_yaml["name"].as<std::string>());
+        LOG_INFO("Start creating graph '{}' from config: {}", graph->GetName(), configPath);
 
         // 2. 创建所有节点
         std::unordered_map<std::string, std::shared_ptr<Node>> tempNodeMap;
@@ -171,7 +171,7 @@ std::unique_ptr<Graph> CreateGraphFromYaml(const std::string& configPath) {
                 }
 
                 // 假设 addEdge 会将节点添加到 Graph 的内部 m_nodeMap 中
-                graph->addEdge(srcIt->second, dstIt->second);
+                graph->AddEdge(srcIt->second, dstIt->second);
                 outDegree[fromName]++;
                 inDegree[toName]++;
             }
@@ -209,15 +209,15 @@ std::unique_ptr<Graph> CreateGraphFromYaml(const std::string& configPath) {
 
         // 5. 最终校验
         if (graph->hasCycle()) {
-            LOG_ERROR("The constructed graph '{}' has a cycle.", graph->getName());
+            LOG_ERROR("The constructed graph '{}' has a cycle.", graph->GetName());
             return nullptr;
         }
-        if (graph->isEmpty()) {
-            LOG_ERROR("The constructed graph '{}' is empty or incomplete.", graph->getName());
+        if (graph->IsEmpty()) {
+            LOG_ERROR("The constructed graph '{}' is empty or incomplete.", graph->GetName());
             return nullptr;
         }
 
-        LOG_INFO("Successfully created and validated graph '{}'.", graph->getName());
+        LOG_INFO("Successfully created and validated graph '{}'.", graph->GetName());
         return graph;
 
     } catch (const YAML::Exception& e) {

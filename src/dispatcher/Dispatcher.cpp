@@ -11,9 +11,9 @@ void Dispatcher::Broadcast(const Message& message, bool blocking) {
     for (auto& pair : m_subscriberMap) {
         auto& subscriber = pair.second;
         if (blocking) {
-            subscriber->push(message);
+            subscriber->Push(message);
         } else {
-            subscriber->tryPush(message);
+            subscriber->TryPush(message);
         }
     }
 }
@@ -23,9 +23,9 @@ void Dispatcher::SendTo(const std::string& outputName, const Message& msg, bool 
     if (it != m_subscriberMap.end()) {
         auto& subscriber = it->second;
         if (blocking) {
-            subscriber->push(msg);
+            subscriber->Push(msg);
         } else {
-            subscriber->tryPush(msg);
+            subscriber->TryPush(msg);
         }
     }
 }

@@ -36,7 +36,7 @@ std::shared_ptr<ActorNode> Pipeline::Impl::GetOrCreateActorNode(const std::share
 }
 
 ErrorCode Pipeline::Impl::Init() {
-    LOG_TRACE("Try init pipeline with graph, [graphName={}]", graph->getName());
+    LOG_TRACE("Try init pipeline with graph, [graphName={}]", graph->GetName());
 
     auto edgeList = graph->toEdgeListBFS();
     LOG_TRACE("edgeList size: {}", edgeList.size());

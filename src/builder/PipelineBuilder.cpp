@@ -61,7 +61,7 @@ std::unique_ptr<Pipeline> PipelineBuilder::Build() {
 
     // --- Step 1: Create a Graph object ---
     auto graph = std::make_unique<Graph>();
-    graph->setName("Programmatically_Built_Pipeline"); // Or generate a unique name
+    graph->SetName("Programmatically_Built_Pipeline"); // Or generate a unique name
 
     // --- Step 2: Create all Node objects and populate a lookup map ---
     // This map allows us to quickly find a Node shared_ptr by its name.
@@ -99,7 +99,7 @@ std::unique_ptr<Pipeline> PipelineBuilder::Build() {
             return nullptr;
         }
 
-        graph->addEdge(fromIt->second, toIt->second);
+        graph->AddEdge(fromIt->second, toIt->second);
         nodesWithIncomingEdges.insert(toName);
     }
 
