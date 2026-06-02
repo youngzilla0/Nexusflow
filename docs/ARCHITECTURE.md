@@ -156,9 +156,11 @@ Edge
 ```
 
 **关键 API**:
-- `addEdge(src, dst)` - 添加边
+- `AddEdge(src, dst)` - 添加边
 - `hasCycle()` - 检测环
 - `toEdgeListBFS()` - BFS遍历生成边列表
+- `IsEmpty()` - 检查是否为空
+- `SetName/GetName` - 设置/获取图名称
 
 ---
 
@@ -185,7 +187,7 @@ ModuleActor(module, runtimeConfig)
        └─ 用户实现的 Module
 ```
 
-**syncInputs 配置**: 通过 `Module::RequiresSyncInputs()` 虚函数控制,不再走 Config。
+**JoinInputs 配置**: 通过 `Module::JoinInputs()` 虚函数控制。
 
 ---
 
@@ -204,17 +206,17 @@ ModuleActor(module, runtimeConfig)
 └─────────────────────────────────────────────┘
 ```
 
-**syncInputs 决定执行模式**:
+**JoinInputs 决定执行模式**:
 
 ```cpp
 // Worker::WorkLoop()
-bool isSyncInputs = m_modulePtr->RequiresSyncInputs(); // ← 虚函数,不再是 Config 读
+bool isJoinInputs = m_modulePtr->JoinInputs(); // ← 虚函数
 ```
 
-|模式 | `RequiresSyncInputs()` |行为 |
-|------|----------------------|------|
-| **普通流水线** | `false` (默认) |调 `PullBatchMessage()`拉一批,调 `ProcessBatch()` |
-| **Fusion同步融合** | `true` | 等所有输入队列凑齐一个 messageId 的消息,合并后处理 |
+| 模式 | `JoinInputs()` | 行为 |
+|------|----------------|------|
+| **普通流水线** | `false` (默认) | 调 `PullBatchMessage()` 拉一批, 调 `ProcessBatch()` |
+| **Fusion同步融合** | `true` (通过 `JoinHint::AlwaysJoin` 或 `m_joinMode`) | 等所有输入队列凑齐一个 messageId 的消息, 合并后处理 |
 
 **批处理流程 (PullBatchMessage)**:
 ```
@@ -289,13 +291,15 @@ ConcurrentQueue<Message>
 ```
 
 **API**:
-| 函数 |行为 |
+| 函数 | 行为 |
 |------|------|
-| `push(msg)` |阻塞直到有空间 |
-| `tryPush(msg)` | 非阻塞,满则丢弃/返回 false |
-| `waitAndPopFor(msg, timeout)` |阻塞 pop, 带超时 |
-| `tryPop(msg)` | 非阻塞 pop |
-| `shutdown()` |唤醒所有阻塞线程 |
+| `Push(msg)` | 阻塞直到有空间 |
+| `TryPush(msg)` | 非阻塞, 满则丢弃/返回 false |
+| `WaitAndPopFor(msg, timeout)` | 阻塞 pop, 带超时 |
+| `TryPop(msg)` | 非阻塞 pop |
+| `Shutdown()` | 唤醒所有阻塞线程 |
+| `IsEmpty()` | 检查队列是否为空 |
+| `GetSize()` | 获取队列大小 |
 
 ---
 
