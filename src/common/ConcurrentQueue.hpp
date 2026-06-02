@@ -40,9 +40,9 @@ public:
      * @param item The item to be pushed (rvalue reference for move semantics).
      * @return true if the item was successfully pushed, false if the queue has been shut down.
      */
-    bool push(T&& item) {
+    bool Push(T&& item) {
         std::unique_lock<std::mutex> lock(m_mutex);
-        m_condNotFull.wait(lock, [this] { return m_shutdown || !isFull(); });
+        m_condNotFull.wait(lock, [this] { return m_shutdown || !IsFull(); });
 
         if (m_shutdown) {
             return false;
@@ -56,9 +56,9 @@ public:
     /**
      * @brief Pushes an item into the queue (lvalue reference overload).
      */
-    bool push(const T& item) {
+    bool Push(const T& item) {
         T temp = item;
-        return push(std::move(temp));
+        return Push(std::move(temp));
     }
 
     /**
@@ -68,9 +68,9 @@ public:
      * @return true if pushed, false if timed out or shutdown.
      */
     template <class Rep, class Per>
-    bool pushFor(T&& item, const std::chrono::duration<Rep, Per>& timeout) {
+    bool PushFor(T&& item, const std::chrono::duration<Rep, Per>& timeout) {
         std::unique_lock<std::mutex> lock(m_mutex);
-        if (!m_condNotFull.wait_for(lock, timeout, [this] { return m_shutdown || !isFull(); })) {
+        if (!m_condNotFull.wait_for(lock, timeout, [this] { return m_shutdown || !IsFull(); })) {
             // wait_for returned false, meaning it timed out.
             return false;
         }
@@ -81,8 +81,8 @@ public:
     }
 
     template <class Rep, class Per>
-    bool pushFor(const T& item, const std::chrono::duration<Rep, Per>& timeout) {
-        return pushFor(T(item), timeout);
+    bool PushFor(const T& item, const std::chrono::duration<Rep, Per>& timeout) {
+        return PushFor(T(item), timeout);
     }
 
     /**
@@ -92,9 +92,9 @@ public:
      * @param item The item to be pushed (rvalue reference for move semantics).
      * @return true if the item was successfully pushed, false if the queue was full or has been shut down.
      */
-    bool tryPush(T&& item) {
+    bool TryPush(T&& item) {
         std::lock_guard<std::mutex> lock(m_mutex);
-        if (m_shutdown || isFull()) {
+        if (m_shutdown || IsFull()) {
             return false;
         }
 
@@ -106,9 +106,9 @@ public:
     /**
      * @brief Tries to push an item into the queue without blocking (lvalue reference overload).
      */
-    bool tryPush(const T& item) {
+    bool TryPush(const T& item) {
         T temp = item;
-        return tryPush(std::move(temp));
+        return TryPush(std::move(temp));
     }
 
     /**
@@ -118,7 +118,7 @@ public:
      * @return true if popped, false if timed out or shutdown.
      */
     template <class Rep, class Per>
-    bool waitAndPopFor(T& itemRef, const std::chrono::duration<Rep, Per>& timeout) {
+    bool WaitAndPopFor(T& itemRef, const std::chrono::duration<Rep, Per>& timeout) {
         std::unique_lock<std::mutex> lock(m_mutex);
         if (!m_condNotEmpty.wait_for(lock, timeout, [this] { return m_shutdown || !m_queue.empty(); })) {
             // wait_for returned false, meaning it timed out.
@@ -138,7 +138,7 @@ public:
      * @param itemRef A reference to store the popped item.
      * @return true if an item was successfully popped, false if the queue is empty and has been shut down.
      */
-    bool waitAndPop(T& itemRef) {
+    bool WaitAndPop(T& itemRef) {
         std::unique_lock<std::mutex> lock(m_mutex);
         m_condNotEmpty.wait(lock, [this] { return m_shutdown || !m_queue.empty(); });
 
@@ -157,7 +157,7 @@ public:
      * @return An std::optional containing the item if the queue was not empty,
      *         otherwise std::nullopt.
      */
-    Optional<T> tryPop() {
+    Optional<T> TryPop() {
         std::lock_guard<std::mutex> lock(m_mutex);
         if (m_queue.empty()) {
             return nullOpt;
@@ -173,7 +173,7 @@ public:
      * @param itemRef Reference to store the popped item (rvalue reference for move semantics).
      * @return true if an item was successfully popped, false if the queue was empty or has been shut down.
      */
-    bool tryPop(T& itemRef) {
+    bool TryPop(T& itemRef) {
         std::lock_guard<std::mutex> lock(m_mutex);
         if (m_queue.empty()) {
             return false;
@@ -188,7 +188,7 @@ public:
      * @brief Shuts down the queue.
      * This will wake up all waiting producer and consumer threads.
      */
-    void shutdown() {
+    void Shutdown() {
         std::lock_guard<std::mutex> lock(m_mutex);
         m_shutdown = true;
         m_condNotEmpty.notify_all();
@@ -198,7 +198,7 @@ public:
     /**
      * @brief Checks if the queue is currently empty.
      */
-    bool isEmpty() const {
+    bool IsEmpty() const {
         std::lock_guard<std::mutex> lock(m_mutex);
         return m_queue.empty();
     }
@@ -206,7 +206,7 @@ public:
     /**
      * @brief Returns the current number of items in the queue.
      */
-    size_t getSize() const {
+    size_t GetSize() const {
         std::lock_guard<std::mutex> lock(m_mutex);
         return m_queue.size();
     }
@@ -215,7 +215,7 @@ private:
     /**
      * @brief Checks if the queue is full. Must be called while holding the lock.
      */
-    bool isFull() const {
+    bool IsFull() const {
         if (m_capacity == -1) {
             return false;
         }

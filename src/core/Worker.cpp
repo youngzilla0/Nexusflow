@@ -105,7 +105,7 @@ void Worker::RunFusion() {
         for (auto& queuePair : m_inputQueueMap) {
             auto& queue = queuePair.second;
             Message message;
-            if (queue->tryPop(message)) {
+            if (queue->TryPop(message)) {
                 auto messageId = message.GetMetaData().messageId;
                 // Use queue name (e.g. "Pass1 -> Sink") as key to distinguish inputs
                 messageCache[messageId][queuePair.first] = message;
@@ -154,7 +154,7 @@ std::vector<Message> Worker::PullBatchMessage(size_t maxBatchSize, std::chrono::
         auto& queue = item.second;
         while (batchMessage.size() < maxBatchSize) {
             Message message;
-            if (queue->tryPop(message)) {
+            if (queue->TryPop(message)) {
                 batchMessage.push_back(std::move(message));
             } else {
                 // This queue is empty, so move on to the next one.
@@ -182,13 +182,13 @@ std::vector<Message> Worker::PullBatchMessage(size_t maxBatchSize, std::chrono::
             auto& queue = item.second;
             Message msg;
             // Non-blocking pop - avoids mutex contention from waitAndPopFor
-            if (queue->tryPop(msg)) {
+            if (queue->TryPop(msg)) {
                 batchMessage.push_back(std::move(msg));
                 foundMessage = true;
                 // Drain this queue quickly
                 while (batchMessage.size() < maxBatchSize) {
                     Message message;
-                    if (queue->tryPop(message)) {
+                    if (queue->TryPop(message)) {
                         batchMessage.push_back(std::move(message));
                     } else {
                         break;

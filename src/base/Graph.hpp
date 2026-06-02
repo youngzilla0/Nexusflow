@@ -47,7 +47,7 @@ public:
     using AdjacencyList = std::unordered_map<std::shared_ptr<Node>, std::vector<std::shared_ptr<Node>>>;
 
     // Adds an edge from the source node to the destination node.
-    void addEdge(const std::shared_ptr<Node>& srcNodePtr, const std::shared_ptr<Node>& dstNodePtr);
+    void AddEdge(const std::shared_ptr<Node>& srcNodePtr, const std::shared_ptr<Node>& dstNodePtr);
 
     // Checks if the graph has a cycle.
     bool hasCycle() const;
@@ -63,7 +63,7 @@ public:
 
 public:
     // Checks if the graph is empty.
-    inline bool isEmpty() const { return m_name.empty() || m_nodeMap.empty() || m_adjList.empty(); }
+    inline bool IsEmpty() const { return m_name.empty() || m_nodeMap.empty() || m_adjList.empty(); }
 
     // Converts the graph to a string representation.
     std::string toString() const;
@@ -71,9 +71,9 @@ public:
     //////////////////////////////////////////////////
     // Setters and getters for the graph's properties.
     //////////////////////////////////////////////////
-    void setName(std::string name) { m_name = std::move(name); }
+    void SetName(std::string name) { m_name = std::move(name); }
 
-    const std::string& getName() const { return m_name; }
+    const std::string& GetName() const { return m_name; }
 
 private:
     // Checks if the graph has a cycle and converts the graph to a list of edges using BFS.

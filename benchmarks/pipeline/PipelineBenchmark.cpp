@@ -563,9 +563,9 @@ static void BM_ConcurrentQueue_PushPop(benchmark::State& state) {
     auto msg = MakeMessage(42);
 
     for (auto _ : state) {
-        q.tryPush(msg);
+        q.TryPush(msg);
         Message popped;
-        q.tryPop(popped);
+        q.TryPop(popped);
         benchmark::DoNotOptimize(popped);
     }
 }
@@ -579,13 +579,13 @@ static void BM_ConcurrentQueue_Throughput(benchmark::State& state) {
     std::thread producer([&]() {
         auto msg = MakeMessage(42);
         while (running.load()) {
-            q.push(msg);
+            q.Push(msg);
         }
     });
 
     for (auto _ : state) {
         Message popped;
-        if (q.waitAndPop(popped)) {
+        if (q.WaitAndPop(popped)) {
             count++;
         }
         benchmark::DoNotOptimize(popped);

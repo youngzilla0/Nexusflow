@@ -15,9 +15,9 @@ TEST(TestGraph, TestHasCycleUsingLinearGraph) {
     {
         Graph graph;
 
-        graph.addEdge(a, b);
-        graph.addEdge(b, c);
-        graph.addEdge(c, d);
+        graph.AddEdge(a, b);
+        graph.AddEdge(b, c);
+        graph.AddEdge(c, d);
 
         ASSERT_FALSE(graph.hasCycle());
     }
@@ -26,10 +26,10 @@ TEST(TestGraph, TestHasCycleUsingLinearGraph) {
     {
         Graph graph;
 
-        graph.addEdge(a, b);
-        graph.addEdge(b, c);
-        graph.addEdge(c, b);
-        graph.addEdge(b, d);
+        graph.AddEdge(a, b);
+        graph.AddEdge(b, c);
+        graph.AddEdge(c, b);
+        graph.AddEdge(b, d);
 
         ASSERT_TRUE(graph.hasCycle());
     }
@@ -38,10 +38,10 @@ TEST(TestGraph, TestHasCycleUsingLinearGraph) {
     {
         Graph graph;
 
-        graph.addEdge(a, b);
-        graph.addEdge(b, c);
-        graph.addEdge(c, a);
-        graph.addEdge(a, d);
+        graph.AddEdge(a, b);
+        graph.AddEdge(b, c);
+        graph.AddEdge(c, a);
+        graph.AddEdge(a, d);
 
         ASSERT_TRUE(graph.hasCycle());
     }
@@ -63,13 +63,13 @@ TEST(TestGraph, TestHasCycleUsingDAG) {
     {
         Graph graph;
 
-        graph.addEdge(a, b);
-        graph.addEdge(a, c);
-        graph.addEdge(b, d);
-        graph.addEdge(b, e);
-        graph.addEdge(c, e);
-        graph.addEdge(d, f);
-        graph.addEdge(e, f);
+        graph.AddEdge(a, b);
+        graph.AddEdge(a, c);
+        graph.AddEdge(b, d);
+        graph.AddEdge(b, e);
+        graph.AddEdge(c, e);
+        graph.AddEdge(d, f);
+        graph.AddEdge(e, f);
 
         ASSERT_TRUE(!graph.hasCycle());
     }
@@ -89,13 +89,13 @@ TEST(TestGraph, TestHasCycleUsingDAG) {
     {
         Graph graph;
 
-        graph.addEdge(a, b);
-        graph.addEdge(a, c);
-        graph.addEdge(b, d);
-        graph.addEdge(b, a);
-        graph.addEdge(c, a);
-        graph.addEdge(d, f);
-        graph.addEdge(a, f);
+        graph.AddEdge(a, b);
+        graph.AddEdge(a, c);
+        graph.AddEdge(b, d);
+        graph.AddEdge(b, a);
+        graph.AddEdge(c, a);
+        graph.AddEdge(d, f);
+        graph.AddEdge(a, f);
 
         ASSERT_TRUE(graph.hasCycle());
     }
@@ -104,8 +104,8 @@ TEST(TestGraph, TestHasCycleUsingDAG) {
 TEST(TestGraph, TestBFSOnDisconnectedGraph) {
     // Graph: a -> b   c -> d (两个不连通的组件)
     Graph graph;
-    graph.addEdge(a, b);
-    graph.addEdge(c, d);
+    graph.AddEdge(a, b);
+    graph.AddEdge(c, d);
 
     // 从 'a' 开始BFS，应该只能找到 'a -> b'
     auto edgeListFromA = graph.toEdgeListBFS(a); // 假设 toEdgeListBFS 接受起点
@@ -124,15 +124,15 @@ TEST(TestGraph, TestAddEdgeEdgeCases) {
     // Case 1: 添加自环，应该被检测为有环
     {
         Graph graph;
-        graph.addEdge(a, a);
+        graph.AddEdge(a, a);
         ASSERT_TRUE(graph.hasCycle());
     }
 
     // Case 2: 重复添加同一条边
     {
         Graph graph;
-        graph.addEdge(a, b);
-        graph.addEdge(a, b); // 添加第二次
+        graph.AddEdge(a, b);
+        graph.AddEdge(a, b); // 添加第二次
 
         // 验证 hasCycle 不受影响
         ASSERT_FALSE(graph.hasCycle());
@@ -148,13 +148,13 @@ TEST(TestGraph, TestAddEdgeEdgeCases) {
 
 TEST(TestGraph, TestIsEmpty) {
     Graph graph;
-    ASSERT_TRUE(graph.isEmpty());
+    ASSERT_TRUE(graph.IsEmpty());
 
-    graph.addEdge(a, b);
-    ASSERT_TRUE(graph.isEmpty());
+    graph.AddEdge(a, b);
+    ASSERT_TRUE(graph.IsEmpty());
 
-    graph.setName("xxx");
-    ASSERT_FALSE(graph.isEmpty());
+    graph.SetName("xxx");
+    ASSERT_FALSE(graph.IsEmpty());
 }
 
 /**
@@ -173,21 +173,21 @@ TEST(TestGraph, TestIsEmpty) {
 
 TEST(TestGraph, TestDisplayByBFS) {
     Graph graph;
-    graph.setName("TestDAG");
+    graph.SetName("TestDAG");
 
-    graph.addEdge(a, b);
-    graph.addEdge(a, c);
-    graph.addEdge(b, d);
-    graph.addEdge(b, e);
-    graph.addEdge(c, e);
-    graph.addEdge(d, f);
-    graph.addEdge(e, f);
+    graph.AddEdge(a, b);
+    graph.AddEdge(a, c);
+    graph.AddEdge(b, d);
+    graph.AddEdge(b, e);
+    graph.AddEdge(c, e);
+    graph.AddEdge(d, f);
+    graph.AddEdge(e, f);
 
     std::cout << graph.toString() << std::endl;
 
     // Display graph by edge list.
     auto edgeList = graph.toEdgeListBFS();
-    std::cout << "BFS Result, [Graph]: " << graph.getName() << std::endl;
+    std::cout << "BFS Result, [Graph]: " << graph.GetName() << std::endl;
 
     std::vector<Edge> expectedEdges{{a, b}, {a, c}, {b, d}, {b, e}, {c, e}, {d, f}, {e, f}};
     ASSERT_EQ(edgeList.size(), expectedEdges.size());
@@ -210,9 +210,9 @@ TEST(TestGraph, TestDisplayByBFS) {
 
 TEST(TestGraph, TestToString) {
     Graph graph;
-    graph.setName("MyAwesomeGraph");
-    graph.addEdge(a, b);
-    graph.addEdge(b, c);
+    graph.SetName("MyAwesomeGraph");
+    graph.AddEdge(a, b);
+    graph.AddEdge(b, c);
 
     std::string repr = graph.toString();
 
