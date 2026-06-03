@@ -15,20 +15,20 @@ Environment: Apple M-series (8 cores), macOS 14.5
 -------------------------------------------------------------------
 Benchmark                         Time             CPU   Iterations
 -------------------------------------------------------------------
-BM_Inheritance_Create          19.5 ns         19.4 ns     37776782
-BM_TypeErasure_Create          33.1 ns         33.0 ns     21299514
-BM_Inheritance_Broadcast       131  ns         131  ns      5359262
-BM_TypeErasure_Broadcast       132  ns         131  ns      5346327
-BM_Inheritance_Process        63.0 ns         62.9 ns     11159647
-BM_TypeErasure_Process        4.07 ns         4.04 ns    172799400
-BM_Message_COW_Copy            13.1 ns         13.1 ns     53564733
-BM_Message_COW_Mutate          2.06 ns         2.06 ns    340932890
-BM_Message_Borrow              20.3 ns         20.2 ns     34689529
-BM_Message_Mut                 6.55 ns         6.53 ns    107889829
-BM_ConcurrentQueue_PushPop    29.4 ns         29.4 ns     23657280
+BM_Inheritance_Create          19.8 ns         19.5 ns    113726828
+BM_TypeErasure_Create          34.1 ns         33.5 ns     79894767
+BM_Inheritance_Broadcast       139  ns         133  ns     21076386
+BM_TypeErasure_Broadcast       135  ns         133  ns     21013307
+BM_Inheritance_Process        76.1 ns         73.1 ns     38333899
+BM_TypeErasure_Process         4.36 ns         4.17 ns    679278606
+BM_Message_COW_Copy            13.4 ns         13.2 ns    212266422
+BM_Message_COW_Mutate          2.16 ns         2.06 ns   1000000000
+BM_Message_Borrow              20.7 ns         20.4 ns    136759484
+BM_Message_Mut                 6.71 ns         6.51 ns    432618843
+BM_ConcurrentQueue_PushPop     30.8 ns         29.8 ns     95595440
 ```
 
-**Key Finding**: Type-erasure Message is ~15x faster than inheritance for `Process()` (4.07ns vs 63.0ns) due to no virtual dispatch overhead. COW mutate is extremely cheap (2.06ns).
+**Key Finding**: Type-erasure Message is ~17x faster than inheritance for `Process()` (4.36ns vs 76.1ns) due to no virtual dispatch overhead. COW mutate is extremely cheap (2.16ns).
 
 ---
 
@@ -60,21 +60,21 @@ Linear (baseline):                              Diamond (fan-out → fan-in):
 
 ### 2.2 Results (Apple M-series, 8 cores, macOS 14.5)
 
-| Benchmark                                | Throughput     | Sent          | Avg Latency    | Notes                          |
-|----------------------------------------|---------------|---------------|----------------|--------------------------------|
-| BM_Pipeline_Linear_Throughput          | 3.41M/s       | 2.36M/s       | 4.52M ns     | Linear topology baseline        |
-| BM_Pipeline_Throughput_SingleOutput    | 3.93M/s       | 2.92M/s       | 2.10M ns     | Diamond with only Pass1 connected |
-| BM_Pipeline_Latency (diamond)           | —             | —             | 35.8k ns/msg | Average per-message latency      |
-| BM_Pipeline_Throughput (diamond)        | 996k/s        | 419k/s        | 43.0k ns     | True diamond fan-out             |
-| BM_Pipeline_Throughput_Warmup (diamond) | 1.10M/s       | 484k/s        | 43.6k ns     | Diamond with 100-msg warmup     |
-| BM_Pipeline_Throughput_NonBlocking     | 1.16M/s       | 540k/s        | 58.4k ns     | All non-blocking sends          |
-| BM_Pipeline_Throughput_LargeSinkQueue  | 872k/s        | 356k/s        | 35.2k ns     | Large per-module queues         |
-| BM_Pipeline_Linear_Throughput_WithLatency | 362k/s     | 6.27k/s       | 1.61G ns      | Linear + 100us simulated delay  |
-| BM_Pipeline_Throughput_WithLatency     | 443k/s        | 6.27k/s       | 1.59G ns      | Diamond + 100us simulated delay |
+| Benchmark                                | Throughput    | Sent          | Avg Latency   | Notes                          |
+|----------------------------------------|--------------|--------------|---------------|--------------------------------|
+| BM_Pipeline_Linear_Throughput          | 949k/s       | 2.19M/s      | 9.08M ns     | Linear topology baseline        |
+| BM_Pipeline_Throughput_SingleOutput    | 1.27M/s      | 2.92M/s      | 3.13M ns     | Diamond, only Pass1 connected   |
+| BM_Pipeline_Latency (diamond)          | —            | —            | 42.2k ns/msg | Average per-message latency      |
+| BM_Pipeline_Throughput (diamond)       | 272k/s       | 408k/s       | 116.5k ns    | True diamond fan-out + join      |
+| BM_Pipeline_Throughput_Warmup (diamond)| 341k/s       | 450k/s       | 99.9k ns     | Diamond, 100-msg warmup          |
+| BM_Pipeline_Throughput_NonBlocking     | 301k/s       | 483k/s       | 405.0k ns    | All non-blocking sends           |
+| BM_Pipeline_Throughput_LargeSinkQueue  | 302k/s       | 527k/s       | 144.9k ns    | Large per-module queues          |
+| BM_Pipeline_Linear_Throughput_WithLatency | 415k/s   | 7.49k/s      | 1.48G ns     | Linear + 100us simulated delay   |
+| BM_Pipeline_Throughput_WithLatency     | 566k/s       | 7.36k/s      | 1.36G ns     | Diamond + 100us simulated delay |
 
 ### 2.3 Analysis
 
-**Diamond vs Linear**: Diamond (~1M/s) is ~3x slower than Linear (3.41M/s) — root causes:
+**Diamond vs Linear**: Diamond (~300k/s) is ~3x slower than Linear (949k/s) — root causes:
 
 1. **Fan-out serialization**: `Broadcast(blocking=true)` waits for each downstream to consume before returning. Source must wait for Pass1 before pushing to Pass2.
 
@@ -82,9 +82,9 @@ Linear (baseline):                              Diamond (fan-out → fan-in):
 
 3. **Independent message IDs**: Pass1 and Pass2 receive different message IDs from Source (broadcast copies), causing join mismatches at Sink.
 
-**SingleOutput** (3.93M/s) is close to Linear (3.41M/s), confirming the fan-out/fan-in join is the main bottleneck, not the Broadcast itself.
+**SingleOutput** (1.27M/s) is close to Linear (949k/s), confirming the fan-out/fan-in join is the main bottleneck, not the Broadcast itself.
 
-**Non-blocking Broadcast** (1.16M/s) is slightly better than blocking (996k/s) but still much lower than Linear — non-blocking prevents producer back-pressure but doesn't solve the join bottleneck.
+**Non-blocking Broadcast** (301k/s) is similar to blocking (272k/s) — non-blocking prevents producer back-pressure but doesn't solve the join bottleneck.
 
 ### 2.4 Benchmark Parameters
 
@@ -134,7 +134,7 @@ cd build && cmake .. -DWITH_BENCHMARK=ON && make -j4
 | Data passing             | Message (COW, shared_ptr)| shared_ptr (moved via pushToQueue)|
 | Join semantics           | True join via JoinInputs | No framework join; user's process() decides |
 | Fan-out                  | Broadcast (blocking)     | FanOutNode copies immediately    |
-| Diamond efficiency       | ~1M/s (29% of Linear)   | ~100% (first-arrival, no sync)   |
+| Diamond efficiency       | ~300k/s (32% of Linear)   | ~100% (first-arrival, no sync)   |
 
 **Note**: ai-pipe's Diamond benchmark tests fan-out + first-arrival, NOT true join. The 100% efficiency is because AggregatorNode takes the first-arrived input and ignores others.
 

@@ -25,6 +25,8 @@ namespace type_erasure {
 using Message = nexusflow::Message;
 } // namespace type_erasure
 
+using nexusflow::MakeMessage;
+
 // ========================================================================
 // Benchmark 1: Message Creation
 // ========================================================================
@@ -126,3 +128,61 @@ static void BM_TypeErasure_Process(benchmark::State& state) {
     benchmark::DoNotOptimize(processed_sum);
 }
 BENCHMARK(BM_TypeErasure_Process);
+
+// -----------------------------------------------------------------------------
+// BM_Message_COW_Copy: Benchmark Message COW copy performance
+// -----------------------------------------------------------------------------
+static void BM_Message_COW_Copy(benchmark::State& state) {
+    auto original = MakeMessage(std::vector<int>(100, 42));
+
+    for (auto _ : state) {
+        auto copy = original;
+        benchmark::DoNotOptimize(copy);
+    }
+}
+BENCHMARK(BM_Message_COW_Copy);
+
+static void BM_Message_COW_Mutate(benchmark::State& state) {
+    auto original = MakeMessage(std::vector<int>(100, 42));
+    auto copy = original;
+
+    for (auto _ : state) {
+        if (auto* vec = copy.MutPtr<std::vector<int>>()) {
+            (*vec)[0]++;
+            benchmark::DoNotOptimize(vec);
+        }
+    }
+}
+BENCHMARK(BM_Message_COW_Mutate);
+
+// -----------------------------------------------------------------------------
+// BM_Message_Borrow_Mut: Benchmark Message access patterns
+// -----------------------------------------------------------------------------
+static void BM_Message_Borrow(benchmark::State& state) {
+    auto msg = MakeMessage(std::vector<int>(100, 42));
+
+    long sum = 0;
+    for (auto _ : state) {
+        if (auto* vec = msg.BorrowPtr<std::vector<int>>()) {
+            for (int i = 0; i < 100; ++i) {
+                sum += (*vec)[i];
+            }
+        }
+        benchmark::DoNotOptimize(sum);
+    }
+}
+BENCHMARK(BM_Message_Borrow);
+
+static void BM_Message_Mut(benchmark::State& state) {
+    auto msg = MakeMessage(std::vector<int>(100, 42));
+
+    for (auto _ : state) {
+        if (auto* vec = msg.MutPtr<std::vector<int>>()) {
+            for (int i = 0; i < 100; ++i) {
+                (*vec)[i]++;
+            }
+        }
+        benchmark::DoNotOptimize(msg);
+    }
+}
+BENCHMARK(BM_Message_Mut);
