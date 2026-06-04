@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.15 FATAL_ERROR)
 
-project(PipelineDAG VERSION 1.0.0 LANGUAGES CXX)
+project(Nexusflow VERSION 1.0.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 14)
 set(CMAKE_CXX_EXTENSIONS ON)
@@ -9,8 +9,8 @@ set(PROJECT_ROOT ${CMAKE_CURRENT_SOURCE_DIR})
 set(INSTALL_ROOT ${PROJECT_ROOT}/install)
 
 ### Define options
-option(WITH_TESTING "Enable testing" ON)
-option(WITH_BENCHMARK "Enable benchmark" ON)
+option(NF_WITH_TESTING "Enable testing" ON)
+option(NF_WITH_BENCHMARK "Enable benchmark" ON)
 
 if(NOT DEFINED CMAKE_BUILD_TYPE)
   message(STATUS "No build type specified, defaulting to Release")
@@ -35,11 +35,10 @@ add_subdirectory(src)
 add_subdirectory(examples)
 
 # 
-if(WITH_TESTING)
-  enable_testing()
+if(NF_WITH_TESTING)
   add_subdirectory(tests)
 endif()
 
-if(WITH_BENCHMARK)
+if(NF_WITH_BENCHMARK)
   add_subdirectory(benchmarks)
 endif()

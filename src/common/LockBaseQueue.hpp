@@ -10,7 +10,7 @@
 #include <queue>
 
 /**
- * @class ConcurrentQueue
+ * @class LockBaseQueue
  * @brief A thread-safe, blocking queue for producer-consumer scenarios.
  *
  * This queue can be configured as bounded (with a fixed capacity) or unbounded.
@@ -20,18 +20,18 @@
  * @tparam T The type of elements stored in the queue.
  */
 template <typename T>
-class ConcurrentQueue {
+class LockBaseQueue {
 public:
     /**
-     * @brief Constructs a ConcurrentQueue.
+     * @brief Constructs a LockBaseQueue.
      * @param capacity The maximum capacity of the queue. A value of -1 (default)
      *                 indicates an unbounded queue.
      */
-    explicit ConcurrentQueue(int capacity = -1) : m_capacity(capacity), m_shutdown(false) {}
+    explicit LockBaseQueue(int capacity = -1) : m_capacity(capacity), m_shutdown(false) {}
 
     // Disable copy and move semantics to ensure a single owner.
-    ConcurrentQueue(const ConcurrentQueue&) = delete;
-    ConcurrentQueue& operator=(const ConcurrentQueue&) = delete;
+    LockBaseQueue(const LockBaseQueue&) = delete;
+    LockBaseQueue& operator=(const LockBaseQueue&) = delete;
 
     /**
      * @brief Pushes an item into the queue (blocking).

@@ -1,7 +1,7 @@
 #ifndef NEXUSFLOW_BASE_DEFINE_HPP
 #define NEXUSFLOW_BASE_DEFINE_HPP
 
-#include "common/ConcurrentQueue.hpp"
+#include "common/LockBaseQueue.hpp"
 #include "nexusflow/Message.hpp"
 #include <memory>
 #include <unordered_map>
@@ -10,7 +10,7 @@ namespace nexusflow {
 
 // Type alias for the internal message queue.
 // clang-format off
-using MessageQueue     = ConcurrentQueue<Message>;
+using MessageQueue     = LockBaseQueue<Message>;
 using MessageQueuePtr  = std::shared_ptr<MessageQueue>;
 using MessageQueueUPtr = std::unique_ptr<MessageQueue>;
 

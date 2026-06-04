@@ -1,4 +1,3 @@
-#include "common/ConcurrentQueue.hpp"
 #include <benchmark/benchmark.h>
 #include <cstdint>
 #include <iomanip>
@@ -575,51 +574,6 @@ static void BM_Pipeline_Throughput_WithLatency(benchmark::State& state) {
     pipeline->Stop();
 }
 BENCHMARK(BM_Pipeline_Throughput_WithLatency)->Unit(benchmark::kMicrosecond);
-
-// -----------------------------------------------------------------------------
-// BM_ConcurrentQueue_PushPop: Benchmark queue operations
-// -----------------------------------------------------------------------------
-static void BM_ConcurrentQueue_PushPop(benchmark::State& state) {
-    ConcurrentQueue<Message> q(1000);
-    auto msg = MakeMessage(42);
-
-    for (auto _ : state) {
-        q.TryPush(msg);
-        Message popped;
-        q.TryPop(popped);
-        benchmark::DoNotOptimize(popped);
-    }
-}
-BENCHMARK(BM_ConcurrentQueue_PushPop);
-
-static void BM_ConcurrentQueue_Throughput(benchmark::State& state) {
-    ConcurrentQueue<Message> q(10000);
-    std::atomic<bool> running{true};
-    std::atomic<uint64_t> count{0};
-
-    std::thread producer([&]() {
-        auto msg = MakeMessage(42);
-        while (running.load()) {
-            q.Push(msg);
-        }
-    });
-
-    // Give producer time to fill the queue
-    std::this_thread::sleep_for(std::chrono::milliseconds(10));
-
-    for (auto _ : state) {
-        Message popped;
-        // Use TryPop instead of WaitAndPop to avoid blocking
-        if (q.TryPop(popped)) {
-            count++;
-        }
-        benchmark::DoNotOptimize(popped);
-    }
-
-    running = false;
-    producer.join();
-}
-BENCHMARK(BM_ConcurrentQueue_Throughput)->Unit(benchmark::kMillisecond);
 
 // -----------------------------------------------------------------------------
 // BM_Pipeline_Throughput_Warmup: Diamond 拓扑，先预热再测

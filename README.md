@@ -305,8 +305,8 @@ make -j$(nproc)
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `WITH_TESTING` | ON | Build unit tests |
-| `WITH_BENCHMARK` | ON | Build benchmarks |
+| `NF_WITH_TESTING` | ON | Build unit tests |
+| `NF_WITH_BENCHMARK` | ON | Build benchmarks |
 | `WITH_EXAMPLES` | ON | Build examples |
 
 ```bash
