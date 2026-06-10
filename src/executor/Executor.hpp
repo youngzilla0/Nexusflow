@@ -119,6 +119,7 @@ private:
     };
 
 private:
+    bool StatisticsEnabled() const;
     void PrimeActorsOnStart();
     void SubmitActorTask(const std::shared_ptr<ActorState>& state);
     void NotifyActorReady(const std::shared_ptr<ActorState>& state);

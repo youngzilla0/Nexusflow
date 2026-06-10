@@ -2,6 +2,7 @@
 #define NEXUSFLOW_PIPELINE_CONTEXT_HPP
 
 #include <nexusflow/PipelineConfig.hpp>
+#include <nexusflow/StatisticsOptions.hpp>
 
 #include <cstddef>
 #include <string>
@@ -21,9 +22,31 @@ public:
 
     const PipelineConfig& GetConfig() const { return m_config; }
 
+    const StatisticsOptions& GetStatisticsOptions() const { return m_statisticsOptions; }
+
+    bool IsStatisticsEnabled() const { return m_statisticsOptions.enableStatistics; }
+
+    bool IsThroughputStatisticsEnabled() const {
+        return m_statisticsOptions.enableStatistics && m_statisticsOptions.enableThroughput;
+    }
+
+    bool IsLatencyStatisticsEnabled() const {
+        return m_statisticsOptions.enableStatistics && m_statisticsOptions.enableLatency;
+    }
+
     size_t GetExecutorThreadCount() const { return m_executorThreadCount; }
 
     void SetExecutorThreadCount(size_t threadCount) { m_executorThreadCount = threadCount; }
+
+    void SetStatisticsEnabled(bool enabled) {
+        m_statisticsOptions.enableStatistics = enabled;
+        m_config.statistics.enableStatistics = enabled;
+    }
+
+    void SetStatisticsOptions(const StatisticsOptions& statisticsOptions) {
+        m_statisticsOptions = statisticsOptions;
+        m_config.statistics = statisticsOptions;
+    }
 
 private:
     friend class ModuleActor;
@@ -31,10 +54,13 @@ private:
     friend class executor::Executor;
 
     PipelineContext(std::string pipelineName, PipelineConfig config)
-        : m_pipelineName(std::move(pipelineName)), m_config(std::move(config)) {}
+        : m_pipelineName(std::move(pipelineName)),
+          m_config(std::move(config)),
+          m_statisticsOptions(m_config.statistics) {}
 
     std::string m_pipelineName;
     PipelineConfig m_config;
+    StatisticsOptions m_statisticsOptions;
     size_t m_executorThreadCount = 0;
 };
 

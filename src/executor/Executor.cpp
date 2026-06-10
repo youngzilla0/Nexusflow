@@ -143,8 +143,8 @@ void Executor::AddOutputQueue(const std::string& actorName, const std::string& o
                               const PortRuntimeStatsStatePtr& stats) {
     std::lock_guard<std::mutex> lock(m_mutex);
 
-    auto portStats = stats;
-    if (portStats == nullptr) {
+    auto portStats = StatisticsEnabled() ? stats : nullptr;
+    if (StatisticsEnabled() && portStats == nullptr) {
         portStats = std::make_shared<PortRuntimeStatsState>(actorName, outputPortName, dstActorName, dstInputPortName);
     }
 
@@ -156,18 +156,24 @@ void Executor::AddOutputQueue(const std::string& actorName, const std::string& o
     OutputSubscriber subscriber{dstActorName, dstInputPortName, queue, portStats, dstIt->second};
     m_broadcastSubscribers[actorName].push_back(subscriber);
     m_outputSubscribers[MakeOutputKey(actorName, outputPortName)].push_back(std::move(subscriber));
-    auto duplicateIt = std::find_if(m_portStats.begin(), m_portStats.end(),
-                                    [&portStats](const PortRuntimeStatsStatePtr& existing) {
-                                        return existing.get() == portStats.get();
-                                    });
-    if (duplicateIt == m_portStats.end()) {
-        m_portStats.push_back(std::move(portStats));
+    if (portStats != nullptr) {
+        auto duplicateIt = std::find_if(m_portStats.begin(), m_portStats.end(),
+                                        [&portStats](const PortRuntimeStatsStatePtr& existing) {
+                                            return existing.get() == portStats.get();
+                                        });
+        if (duplicateIt == m_portStats.end()) {
+            m_portStats.push_back(std::move(portStats));
+        }
     }
 }
 
 void Executor::SetThreadCount(std::size_t threadCount) { m_threadCount = threadCount; }
 
 std::vector<PortRuntimeStats> Executor::GetPortStats() const {
+    if (!StatisticsEnabled()) {
+        return {};
+    }
+
     std::lock_guard<std::mutex> lock(m_mutex);
 
     std::vector<PortRuntimeStats> snapshots;
@@ -181,6 +187,10 @@ std::vector<PortRuntimeStats> Executor::GetPortStats() const {
 }
 
 std::vector<ActorRuntimeStats> Executor::GetActorStats() const {
+    if (!StatisticsEnabled()) {
+        return {};
+    }
+
     std::lock_guard<std::mutex> lock(m_mutex);
 
     std::vector<ActorRuntimeStats> snapshots;
@@ -293,6 +303,10 @@ void Executor::NotifyActorReady(const std::shared_ptr<ActorState>& state) {
     SubmitActorTask(state);
 }
 
+bool Executor::StatisticsEnabled() const {
+    return m_pipelineContext == nullptr || m_pipelineContext->IsStatisticsEnabled();
+}
+
 bool Executor::HasPendingWork(const std::shared_ptr<ActorState>& state) const {
     if (!state) {
         return false;
@@ -360,7 +374,9 @@ bool Executor::RunSourceStep(const std::shared_ptr<ActorState>& state) {
     PortInputsView inputView(inputs);
     PortOutputs outputs;
     state->module->Process(inputView, outputs);
-    state->runtimeStats.processCount.fetch_add(1, std::memory_order_relaxed);
+    if (StatisticsEnabled()) {
+        state->runtimeStats.processCount.fetch_add(1, std::memory_order_relaxed);
+    }
     DispatchOutputs(state->actorName, outputs);
 
     if (outputs.Empty() && state->runtimeConfig.idleWaitUs > 0) {
@@ -381,13 +397,16 @@ bool Executor::RunOnAnyInputStep(const std::shared_ptr<ActorState>& state) {
     PortInputsView inputView(inputs);
     PortOutputs outputs;
     state->module->Process(inputView, outputs);
-    state->runtimeStats.processCount.fetch_add(1, std::memory_order_relaxed);
+    if (StatisticsEnabled()) {
+        state->runtimeStats.processCount.fetch_add(1, std::memory_order_relaxed);
+    }
     DispatchOutputs(state->actorName, outputs);
     return true;
 }
 
 bool Executor::RunOnAllInputsStep(const std::shared_ptr<ActorState>& state) {
     bool receivedInput = false;
+    const bool statisticsEnabled = StatisticsEnabled();
 
     for (const auto& inputQueue : state->inputQueues) {
         Message message;
@@ -396,10 +415,12 @@ bool Executor::RunOnAllInputsStep(const std::shared_ptr<ActorState>& state) {
         }
 
         receivedInput = true;
-        if (inputQueue.stats != nullptr) {
+        if (statisticsEnabled && inputQueue.stats != nullptr) {
             inputQueue.stats->RecordDequeue();
         }
-        state->runtimeStats.inputMessageCount.fetch_add(1, std::memory_order_relaxed);
+        if (statisticsEnabled) {
+            state->runtimeStats.inputMessageCount.fetch_add(1, std::memory_order_relaxed);
+        }
 
         const auto messageId = message.GetMetaData().messageId;
         std::lock_guard<std::mutex> lock(state->pendingJoinGroupsMutex);
@@ -429,7 +450,9 @@ bool Executor::RunOnAllInputsStep(const std::shared_ptr<ActorState>& state) {
     PortInputsView inputView(inputs);
     PortOutputs outputs;
     state->module->Process(inputView, outputs);
-    state->runtimeStats.processCount.fetch_add(1, std::memory_order_relaxed);
+    if (statisticsEnabled) {
+        state->runtimeStats.processCount.fetch_add(1, std::memory_order_relaxed);
+    }
     DispatchOutputs(state->actorName, outputs);
     return true;
 }
@@ -440,6 +463,7 @@ bool Executor::TryPopAnyInput(const std::shared_ptr<ActorState>& state, PortMess
     }
 
     const std::size_t queueCount = state->inputQueues.size();
+    const bool statisticsEnabled = StatisticsEnabled();
     for (std::size_t offset = 0; offset < queueCount; ++offset) {
         auto index = (state->nextInputIndex + offset) % queueCount;
         auto& inputQueue = state->inputQueues[index];
@@ -447,11 +471,13 @@ bool Executor::TryPopAnyInput(const std::shared_ptr<ActorState>& state, PortMess
         Message message;
         if (inputQueue.queue->TryPop(message)) {
             state->nextInputIndex = (index + 1) % queueCount;
-        if (inputQueue.stats != nullptr) {
-            inputQueue.stats->RecordDequeue();
-        }
-        state->runtimeStats.inputMessageCount.fetch_add(1, std::memory_order_relaxed);
-        portMessage.port = inputQueue.inputPortName;
+            if (statisticsEnabled && inputQueue.stats != nullptr) {
+                inputQueue.stats->RecordDequeue();
+            }
+            if (statisticsEnabled) {
+                state->runtimeStats.inputMessageCount.fetch_add(1, std::memory_order_relaxed);
+            }
+            portMessage.port = inputQueue.inputPortName;
             portMessage.message = std::move(message);
             return true;
         }
@@ -497,7 +523,9 @@ void Executor::CleanupExpiredJoinGroups(const std::shared_ptr<ActorState>& state
     for (auto groupIt = state->pendingJoinGroups.begin(); groupIt != state->pendingJoinGroups.end();) {
         const auto oldestTimestampMs = groupIt->second.oldestTimestampMs;
         if (oldestTimestampMs + state->runtimeConfig.fusionTimeoutMs < currentTimeMs) {
-            state->runtimeStats.joinTimeoutDropCount.fetch_add(1, std::memory_order_relaxed);
+            if (StatisticsEnabled()) {
+                state->runtimeStats.joinTimeoutDropCount.fetch_add(1, std::memory_order_relaxed);
+            }
             groupIt = state->pendingJoinGroups.erase(groupIt);
         } else {
             ++groupIt;
@@ -524,18 +552,22 @@ void Executor::EnforcePendingJoinGroupLimit(const std::shared_ptr<ActorState>& s
         if (oldestIt == state->pendingJoinGroups.end()) {
             break;
         }
-        state->runtimeStats.joinOverflowDropCount.fetch_add(1, std::memory_order_relaxed);
+        if (StatisticsEnabled()) {
+            state->runtimeStats.joinOverflowDropCount.fetch_add(1, std::memory_order_relaxed);
+        }
         state->pendingJoinGroups.erase(oldestIt);
     }
 }
 
 void Executor::DispatchOutputs(const std::string& actorName, PortOutputs& outputs) {
-    auto actorIt = m_actorStates.find(actorName);
-    if (actorIt != m_actorStates.end()) {
-        actorIt->second->runtimeStats.emittedBroadcastCount.fetch_add(static_cast<std::uint64_t>(outputs.m_broadcasts.size()),
+    if (StatisticsEnabled()) {
+        auto actorIt = m_actorStates.find(actorName);
+        if (actorIt != m_actorStates.end()) {
+            actorIt->second->runtimeStats.emittedBroadcastCount.fetch_add(static_cast<std::uint64_t>(outputs.m_broadcasts.size()),
+                                                                          std::memory_order_relaxed);
+            actorIt->second->runtimeStats.emittedRouteCount.fetch_add(static_cast<std::uint64_t>(outputs.m_routes.size()),
                                                                       std::memory_order_relaxed);
-        actorIt->second->runtimeStats.emittedRouteCount.fetch_add(static_cast<std::uint64_t>(outputs.m_routes.size()),
-                                                                  std::memory_order_relaxed);
+        }
     }
 
     for (const auto& command : outputs.m_broadcasts) {
@@ -570,18 +602,19 @@ void Executor::Route(const std::string& actorName, const std::string& outputPort
 }
 
 void Executor::DispatchToSubscriber(const OutputSubscriber& subscriber, const Message& message, bool blocking) {
-    if (subscriber.stats != nullptr) {
+    const bool statisticsEnabled = StatisticsEnabled();
+    if (statisticsEnabled && subscriber.stats != nullptr) {
         subscriber.stats->RecordPushAttempt(blocking);
     }
 
     if (blocking) {
         auto status = subscriber.queue->PushWithStatus(message);
         if (status == MessageQueue::PushStatus::Success) {
-            if (subscriber.stats != nullptr) {
+            if (statisticsEnabled && subscriber.stats != nullptr) {
                 subscriber.stats->RecordPushAccepted(1, 0);
             }
             NotifyActorReady(subscriber.dstActorState);
-        } else if (subscriber.stats != nullptr) {
+        } else if (statisticsEnabled && subscriber.stats != nullptr) {
             subscriber.stats->RecordPushRejected();
         }
         return;
@@ -595,15 +628,15 @@ void Executor::DispatchToSubscriber(const OutputSubscriber& subscriber, const Me
     if (queueFullPolicy == QueueFullPolicy::DropHead) {
         auto result = subscriber.queue->TryPushDropHead(message);
         if (result.status == MessageQueue::PushStatus::Success) {
-            if (subscriber.stats != nullptr) {
+            if (statisticsEnabled && subscriber.stats != nullptr) {
                 subscriber.stats->RecordPushAccepted(1, result.droppedCount);
             }
             NotifyActorReady(subscriber.dstActorState);
         } else if (result.status == MessageQueue::PushStatus::Shutdown) {
-            if (subscriber.stats != nullptr) {
+            if (statisticsEnabled && subscriber.stats != nullptr) {
                 subscriber.stats->RecordPushRejected();
             }
-        } else if (subscriber.stats != nullptr) {
+        } else if (statisticsEnabled && subscriber.stats != nullptr) {
             subscriber.stats->RecordPushDropped(1);
         }
         return;
@@ -611,15 +644,15 @@ void Executor::DispatchToSubscriber(const OutputSubscriber& subscriber, const Me
 
     auto status = subscriber.queue->TryPushWithStatus(message);
     if (status == MessageQueue::PushStatus::Success) {
-        if (subscriber.stats != nullptr) {
+        if (statisticsEnabled && subscriber.stats != nullptr) {
             subscriber.stats->RecordPushAccepted(1, 0);
         }
         NotifyActorReady(subscriber.dstActorState);
     } else if (status == MessageQueue::PushStatus::Shutdown) {
-        if (subscriber.stats != nullptr) {
+        if (statisticsEnabled && subscriber.stats != nullptr) {
             subscriber.stats->RecordPushRejected();
         }
-    } else if (subscriber.stats != nullptr) {
+    } else if (statisticsEnabled && subscriber.stats != nullptr) {
         subscriber.stats->RecordPushDropped(1);
     }
 }

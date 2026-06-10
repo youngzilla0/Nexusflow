@@ -76,8 +76,11 @@ ErrorCode Pipeline::Impl::Init() {
 
         auto queue = std::make_unique<MessageQueue>(this->config.queueSize);
         auto queueView = makeViewPtr(queue.get());
-        auto portStats = std::make_shared<executor::Executor::PortRuntimeStatsState>(srcNode->name, edge.srcPort, dstNode->name,
-                                                                                     edge.dstPort);
+        executor::Executor::PortRuntimeStatsStatePtr portStats;
+        if (pipelineContext != nullptr && pipelineContext->IsStatisticsEnabled()) {
+            portStats = std::make_shared<executor::Executor::PortRuntimeStatsState>(srcNode->name, edge.srcPort,
+                                                                                    dstNode->name, edge.dstPort);
+        }
 
         srcActorNode->AddOutputQueue(edge.srcPort, dstNode->name, edge.dstPort, queueView, portStats);
         dstActorNode->AddInputQueue(edge.dstPort, queueView, portStats);

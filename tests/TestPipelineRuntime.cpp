@@ -78,6 +78,35 @@ public:
     }
 };
 
+class ContextAwareForwardModule : public Module {
+public:
+    explicit ContextAwareForwardModule(std::string name) : Module(std::move(name)) {}
+
+    ErrorCode Init() override {
+        m_statisticsEnabled = GetPipelineContext().IsStatisticsEnabled();
+        m_throughputEnabled = GetPipelineContext().IsThroughputStatisticsEnabled();
+        m_latencyEnabled = GetPipelineContext().IsLatencyStatisticsEnabled();
+        return ErrorCode::SUCCESS;
+    }
+
+    void Process(const PortInputsView& inputs, PortOutputs& outputs) override {
+        auto* message = inputs.OnlyMessage();
+        if (message == nullptr) {
+            return;
+        }
+        outputs.Emit(*message, true);
+    }
+
+    bool StatisticsEnabled() const { return m_statisticsEnabled; }
+    bool ThroughputEnabled() const { return m_throughputEnabled; }
+    bool LatencyEnabled() const { return m_latencyEnabled; }
+
+private:
+    bool m_statisticsEnabled = true;
+    bool m_throughputEnabled = true;
+    bool m_latencyEnabled = true;
+};
+
 class JoinSumModule : public Module {
 public:
     explicit JoinSumModule(std::string name) : Module(std::move(name)) { SetTriggerPolicy(TriggerPolicy::OnAllInputs); }
@@ -212,6 +241,39 @@ TEST(PipelineRuntimeTest, ExecutorThreadPool_ReusesThreadsAcrossMultipleActors) 
 
     EXPECT_TRUE(sink->WaitForCount(1, 500ms));
     EXPECT_EQ(sink->Values(), std::vector<int>({42}));
+
+    EXPECT_EQ(pipeline->Stop(), ErrorCode::SUCCESS);
+    EXPECT_EQ(pipeline->DeInit(), ErrorCode::SUCCESS);
+}
+
+TEST(PipelineRuntimeTest, StatisticsCanBeDisabledFromPipelineContext) {
+    auto source = std::make_shared<ManualSourceModule>("Source");
+    auto pass = std::make_shared<ContextAwareForwardModule>("Pass");
+    auto sink = std::make_shared<CollectSinkModule>("Sink");
+
+    PipelineConfig config;
+    config.queueSize = 8;
+    config.idleWaitUs = 10;
+    config.statistics.enableStatistics = false;
+    config.statistics.enableThroughput = true;
+    config.statistics.enableLatency = true;
+
+    auto pipeline =
+        PipelineBuilder().AddModule(source).AddModule(pass).AddModule(sink).Connect("Source", "Pass").Connect("Pass", "Sink").WithConfig(config).Build();
+
+    ASSERT_NE(pipeline, nullptr);
+    ASSERT_EQ(pipeline->Init(), ErrorCode::SUCCESS);
+    EXPECT_FALSE(pass->StatisticsEnabled());
+    EXPECT_FALSE(pass->ThroughputEnabled());
+    EXPECT_FALSE(pass->LatencyEnabled());
+
+    source->Send(7, true);
+
+    ASSERT_EQ(pipeline->Start(), ErrorCode::SUCCESS);
+    EXPECT_TRUE(sink->WaitForCount(1, 500ms));
+    EXPECT_EQ(sink->Values(), std::vector<int>({7}));
+    EXPECT_TRUE(pipeline->GetPortStats().empty());
+    EXPECT_TRUE(pipeline->GetActorStats().empty());
 
     EXPECT_EQ(pipeline->Stop(), ErrorCode::SUCCESS);
     EXPECT_EQ(pipeline->DeInit(), ErrorCode::SUCCESS);

@@ -22,7 +22,7 @@ NexusFlow's current runtime uses a shared `Executor` with a work-stealing `Threa
 | Area | Current finding | Assessment |
 |------|-----------------|------------|
 | Message copy/broadcast | COW `Message` vector-payload copy measured ~13.8 ns; broadcast handle copy measured ~145 ns. | Message wrapper is unlikely to be the main bottleneck. |
-| Pipeline depth scaling | 20K-message linear passthrough with 1 KiB shared payload went from 19.7 ms at depth 1 to 63.1 ms at depth 32. | Depth overhead is visible but still sublinear versus node-count growth. |
+| Pipeline depth scaling | 20K-message linear passthrough with 1 KiB shared payload went from 13.2 ms at depth 1 to 50.9 ms at depth 32 in the current run. | Depth overhead is visible but still sublinear versus node-count growth. |
 | Worker scaling | 8-stage linear benchmark peaked at 4 workers in this smoke run; 1 worker timed out. | Current source scheduling wastes capacity when worker count is too low. |
 | Fan-out/join topology | Diamond join benchmark delivered 10K joined messages at 2/4/8/16 branches with no drops. | Join path is functional; branch count increases coordination cost. |
 | Non-blocking overload behavior | Queue-capacity overload benchmark shows high drop counts and bounded queue depth. | Backpressure/drop accounting is visible and testable. |
@@ -125,32 +125,37 @@ Interpretation:
 
 Benchmark: `BM_ReportPipelineLinearDepth_Blocking`, 20K messages, blocking output, 4 executor workers, queue size 10K. Payload is a `uint64_t` monotonic send timestamp, so this table is best read as a small-message scheduling baseline.
 
-| Linear depth | Payload | Elapsed time | Sink received | Throughput | Avg latency | Drops |
-|--------------|---------|--------------|---------------|------------|-------------|-------|
-| 1 | 8 B timestamp | 17.2 ms | 20 K | 1.164 M/s | 5.87 ms | 0 |
-| 2 | 8 B timestamp | 18.7 ms | 20 K | 1.067 M/s | 6.58 ms | 0 |
-| 4 | 8 B timestamp | 21.2 ms | 20 K | 942 K/s | 6.09 ms | 0 |
-| 8 | 8 B timestamp | 85.6 ms | 20 K | 234 K/s | 48.9 ms | 0 |
-| 16 | 8 B timestamp | 37.7 ms | 20 K | 530 K/s | 19.0 ms | 0 |
-| 32 | 8 B timestamp | 68.1 ms | 20 K | 294 K/s | 38.3 ms | 0 |
+For this section, the report uses the custom `ElapsedUs` counter rather than Google Benchmark's leftmost `Time` column. `ElapsedUs` is the explicit wall-clock interval measured around "send all messages -> wait for delivery -> wait for drain", which matches the report's intended end-to-end elapsed-time definition more closely.
+
+`Avg elapsed / msg` means `ElapsedUs / SinkReceived`. It is different from `Avg latency`: the former is amortized total wall-clock cost per delivered message for the whole burst, while the latter is per-message end-to-end waiting time observed at the sink.
+
+| Linear depth | Payload | Elapsed time | Avg elapsed / msg | Sink received | Throughput | Avg latency | Drops |
+|--------------|---------|--------------|-------------------|---------------|------------|-------------|-------|
+| 1 | 8 B timestamp | 12.1 ms | 0.60 us | 20 K | 1.657 M/s | 70.6 us | 0 |
+| 2 | 8 B timestamp | 11.6 ms | 0.58 us | 20 K | 1.718 M/s | 40.9 us | 0 |
+| 4 | 8 B timestamp | 18.7 ms | 0.93 us | 20 K | 1.070 M/s | 5.53 ms | 0 |
+| 8 | 8 B timestamp | 20.3 ms | 1.01 us | 20 K | 987 K/s | 7.05 ms | 0 |
+| 16 | 8 B timestamp | 30.7 ms | 1.53 us | 20 K | 652 K/s | 13.9 ms | 0 |
+| 32 | 8 B timestamp | 50.9 ms | 2.55 us | 20 K | 393 K/s | 29.9 ms | 0 |
 
 Benchmark: `BM_ReportPipelineLinearDepthPayload1KiB_Blocking`, 20K messages, blocking output, 4 executor workers, queue size 10K. Payload is a `shared_ptr<vector<char>>` containing 1 KiB, so the payload object is shared through `Message` and not copied at each edge.
 
-| Linear depth | Payload | Elapsed time | Sink received | Throughput | Effective payload rate | Drops |
-|--------------|---------|--------------|---------------|------------|------------------------|-------|
-| 1 | 1 KiB shared payload | 19.7 ms | 20 K | 1.014 M/s | 990 MiB/s | 0 |
-| 2 | 1 KiB shared payload | 22.2 ms | 20 K | 902 K/s | 881 MiB/s | 0 |
-| 4 | 1 KiB shared payload | 20.9 ms | 20 K | 957 K/s | 935 MiB/s | 0 |
-| 8 | 1 KiB shared payload | 26.5 ms | 20 K | 753 K/s | 736 MiB/s | 0 |
-| 16 | 1 KiB shared payload | 39.3 ms | 20 K | 509 K/s | 497 MiB/s | 0 |
-| 32 | 1 KiB shared payload | 63.1 ms | 20 K | 317 K/s | 309 MiB/s | 0 |
+| Linear depth | Payload | Elapsed time | Avg elapsed / msg | Sink received | Throughput | Effective payload rate | Drops |
+|--------------|---------|--------------|-------------------|---------------|------------|------------------------|-------|
+| 1 | 1 KiB shared payload | 13.2 ms | 0.66 us | 20 K | 1.521 M/s | 1.485 GiB/s | 0 |
+| 2 | 1 KiB shared payload | 14.5 ms | 0.72 us | 20 K | 1.381 M/s | 1.349 GiB/s | 0 |
+| 4 | 1 KiB shared payload | 18.6 ms | 0.93 us | 20 K | 1.076 M/s | 1.050 GiB/s | 0 |
+| 8 | 1 KiB shared payload | 20.5 ms | 1.02 us | 20 K | 976 K/s | 953 MiB/s | 0 |
+| 16 | 1 KiB shared payload | 32.4 ms | 1.62 us | 20 K | 617 K/s | 602 MiB/s | 0 |
+| 32 | 1 KiB shared payload | 50.9 ms | 2.55 us | 20 K | 393 K/s | 384 MiB/s | 0 |
 
 Interpretation:
 
 - Delivery remained lossless for all tested depths.
-- With 1 KiB shared payload, depth 1 -> 32 increased elapsed time by ~3.2x for 32x more passthrough stages, showing useful pipeline overlap.
+- With 1 KiB shared payload, depth 1 -> 32 increased elapsed time by ~3.9x for 32x more passthrough stages, showing useful pipeline overlap.
 - Because the 1 KiB payload is passed by `shared_ptr`, this benchmark measures scheduling, queueing, and message-handle movement more than memory-copy bandwidth.
-- The timestamp-payload depth 8 result is noisier than adjacent points, so final publication should use repeated-run medians.
+- The timestamp baseline shows a clear inflection after depth 2, while the 1 KiB shared-payload curve stays comparatively smooth.
+- Final publication should still use repeated-run medians, because these numbers are sensitive to scheduler noise.
 
 ### 4.5 Worker Scaling
 

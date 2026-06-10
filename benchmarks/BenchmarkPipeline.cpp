@@ -18,7 +18,9 @@ using namespace std::chrono;
 
 namespace {
 
-inline std::uint64_t GetNowNs() { return duration_cast<nanoseconds>(steady_clock::now().time_since_epoch()).count(); }
+inline std::uint64_t GetNowNs() {
+    return duration_cast<nanoseconds>(steady_clock::now().time_since_epoch()).count();
+}
 
 class SinkModule : public Module {
 public:
@@ -115,10 +117,47 @@ private:
 class PayloadSourceModule : public Module {
 public:
     PayloadSourceModule(std::string name, std::size_t payloadSize, bool blocking = true)
-        : Module(std::move(name)), m_payload(std::make_shared<std::vector<char>>(payloadSize, 'x')), m_blocking(blocking) {}
+        : Module(std::move(name)),
+          m_payload(std::make_shared<std::vector<char>>(payloadSize, 'x')),
+          m_blocking(blocking) {}
 
     void GenerateOne() {
         Broadcast(Message(m_payload), m_blocking);
+        m_counter++;
+    }
+
+    void Process(const PortInputsView& inputs, PortOutputs& outputs) override {
+        (void)inputs;
+        (void)outputs;
+    }
+
+    void ResetCounter() { m_counter = 0; }
+
+    std::uint64_t GetCounter() const { return m_counter.load(); }
+
+private:
+    std::shared_ptr<std::vector<char>> m_payload;
+    std::atomic<std::uint64_t> m_counter{0};
+    bool m_blocking = true;
+};
+
+struct TimedSharedPayload {
+    std::uint64_t startNs = 0;
+    std::shared_ptr<std::vector<char>> payload;
+};
+
+class TimedPayloadSourceModule : public Module {
+public:
+    TimedPayloadSourceModule(std::string name, std::size_t payloadSize, bool blocking = true)
+        : Module(std::move(name)),
+          m_payload(std::make_shared<std::vector<char>>(payloadSize, 'x')),
+          m_blocking(blocking) {}
+
+    void GenerateOne() {
+        TimedSharedPayload payload;
+        payload.startNs = GetNowNs();
+        payload.payload = m_payload;
+        Broadcast(Message(std::move(payload)), m_blocking);
         m_counter++;
     }
 
@@ -166,6 +205,33 @@ public:
 
 private:
     std::vector<std::string> m_inputPorts;
+    std::atomic<std::uint64_t> m_messageCount{0};
+    std::atomic<std::uint64_t> m_totalLatencyNs{0};
+};
+
+class TimedPayloadSinkModule : public Module {
+public:
+    explicit TimedPayloadSinkModule(std::string name) : Module(std::move(name)) {}
+
+    void Process(const PortInputsView& inputs, PortOutputs& outputs) override {
+        (void)outputs;
+
+        const auto now = GetNowNs();
+        if (auto* timedPayload = inputs.OnlyAs<TimedSharedPayload>()) {
+            m_totalLatencyNs += (now - timedPayload->startNs);
+        }
+        m_messageCount++;
+    }
+
+    std::uint64_t GetMessageCount() const { return m_messageCount.load(); }
+    std::uint64_t GetTotalLatencyNs() const { return m_totalLatencyNs.load(); }
+
+    void Reset() {
+        m_messageCount = 0;
+        m_totalLatencyNs = 0;
+    }
+
+private:
     std::atomic<std::uint64_t> m_messageCount{0};
     std::atomic<std::uint64_t> m_totalLatencyNs{0};
 };
@@ -235,8 +301,8 @@ bool WaitForCounterAtLeast(CounterFn&& counterFn, std::uint64_t expectedCount, s
 }
 
 void PublishPipelineCounters(benchmark::State& state, std::uint64_t sourceSent, std::uint64_t sinkReceived,
-                             std::uint64_t totalLatencyNs, std::uint64_t elapsedNs, const PortStatsSummary& portStats, bool delivered,
-                             bool drained) {
+                             std::uint64_t totalLatencyNs, std::uint64_t elapsedNs, const PortStatsSummary& portStats,
+                             bool delivered, bool drained) {
     const double throughput = elapsedNs == 0 ? 0.0 : (sinkReceived * 1e9) / static_cast<double>(elapsedNs);
     const double avgLatencyNs = sinkReceived == 0 ? 0.0 : static_cast<double>(totalLatencyNs) / sinkReceived;
 
@@ -254,18 +320,23 @@ void PublishPipelineCounters(benchmark::State& state, std::uint64_t sourceSent, 
     state.counters["DrainTimedOut"] = drained ? 0.0 : 1.0;
 }
 
-void PublishReportCounters(benchmark::State& state, std::uint64_t sourceSent, std::uint64_t sinkReceived, std::uint64_t totalLatencyNs,
-                           std::uint64_t elapsedNs, const PortStatsSummary& portStats, bool delivered, bool drained) {
+void PublishReportCounters(benchmark::State& state, std::uint64_t sourceSent, std::uint64_t sinkReceived,
+                           std::uint64_t totalLatencyNs, std::uint64_t elapsedNs, const PortStatsSummary& portStats,
+                           bool delivered, bool drained) {
     PublishPipelineCounters(state, sourceSent, sinkReceived, totalLatencyNs, elapsedNs, portStats, delivered, drained);
-    state.counters["ElapsedUsTotal"] = elapsedNs / 1000.0;
+    state.counters["ElapsedUs"] = elapsedNs / 1000.0;
     const double avgElapsedUsPerMessage =
         sinkReceived == 0 ? 0.0 : (static_cast<double>(elapsedNs) / 1000.0) / static_cast<double>(sinkReceived);
-    state.counters["ElapsedUsAvg"] = avgElapsedUsPerMessage;
+    state.counters["AvgElapsedUsPerMessage"] = avgElapsedUsPerMessage;
+    state.counters["PerMessageElapsedUs"] = avgElapsedUsPerMessage;
 }
 
 std::unique_ptr<Pipeline> BuildReportLinearPipeline(const std::shared_ptr<SourceModule>& source,
-                                                    const std::shared_ptr<SinkModule>& sink, int depth, const PipelineConfig& config,
-                                                    bool blocking, int simulateLatencyUs = 0) {
+                                                    const std::shared_ptr<SinkModule>& sink,
+                                                    int depth,
+                                                    const PipelineConfig& config,
+                                                    bool blocking,
+                                                    int simulateLatencyUs = 0) {
     PipelineBuilder builder;
     builder.AddModule(source);
 
@@ -284,8 +355,10 @@ std::unique_ptr<Pipeline> BuildReportLinearPipeline(const std::shared_ptr<Source
 }
 
 std::unique_ptr<Pipeline> BuildReportPayloadPipeline(const std::shared_ptr<PayloadSourceModule>& source,
-                                                     const std::shared_ptr<CountingSinkModule>& sink, int depth,
-                                                     const PipelineConfig& config, bool blocking) {
+                                                     const std::shared_ptr<CountingSinkModule>& sink,
+                                                     int depth,
+                                                     const PipelineConfig& config,
+                                                     bool blocking) {
     PipelineBuilder builder;
     builder.AddModule(source);
 
@@ -303,9 +376,34 @@ std::unique_ptr<Pipeline> BuildReportPayloadPipeline(const std::shared_ptr<Paylo
     return builder.Build();
 }
 
+std::unique_ptr<Pipeline> BuildReportTimedPayloadPipeline(const std::shared_ptr<TimedPayloadSourceModule>& source,
+                                                          const std::shared_ptr<TimedPayloadSinkModule>& sink,
+                                                          int depth,
+                                                          const PipelineConfig& config,
+                                                          bool blocking) {
+    PipelineBuilder builder;
+    builder.AddModule(source);
+
+    std::string previous = source->GetModuleName();
+    for (int i = 0; i < depth; ++i) {
+        auto pass = std::make_shared<PassThroughModule>("TimedPayloadPass" + std::to_string(i), blocking);
+        builder.AddModule(pass);
+        builder.Connect(previous, pass->GetModuleName());
+        previous = pass->GetModuleName();
+    }
+
+    builder.AddModule(sink);
+    builder.Connect(previous, sink->GetModuleName());
+    builder.WithConfig(config);
+    return builder.Build();
+}
+
 std::unique_ptr<Pipeline> BuildReportDiamondJoinPipeline(const std::shared_ptr<SourceModule>& source,
-                                                         const std::shared_ptr<JoinSinkModule>& join, int branches,
-                                                         const PipelineConfig& config, bool blocking, int simulateLatencyUs = 0) {
+                                                         const std::shared_ptr<JoinSinkModule>& join,
+                                                         int branches,
+                                                         const PipelineConfig& config,
+                                                         bool blocking,
+                                                         int simulateLatencyUs = 0) {
     PipelineBuilder builder;
     builder.AddModule(source);
     builder.AddModule(join);
@@ -855,15 +953,120 @@ static void BM_ReportPipelineLinearDepthPayload1KiB_Blocking(benchmark::State& s
         PublishReportCounters(state, source->GetCounter(), sink->GetMessageCount(), 0, elapsedNs,
                               DiffPortStats(portStatsBefore, portStatsAfter), delivered, drained);
         state.counters["PayloadBytes"] = static_cast<double>(kPayloadSize);
-        state.counters["EffectivePayloadMiBps"] = elapsedNs == 0
-                                                      ? 0.0
-                                                      : (static_cast<double>(sink->GetMessageCount()) * kPayloadSize * 1e9) /
-                                                            (static_cast<double>(elapsedNs) * 1024.0 * 1024.0);
+        state.counters["EffectivePayloadMiBps"] =
+            elapsedNs == 0 ? 0.0 : (static_cast<double>(sink->GetMessageCount()) * kPayloadSize * 1e9) /
+                                      (static_cast<double>(elapsedNs) * 1024.0 * 1024.0);
     }
 
     pipeline->Stop();
 }
 BENCHMARK(BM_ReportPipelineLinearDepthPayload1KiB_Blocking)
+    ->Arg(1)
+    ->Arg(2)
+    ->Arg(4)
+    ->Arg(8)
+    ->Arg(16)
+    ->Arg(32)
+    ->Unit(benchmark::kMicrosecond);
+
+static void BM_ReportPipelineLinearDepthLatency_Blocking(benchmark::State& state) {
+    const auto depth = static_cast<int>(state.range(0));
+    constexpr int kSampleCount = 2000;
+
+    auto source = std::make_shared<SourceModule>("Source", true);
+    auto sink = std::make_shared<SinkModule>("Sink");
+
+    PipelineConfig config;
+    config.queueSize = 16;
+    config.idleWaitUs = 5;
+    config.executorThreadCount = 4;
+
+    auto pipeline = BuildReportLinearPipeline(source, sink, depth, config, true);
+    pipeline->Init();
+    pipeline->Start();
+
+    for (auto _ : state) {
+        sink->Reset();
+        source->ResetCounter();
+        const auto portStatsBefore = SummarizePortStats(*pipeline);
+
+        const auto startTime = steady_clock::now();
+        for (int i = 0; i < kSampleCount; ++i) {
+            source->GenerateOne();
+            const auto expectedCount = static_cast<std::uint64_t>(i + 1);
+            if (!WaitForCounterAtLeast([&sink]() { return sink->GetMessageCount(); }, expectedCount, 100ms)) {
+                break;
+            }
+        }
+        const bool delivered =
+            WaitForCounterAtLeast([&sink]() { return sink->GetMessageCount(); }, static_cast<std::uint64_t>(kSampleCount), 1s);
+        const bool drained = delivered && WaitForPipelineDrain(*pipeline, 500ms);
+        const auto endTime = steady_clock::now();
+
+        const auto elapsedNs = duration_cast<nanoseconds>(endTime - startTime).count();
+        const auto portStatsAfter = SummarizePortStats(*pipeline);
+
+        PublishReportCounters(state, source->GetCounter(), sink->GetMessageCount(), sink->GetTotalLatencyNs(), elapsedNs,
+                              DiffPortStats(portStatsBefore, portStatsAfter), delivered, drained);
+    }
+
+    pipeline->Stop();
+}
+BENCHMARK(BM_ReportPipelineLinearDepthLatency_Blocking)
+    ->Arg(1)
+    ->Arg(2)
+    ->Arg(4)
+    ->Arg(8)
+    ->Arg(16)
+    ->Arg(32)
+    ->Unit(benchmark::kMicrosecond);
+
+static void BM_ReportPipelineLinearDepthPayload1KiBLatency_Blocking(benchmark::State& state) {
+    const auto depth = static_cast<int>(state.range(0));
+    constexpr int kSampleCount = 2000;
+    constexpr std::size_t kPayloadSize = 1024;
+
+    auto source = std::make_shared<TimedPayloadSourceModule>("Source", kPayloadSize, true);
+    auto sink = std::make_shared<TimedPayloadSinkModule>("Sink");
+
+    PipelineConfig config;
+    config.queueSize = 16;
+    config.idleWaitUs = 5;
+    config.executorThreadCount = 4;
+
+    auto pipeline = BuildReportTimedPayloadPipeline(source, sink, depth, config, true);
+    pipeline->Init();
+    pipeline->Start();
+
+    for (auto _ : state) {
+        sink->Reset();
+        source->ResetCounter();
+        const auto portStatsBefore = SummarizePortStats(*pipeline);
+
+        const auto startTime = steady_clock::now();
+        for (int i = 0; i < kSampleCount; ++i) {
+            source->GenerateOne();
+            const auto expectedCount = static_cast<std::uint64_t>(i + 1);
+            if (!WaitForCounterAtLeast([&sink]() { return sink->GetMessageCount(); }, expectedCount, 100ms)) {
+                break;
+            }
+        }
+        const bool delivered =
+            WaitForCounterAtLeast([&sink]() { return sink->GetMessageCount(); }, static_cast<std::uint64_t>(kSampleCount), 1s);
+        const bool drained = delivered && WaitForPipelineDrain(*pipeline, 500ms);
+        const auto endTime = steady_clock::now();
+
+        const auto elapsedNs = duration_cast<nanoseconds>(endTime - startTime).count();
+        const auto portStatsAfter = SummarizePortStats(*pipeline);
+
+        PublishReportCounters(state, source->GetCounter(), sink->GetMessageCount(), sink->GetTotalLatencyNs(), elapsedNs,
+                              DiffPortStats(portStatsBefore, portStatsAfter), delivered, drained);
+        state.counters["PayloadBytes"] = static_cast<double>(kPayloadSize);
+    }
+
+    pipeline->Stop();
+}
+BENCHMARK(BM_ReportPipelineLinearDepthPayload1KiBLatency_Blocking)
     ->Arg(1)
     ->Arg(2)
     ->Arg(4)
@@ -1045,9 +1248,9 @@ static void BM_ReportPipelinePayloadSize_Blocking(benchmark::State& state) {
         PublishReportCounters(state, source->GetCounter(), sink->GetMessageCount(), 0, elapsedNs,
                               DiffPortStats(portStatsBefore, portStatsAfter), delivered, drained);
         state.counters["PayloadBytes"] = static_cast<double>(payloadSize);
-        state.counters["EffectivePayloadMiBps"] = elapsedNs == 0 ? 0.0
-                                                                 : (static_cast<double>(sink->GetMessageCount()) * payloadSize * 1e9) /
-                                                                       (static_cast<double>(elapsedNs) * 1024.0 * 1024.0);
+        state.counters["EffectivePayloadMiBps"] =
+            elapsedNs == 0 ? 0.0 : (static_cast<double>(sink->GetMessageCount()) * payloadSize * 1e9) /
+                                      (static_cast<double>(elapsedNs) * 1024.0 * 1024.0);
     }
 
     pipeline->Stop();
