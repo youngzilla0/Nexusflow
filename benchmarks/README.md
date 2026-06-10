@@ -37,7 +37,7 @@ Quick examples:
 - `BM_MessageModelInheritance_Process_DynamicCast`
 - `BM_MessageModelTypeErasure_Process_BorrowPtr`
 - `BM_LockBaseQueueInt_Throughput_ProducerConsumer`
-- `BM_LockFreeMPMCQueueSharedPtr_Throughput_ProducerConsumer`
+- `BM_LockFreeQueueSharedPtr_Throughput_ProducerConsumer`
 - `BM_LockBaseQueueBlob2K_Throughput_ProducerConsumer`
 - `BM_LockFreeNodeQueueBlob2K_Throughput_ProducerConsumer`
 - `BM_PipelineDiamond_Throughput_Blocking`

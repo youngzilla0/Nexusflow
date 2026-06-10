@@ -7,7 +7,7 @@
 <text x="1020" y="39" font-size="12" fill="#3e3a36">LBQ / LockBaseQueue</text>
 <line x1="1155" y1="34" x2="1177" y2="34" stroke="#d62728" stroke-width="4" stroke-linecap="round"/>
 <circle cx="1166" cy="34" r="4.5" fill="#d62728"/>
-<text x="1185" y="39" font-size="12" fill="#3e3a36">LFQ / LockFreeMPMCQueue</text>
+<text x="1185" y="39" font-size="12" fill="#3e3a36">LFQ / LockFreeQueue</text>
 <line x1="1320" y1="34" x2="1342" y2="34" stroke="#2ca02c" stroke-width="4" stroke-linecap="round"/>
 <circle cx="1331" cy="34" r="4.5" fill="#2ca02c"/>
 <text x="1350" y="39" font-size="12" fill="#3e3a36">LFN / LockFreeNodeQueue</text>

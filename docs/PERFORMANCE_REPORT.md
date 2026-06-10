@@ -1,6 +1,6 @@
 # NexusFlow Performance Benchmark Report
 
-> Status: draft based on the current benchmark suite and one local smoke run.
+> Status: draft based on the current benchmark suite and one local smoke run after the single-worker scheduling fix.
 > This report intentionally describes NexusFlow's current runtime path rather than
 > borrowing conclusions from other pipeline frameworks.
 
@@ -22,12 +22,12 @@ NexusFlow's current runtime uses a shared `Executor` with a work-stealing `Threa
 | Area | Current finding | Assessment |
 |------|-----------------|------------|
 | Message copy/broadcast | COW `Message` vector-payload copy measured ~13.8 ns; broadcast handle copy measured ~145 ns. | Message wrapper is unlikely to be the main bottleneck. |
-| Pipeline depth scaling | 20K-message linear passthrough with 1 KiB shared payload went from 13.2 ms at depth 1 to 50.9 ms at depth 32 in the current run. | Depth overhead is visible but still sublinear versus node-count growth. |
-| Worker scaling | 8-stage linear benchmark peaked at 4 workers in this smoke run; 1 worker timed out. | Current source scheduling wastes capacity when worker count is too low. |
+| Pipeline depth scaling | 20K-message linear passthrough with 1 KiB shared payload went from 15.7 ms at depth 1 to 50.8 ms at depth 32 in the current run. | Depth overhead is visible but still sublinear versus node-count growth. |
+| Worker scaling | 8-stage linear benchmark completed at 1/2/4/8/16 workers and peaked at 2 workers in this smoke run. | Single-worker timeout has been fixed; tiny passthrough workloads still prefer low worker counts. |
 | Fan-out/join topology | Diamond join benchmark delivered 10K joined messages at 2/4/8/16 branches with no drops. | Join path is functional; branch count increases coordination cost. |
 | Non-blocking overload behavior | Queue-capacity overload benchmark shows high drop counts and bounded queue depth. | Backpressure/drop accounting is visible and testable. |
 | Queue path | Pipeline uses `LockBaseQueue<Message>`; lock-free queues are currently standalone benchmark targets. | Important reporting boundary. |
-| Observability | Per-port and per-actor runtime stats exist for enqueue/dequeue/drop/reject and join state. | Enough for operational reporting, but latency percentiles are not built in yet. |
+| Observability | Per-port and per-actor runtime stats exist for enqueue/dequeue/drop/reject and join state; benchmark sinks now report latency percentiles. | Enough for report-grade benchmark analysis, but runtime histogram telemetry is not built in yet. |
 
 ## 2. Architecture Under Test
 
@@ -54,7 +54,12 @@ The current benchmark executable covers:
 | `BenchmarkMessage.cpp` | Message construction, COW copy, broadcast handle copy, typed access, mutation. |
 | `BenchmarkLockBaseQueue.cpp` | Shipping-style lock-based queue microbenchmarks. |
 | `BenchmarkLockFreeQueue.cpp` | Experimental lock-free MPMC and node queue microbenchmarks. |
-| `BenchmarkPipeline.cpp` | Single-path, linear, diamond, blocking, non-blocking, warm, and simulated-latency pipeline cases. |
+| `BenchmarkPipelineBaseline.cpp` | Baseline single-path, linear, diamond blocking, and diamond non-blocking throughput. |
+| `BenchmarkPipelineDepth.cpp` | Linear depth scaling with timestamp and 1 KiB shared payloads. |
+| `BenchmarkPipelineLatency.cpp` | End-to-end latency percentiles by linear depth, payload type, and diamond join branch count. |
+| `BenchmarkPipelineScaling.cpp` | Worker scaling and diamond join branch scaling. |
+| `BenchmarkPipelineBackpressure.cpp` | Queue capacity behavior under non-blocking overload. |
+| `BenchmarkPipelinePayload.cpp` | Payload-size sensitivity with shared payload handles. |
 
 The test suite also validates drop policies, queue statistics, join group limits, observer aggregation, and pipeline executor behavior.
 
@@ -85,10 +90,10 @@ Shared-pointer payload, producer/consumer split:
 | LockBaseQueue | 4 | 4.09 M/s |
 | LockBaseQueue | 8 | 4.84 M/s |
 | LockBaseQueue | 16 | 2.69 M/s |
-| LockFreeMPMCQueue | 2 | 12.94 M/s |
-| LockFreeMPMCQueue | 4 | 5.94 M/s |
-| LockFreeMPMCQueue | 8 | 3.64 M/s |
-| LockFreeMPMCQueue | 16 | 1.74 M/s |
+| LockFreeQueue | 2 | 12.94 M/s |
+| LockFreeQueue | 4 | 5.94 M/s |
+| LockFreeQueue | 8 | 3.64 M/s |
+| LockFreeQueue | 16 | 1.74 M/s |
 
 Interpretation:
 
@@ -131,28 +136,28 @@ For this section, the report uses the custom `ElapsedUs` counter rather than Goo
 
 | Linear depth | Payload | Elapsed time | Avg elapsed / msg | Sink received | Throughput | Avg latency | Drops |
 |--------------|---------|--------------|-------------------|---------------|------------|-------------|-------|
-| 1 | 8 B timestamp | 12.1 ms | 0.60 us | 20 K | 1.657 M/s | 70.6 us | 0 |
-| 2 | 8 B timestamp | 11.6 ms | 0.58 us | 20 K | 1.718 M/s | 40.9 us | 0 |
-| 4 | 8 B timestamp | 18.7 ms | 0.93 us | 20 K | 1.070 M/s | 5.53 ms | 0 |
-| 8 | 8 B timestamp | 20.3 ms | 1.01 us | 20 K | 987 K/s | 7.05 ms | 0 |
-| 16 | 8 B timestamp | 30.7 ms | 1.53 us | 20 K | 652 K/s | 13.9 ms | 0 |
-| 32 | 8 B timestamp | 50.9 ms | 2.55 us | 20 K | 393 K/s | 29.9 ms | 0 |
+| 1 | 8 B timestamp | 15.1 ms | 0.76 us | 20 K | 1.323 M/s | 4.31 ms | 0 |
+| 2 | 8 B timestamp | 16.2 ms | 0.81 us | 20 K | 1.235 M/s | 5.31 ms | 0 |
+| 4 | 8 B timestamp | 19.9 ms | 0.99 us | 20 K | 1.006 M/s | 5.71 ms | 0 |
+| 8 | 8 B timestamp | 24.3 ms | 1.22 us | 20 K | 822 K/s | 8.77 ms | 0 |
+| 16 | 8 B timestamp | 33.1 ms | 1.66 us | 20 K | 604 K/s | 15.5 ms | 0 |
+| 32 | 8 B timestamp | 51.6 ms | 2.58 us | 20 K | 388 K/s | 25.7 ms | 0 |
 
 Benchmark: `BM_ReportPipelineLinearDepthPayload1KiB_Blocking`, 20K messages, blocking output, 4 executor workers, queue size 10K. Payload is a `shared_ptr<vector<char>>` containing 1 KiB, so the payload object is shared through `Message` and not copied at each edge.
 
 | Linear depth | Payload | Elapsed time | Avg elapsed / msg | Sink received | Throughput | Effective payload rate | Drops |
 |--------------|---------|--------------|-------------------|---------------|------------|------------------------|-------|
-| 1 | 1 KiB shared payload | 13.2 ms | 0.66 us | 20 K | 1.521 M/s | 1.485 GiB/s | 0 |
-| 2 | 1 KiB shared payload | 14.5 ms | 0.72 us | 20 K | 1.381 M/s | 1.349 GiB/s | 0 |
-| 4 | 1 KiB shared payload | 18.6 ms | 0.93 us | 20 K | 1.076 M/s | 1.050 GiB/s | 0 |
-| 8 | 1 KiB shared payload | 20.5 ms | 1.02 us | 20 K | 976 K/s | 953 MiB/s | 0 |
-| 16 | 1 KiB shared payload | 32.4 ms | 1.62 us | 20 K | 617 K/s | 602 MiB/s | 0 |
-| 32 | 1 KiB shared payload | 50.9 ms | 2.55 us | 20 K | 393 K/s | 384 MiB/s | 0 |
+| 1 | 1 KiB shared payload | 15.7 ms | 0.79 us | 20 K | 1.272 M/s | 1.21 GiB/s | 0 |
+| 2 | 1 KiB shared payload | 16.9 ms | 0.84 us | 20 K | 1.187 M/s | 1.13 GiB/s | 0 |
+| 4 | 1 KiB shared payload | 19.8 ms | 0.99 us | 20 K | 1.011 M/s | 988 MiB/s | 0 |
+| 8 | 1 KiB shared payload | 23.8 ms | 1.19 us | 20 K | 841 K/s | 821 MiB/s | 0 |
+| 16 | 1 KiB shared payload | 32.8 ms | 1.64 us | 20 K | 610 K/s | 595 MiB/s | 0 |
+| 32 | 1 KiB shared payload | 50.8 ms | 2.54 us | 20 K | 394 K/s | 385 MiB/s | 0 |
 
 Interpretation:
 
 - Delivery remained lossless for all tested depths.
-- With 1 KiB shared payload, depth 1 -> 32 increased elapsed time by ~3.9x for 32x more passthrough stages, showing useful pipeline overlap.
+- With 1 KiB shared payload, depth 1 -> 32 increased elapsed time by ~3.2x for 32x more passthrough stages, showing useful pipeline overlap.
 - Because the 1 KiB payload is passed by `shared_ptr`, this benchmark measures scheduling, queueing, and message-handle movement more than memory-copy bandwidth.
 - The timestamp baseline shows a clear inflection after depth 2, while the 1 KiB shared-payload curve stays comparatively smooth.
 - Final publication should still use repeated-run medians, because these numbers are sensitive to scheduler noise.
@@ -163,16 +168,16 @@ Benchmark: `BM_ReportPipelineWorkerScaling_Blocking`, 8-stage linear passthrough
 
 | Workers | Elapsed time | Sink received | Throughput | Avg latency | Delivery status |
 |---------|--------------|---------------|------------|-------------|-----------------|
-| 1 | 5016 ms | 9.09 K | 1.81 K/s | 13.9 ms | Timed out |
-| 2 | 27.2 ms | 20 K | 736 K/s | 14.7 ms | Complete |
-| 4 | 22.4 ms | 20 K | 894 K/s | 8.59 ms | Complete |
-| 8 | 28.9 ms | 20 K | 692 K/s | 10.1 ms | Complete |
-| 16 | 40.1 ms | 20 K | 499 K/s | 18.4 ms | Complete |
+| 1 | 27.0 ms | 20 K | 741 K/s | 10.2 ms | Complete |
+| 2 | 19.7 ms | 20 K | 1.015 M/s | 7.36 ms | Complete |
+| 4 | 22.2 ms | 20 K | 901 K/s | 8.38 ms | Complete |
+| 8 | 28.2 ms | 20 K | 710 K/s | 9.83 ms | Complete |
+| 16 | 30.9 ms | 20 K | 648 K/s | 11.9 ms | Complete |
 
 Interpretation:
 
-- The best point in this smoke run was 4 workers.
-- 1 worker timed out because no-input source actors are still primed and rescheduled by the executor. With one worker, that idle source scheduling can starve downstream actors.
+- The best point in this smoke run was 2 workers.
+- 1 worker now completes without delivery or drain timeout after adding manual source scheduling and FIFO task submission fairness.
 - 8/16 workers did not improve this tiny passthrough workload because coordination overhead dominates useful work.
 
 ### 4.6 Diamond Join Branch Scaling
@@ -181,10 +186,10 @@ Benchmark: `BM_ReportPipelineDiamondBranches_BlockingJoin`, 10K source messages,
 
 | Branches | Elapsed time | Joined messages | Throughput | Avg latency | Drops |
 |----------|--------------|-----------------|------------|-------------|-------|
-| 2 | 15.4 ms | 10 K | 649 K/s | 6.68 ms | 0 |
-| 4 | 29.7 ms | 10 K | 336 K/s | 500 us | 0 |
-| 8 | 55.6 ms | 10 K | 180 K/s | 246 us | 0 |
-| 16 | 55.1 ms | 10 K | 182 K/s | 21.2 ms | 0 |
+| 2 | 9.83 ms | 10 K | 1.017 M/s | 2.46 ms | 0 |
+| 4 | 25.0 ms | 10 K | 401 K/s | 1.91 ms | 0 |
+| 8 | 51.8 ms | 10 K | 193 K/s | 1.91 ms | 0 |
+| 16 | 101.6 ms | 10 K | 98.4 K/s | 975 us | 0 |
 
 Interpretation:
 
@@ -198,12 +203,12 @@ Benchmark: `BM_ReportPipelineQueueCapacity_NonBlocking`, 4-stage linear pipeline
 
 | Queue capacity | Elapsed time | Sink received | Dropped | Throughput | Avg latency | Peak depth |
 |----------------|--------------|---------------|---------|------------|-------------|------------|
-| 8 | 6.17 ms | 156 | 49.84 K | 25.3 K/s | 489 us | 9 |
-| 16 | 6.00 ms | 240 | 49.76 K | 40.0 K/s | 615 us | 17 |
-| 32 | 6.10 ms | 280 | 49.72 K | 45.9 K/s | 905 us | 33 |
-| 64 | 6.50 ms | 329 | 49.67 K | 50.6 K/s | 1.46 ms | 65 |
-| 128 | 8.32 ms | 367 | 49.63 K | 44.1 K/s | 2.78 ms | 129 |
-| 256 | 10.0 ms | 518 | 49.48 K | 51.7 K/s | 4.10 ms | 257 |
+| 8 | 5.44 ms | 218 | 49.78 K | 40.1 K/s | 344 us | 9 |
+| 16 | 5.51 ms | 197 | 49.80 K | 35.8 K/s | 607 us | 17 |
+| 32 | 5.77 ms | 268 | 49.73 K | 46.4 K/s | 844 us | 33 |
+| 64 | 6.03 ms | 327 | 49.67 K | 54.2 K/s | 1.23 ms | 65 |
+| 128 | 7.31 ms | 390 | 49.61 K | 53.4 K/s | 2.15 ms | 128 |
+| 256 | 11.6 ms | 517 | 49.48 K | 44.6 K/s | 4.71 ms | 257 |
 
 Interpretation:
 
@@ -217,18 +222,59 @@ Benchmark: `BM_ReportPipelinePayloadSize_Blocking`, 4-stage linear pipeline, 20K
 
 | Payload size | Elapsed time | Sink received | Throughput | Effective payload rate | Drops |
 |--------------|--------------|---------------|------------|------------------------|-------|
-| 64 B | 21.1 ms | 20 K | 949 K/s | 57.9 MiB/s | 0 |
-| 256 B | 23.8 ms | 20 K | 841 K/s | 205 MiB/s | 0 |
-| 1 KiB | 22.7 ms | 20 K | 880 K/s | 859 MiB/s | 0 |
-| 4 KiB | 19.3 ms | 20 K | 1.038 M/s | 4.05 GiB/s | 0 |
-| 16 KiB | 23.4 ms | 20 K | 855 K/s | 13.1 GiB/s | 0 |
-| 64 KiB | 19.4 ms | 20 K | 1.032 M/s | 63.0 GiB/s | 0 |
+| 64 B | 20.5 ms | 20 K | 973 K/s | 59.4 MiB/s | 0 |
+| 256 B | 22.0 ms | 20 K | 909 K/s | 222 MiB/s | 0 |
+| 1 KiB | 21.9 ms | 20 K | 914 K/s | 892 MiB/s | 0 |
+| 4 KiB | 18.4 ms | 20 K | 1.090 M/s | 4.16 GiB/s | 0 |
+| 16 KiB | 21.9 ms | 20 K | 914 K/s | 14.0 GiB/s | 0 |
+| 64 KiB | 22.5 ms | 20 K | 887 K/s | 54.2 GiB/s | 0 |
 
 Interpretation:
 
 - Payload size had little effect on elapsed time because the benchmark passes `shared_ptr<vector<char>>` through `Message`, so payload bytes are not copied on each edge.
 - The effective payload rate is a derived logical throughput number, not a physical memory bandwidth measurement.
 - A separate mutating-payload benchmark is needed to measure COW clone cost under downstream writes.
+
+### 4.9 End-to-End Latency Distribution
+
+Benchmark: `BM_ReportPipelineLinearDepthLatency_Blocking`, 2K samples, blocking output, queue size 16, 4 executor workers. The benchmark sends one message and waits for its delivery before sending the next, keeping queue depth near 1 so the table reflects low-load per-message latency rather than burst backlog.
+
+| Linear depth | Payload | P50 | P90 | P99 | Max | Drops |
+|--------------|---------|-----|-----|-----|-----|-------|
+| 1 | 8 B timestamp | 5.00 us | 7.71 us | 23.33 us | 47.04 us | 0 |
+| 2 | 8 B timestamp | 5.92 us | 9.54 us | 25.25 us | 68.88 us | 0 |
+| 4 | 8 B timestamp | 8.33 us | 13.21 us | 37.83 us | 98.50 us | 0 |
+| 8 | 8 B timestamp | 9.83 us | 17.79 us | 43.58 us | 656.29 us | 0 |
+| 16 | 8 B timestamp | 14.71 us | 28.75 us | 64.75 us | 766.71 us | 0 |
+| 32 | 8 B timestamp | 20.67 us | 45.63 us | 81.88 us | 156.46 us | 0 |
+
+Benchmark: `BM_ReportPipelineLinearDepthPayload1KiBLatency_Blocking`, same setup, but payload is a `shared_ptr<vector<char>>` containing 1 KiB.
+
+| Linear depth | Payload | P50 | P90 | P99 | Max | Drops |
+|--------------|---------|-----|-----|-----|-----|-------|
+| 1 | 1 KiB shared payload | 5.08 us | 7.92 us | 23.58 us | 75.79 us | 0 |
+| 2 | 1 KiB shared payload | 5.92 us | 9.71 us | 28.17 us | 64.63 us | 0 |
+| 4 | 1 KiB shared payload | 8.21 us | 13.46 us | 34.08 us | 69.13 us | 0 |
+| 8 | 1 KiB shared payload | 9.92 us | 15.75 us | 37.17 us | 58.33 us | 0 |
+| 16 | 1 KiB shared payload | 10.92 us | 18.04 us | 46.38 us | 97.21 us | 0 |
+| 32 | 1 KiB shared payload | 20.13 us | 45.13 us | 79.13 us | 144.29 us | 0 |
+
+Benchmark: `BM_ReportPipelineDiamondJoinLatency_Blocking`, 2K samples, blocking output, queue size 16, 8 executor workers. Topology is `Source -> N passthrough branches -> OnAllInputs Join`. The join latency is measured from source send timestamp to successful join completion.
+
+| Branches | Topology | P50 | P90 | P99 | Max | Drops |
+|----------|----------|-----|-----|-----|-----|-------|
+| 2 | Diamond join | 8.50 us | 14.63 us | 35.13 us | 487.79 us | 0 |
+| 4 | Diamond join | 11.29 us | 22.46 us | 38.25 us | 67.46 us | 0 |
+| 8 | Diamond join | 28.50 us | 38.96 us | 60.67 us | 96.71 us | 0 |
+| 16 | Diamond join | 41.08 us | 57.25 us | 83.63 us | 134.50 us | 0 |
+
+Interpretation:
+
+- Low-load P50 latency stays around 5-10 us through depth 8 for both payload modes.
+- At depth 32, P99 remains under 82 us for the timestamp payload and under 80 us for the 1 KiB shared payload in this smoke run.
+- The 1 KiB payload does not materially change median latency because the payload is shared by handle rather than copied at each edge.
+- Diamond join latency scales predictably with branch count in this run: P50 rises from 8.50 us at 2 branches to 41.08 us at 16 branches.
+- Max latency is noisier than percentile latency and should be reported with environment notes.
 
 ## 5. Runtime Strengths
 
@@ -250,9 +296,9 @@ Port stats expose push attempts, enqueue count, drop count, reject count, dequeu
 
 ## 6. Known Limitations Before a Final Report
 
-### 6.1 Latency Percentiles Are Missing
+### 6.1 Runtime Latency Histograms Are Not Built In
 
-The current pipeline benchmarks publish average latency, but a production-grade report should include P50, P90, P99, max, and possibly jitter. This requires collecting per-message latency samples or adding a histogram dependency.
+The benchmark suite now reports P50, P90, P99, and max latency using benchmark-specific sink modules. The runtime itself still exposes counter snapshots rather than latency histograms, so production telemetry would need a runtime observer or histogram extension.
 
 ### 6.2 Message Timestamp Precision Is Too Low for Microsecond Claims
 
@@ -266,7 +312,7 @@ The pipeline runtime uses `LockBaseQueue<Message>`. Lock-free queue benchmarks a
 
 Source actors that produce no output rely on `idleWaitUs`. This is simple and safe, but event-driven or timer-driven source scheduling would produce cleaner latency behavior and clearer reports.
 
-The worker-scaling benchmark exposed a concrete case: with one executor worker, an idle no-input source actor can consume enough scheduling time that downstream actors time out. Manual/external source modules should not be primed as continuously runnable sources unless they actually produce work from `Process()`.
+Manual/external source modules now opt out of polling with `Module::SourcePolicy::Manual`, and the thread pool uses FIFO local submission to avoid single-worker actor continuation starvation. Polling sources are still continuously runnable by design, so timer/event-driven source scheduling remains a useful future extension.
 
 ### 6.5 Join Policy Is Message-ID Based
 
@@ -314,12 +360,12 @@ To produce a detailed NexusFlow-specific report, add the following benchmark gro
 | Priority | Change | Why it matters |
 |----------|--------|----------------|
 | P0 | Add monotonic nanosecond timing for benchmark latency. | Required for credible microsecond latency reporting. |
-| P0 | Add percentile latency collection to pipeline benchmarks. | Average latency hides tail latency and queue backlog. |
+| P0 | Add runtime-level latency histograms or observer hooks. | Benchmarks now have percentiles, but production telemetry still only has counter snapshots. |
 | P0 | Make runtime queue backend explicit in `PipelineConfig`. | Prevents mixing lock-based runtime claims with lock-free microbenchmarks. |
-| P0 | Fix source actor scheduling for manual sources. | 1-worker report benchmark timed out because an idle no-input source actor can starve downstream work. |
+| Done | Fix source actor scheduling for manual sources and single-worker task fairness. | The 1-worker report benchmark now completes with `DeliveryTimedOut=0` and `DrainTimedOut=0`. |
 | P1 | Add `KeepLatest` as a first-class pipeline drop policy. | Important for video/streaming workloads where newest data matters most. |
 | P1 | Add benchmark matrix for depth, workers, branches, queue capacity, and payload size. | Needed for a detailed NexusFlow performance report. |
-| P1 | Add source scheduling modes: manual, polling, timer/event driven. | Reduces `idleWaitUs` noise and clarifies stream latency behavior. |
+| P1 | Add timer/event-driven source scheduling modes. | Manual and polling modes exist; timer/event-driven scheduling would further reduce `idleWaitUs` noise. |
 | P2 | Add join strategy abstraction beyond `messageId` joins. | Enables multi-source stream fusion and more realistic fork-join reports. |
 | P2 | Add executor stats such as task submissions, steals, idle wakeups, and max task backlog. | Helps explain scaling behavior rather than only reporting outcomes. |
 
@@ -333,8 +379,8 @@ To produce a detailed NexusFlow-specific report, add the following benchmark gro
 
 ## 10. Next Steps
 
-1. Add percentile latency benchmark support.
-2. Add a pipeline benchmark matrix for depth, branch count, worker count, queue capacity, and payload size.
-3. Decide whether NexusFlow's production queue path should remain lock-based or become configurable.
-4. Re-run benchmarks on the target Linux/WSL2 environment and replace smoke values with final repeated-run medians.
-5. Generate charts for queue throughput, pipeline topology scaling, and latency distribution.
+1. Decide whether NexusFlow's production queue path should remain lock-based or become configurable.
+2. Add runtime-level latency observer hooks if production telemetry needs P50/P99 outside benchmarks.
+3. Re-run benchmarks on the target Linux/WSL2 environment and replace smoke values with final repeated-run medians.
+4. Generate charts for queue throughput, pipeline topology scaling, and latency distribution.
+5. Add mutating-payload benchmarks to quantify COW clone cost under downstream writes.

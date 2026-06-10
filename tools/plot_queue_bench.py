@@ -15,7 +15,7 @@ LINE_RE = re.compile(
     r".*?push_ok=(?P<push_ok>[0-9.]+)(?P<push_ok_unit>[kMG]?)$"
 )
 
-IMPL_LABEL = {"LBQ": "LockBaseQueue", "LFQ": "LockFreeMPMCQueue", "LFN": "LockFreeNodeQueue"}
+IMPL_LABEL = {"LBQ": "LockBaseQueue", "LFQ": "LockFreeQueue", "LFN": "LockFreeNodeQueue"}
 PAYLOAD_LABEL = {"Int": "int", "Ptr": "shared_ptr", "Blob": "Blob2K"}
 COLORS = {"LBQ": "#1f77b4", "LFQ": "#d62728", "LFN": "#2ca02c"}
 

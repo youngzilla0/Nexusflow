@@ -275,7 +275,7 @@ void Executor::PrimeActorsOnStart() {
         }
         state->taskScheduled.store(false, std::memory_order_release);
         state->pendingRunSignals.store(0, std::memory_order_release);
-        if (state->inputQueues.empty() || HasPendingWork(state)) {
+        if (HasPendingWork(state)) {
             NotifyActorReady(state);
         }
     }
@@ -312,7 +312,7 @@ bool Executor::HasPendingWork(const std::shared_ptr<ActorState>& state) const {
         return false;
     }
     if (state->inputQueues.empty()) {
-        return true;
+        return state->module != nullptr && state->module->GetSourcePolicy() == Module::SourcePolicy::Polling;
     }
 
     for (const auto& inputQueue : state->inputQueues) {
@@ -357,7 +357,8 @@ void Executor::RunActorTask(const std::shared_ptr<ActorState>& state) {
         return;
     }
 
-    bool needsReschedule = state->inputQueues.empty();
+    bool needsReschedule =
+        state->inputQueues.empty() && state->module->GetSourcePolicy() == Module::SourcePolicy::Polling;
     if (!needsReschedule && state->pendingRunSignals.load(std::memory_order_acquire) > 0) {
         needsReschedule = true;
     }

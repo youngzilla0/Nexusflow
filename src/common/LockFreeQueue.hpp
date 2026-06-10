@@ -122,14 +122,14 @@ struct LockFreeQueueStatistics {
 };
 
 template <typename T>
-class LockFreeMPMCQueue {
-    static_assert(std::is_move_constructible<T>::value, "LockFreeMPMCQueue<T> requires T to be move constructible");
+class LockFreeQueue {
+    static_assert(std::is_move_constructible<T>::value, "LockFreeQueue<T> requires T to be move constructible");
 
 public:
     using value_type = T;
     using size_type = std::size_t;
 
-    explicit LockFreeMPMCQueue(size_type min_capacity)
+    explicit LockFreeQueue(size_type min_capacity)
         : m_capacity(roundUpPowerOf2(min_capacity < 2 ? 2 : min_capacity)),
           m_mask(m_capacity - 1),
           m_buffer(static_cast<Cell*>(allocate_aligned(sizeof(Cell) * m_capacity, k_cache_line_size))),
@@ -143,7 +143,7 @@ public:
         }
     }
 
-    ~LockFreeMPMCQueue() {
+    ~LockFreeQueue() {
         T dummy;
         while (tryPop(dummy)) {
         }
@@ -153,10 +153,10 @@ public:
         free_aligned(m_buffer);
     }
 
-    LockFreeMPMCQueue(const LockFreeMPMCQueue&) = delete;
-    LockFreeMPMCQueue& operator=(const LockFreeMPMCQueue&) = delete;
-    LockFreeMPMCQueue(LockFreeMPMCQueue&&) = delete;
-    LockFreeMPMCQueue& operator=(LockFreeMPMCQueue&&) = delete;
+    LockFreeQueue(const LockFreeQueue&) = delete;
+    LockFreeQueue& operator=(const LockFreeQueue&) = delete;
+    LockFreeQueue(LockFreeQueue&&) = delete;
+    LockFreeQueue& operator=(LockFreeQueue&&) = delete;
 
     bool tryPush(T&& item) {
         Cell* cell;
@@ -305,6 +305,9 @@ private:
     alignas(k_cache_line_size) std::atomic<size_type> m_enqueuePos;
     alignas(k_cache_line_size) std::atomic<size_type> m_dequeuePos;
 };
+
+template <typename T>
+using LockFreeMPMCQueue = LockFreeQueue<T>;
 
 template <typename T>
 class LockFreeNodeQueue {
@@ -527,7 +530,7 @@ private:
     }
 
     Config m_config;
-    LockFreeMPMCQueue<T> m_queue;
+    LockFreeQueue<T> m_queue;
     LockFreeQueueStatistics m_stats;
 
     DropEventCallback m_dropCallback;

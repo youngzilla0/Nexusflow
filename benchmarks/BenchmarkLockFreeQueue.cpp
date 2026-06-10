@@ -11,8 +11,8 @@ using queue_bench::SharedPayloadPtr;
 using queue_bench::kPoolMask;
 using queue_bench::kQueueCap;
 
-static void BM_LockFreeMPMCQueueInt_PushPop_SingleThread(benchmark::State& state) {
-    LockFreeMPMCQueue<int> q(1024);
+static void BM_LockFreeQueueInt_PushPop_SingleThread(benchmark::State& state) {
+    LockFreeQueue<int> q(1024);
     int value = 42;
 
     for (auto _ : state) {
@@ -22,14 +22,14 @@ static void BM_LockFreeMPMCQueueInt_PushPop_SingleThread(benchmark::State& state
         benchmark::DoNotOptimize(out);
     }
 }
-BENCHMARK(BM_LockFreeMPMCQueueInt_PushPop_SingleThread);
+BENCHMARK(BM_LockFreeQueueInt_PushPop_SingleThread);
 
-static void BM_LockFreeMPMCQueueInt_Throughput_ProducerConsumer(benchmark::State& state) {
-    static LockFreeMPMCQueue<int>* q = nullptr;
+static void BM_LockFreeQueueInt_Throughput_ProducerConsumer(benchmark::State& state) {
+    static LockFreeQueue<int>* q = nullptr;
     static std::atomic<int> exit_count{0};
 
     if (state.thread_index() == 0) {
-        q = new LockFreeMPMCQueue<int>(kQueueCap);
+        q = new LockFreeQueue<int>(kQueueCap);
         exit_count.store(0, std::memory_order_relaxed);
     }
 
@@ -70,15 +70,15 @@ static void BM_LockFreeMPMCQueueInt_Throughput_ProducerConsumer(benchmark::State
     }
 }
 
-BENCHMARK(BM_LockFreeMPMCQueueInt_Throughput_ProducerConsumer)->ThreadRange(2, 16)->UseRealTime()->Unit(benchmark::kNanosecond);
+BENCHMARK(BM_LockFreeQueueInt_Throughput_ProducerConsumer)->ThreadRange(2, 16)->UseRealTime()->Unit(benchmark::kNanosecond);
 
-static void BM_LockFreeMPMCQueueSharedPtr_Throughput_ProducerConsumer(benchmark::State& state) {
-    static LockFreeMPMCQueue<SharedPayloadPtr>* q = nullptr;
+static void BM_LockFreeQueueSharedPtr_Throughput_ProducerConsumer(benchmark::State& state) {
+    static LockFreeQueue<SharedPayloadPtr>* q = nullptr;
     static std::vector<SharedPayloadPtr>* pool = nullptr;
     static std::atomic<int> exit_count{0};
 
     if (state.thread_index() == 0) {
-        q = new LockFreeMPMCQueue<SharedPayloadPtr>(kQueueCap);
+        q = new LockFreeQueue<SharedPayloadPtr>(kQueueCap);
         pool = queue_bench::makeSharedPayloadPool();
         exit_count.store(0, std::memory_order_relaxed);
     }
@@ -124,15 +124,15 @@ static void BM_LockFreeMPMCQueueSharedPtr_Throughput_ProducerConsumer(benchmark:
     }
 }
 
-BENCHMARK(BM_LockFreeMPMCQueueSharedPtr_Throughput_ProducerConsumer)->ThreadRange(2, 16)->UseRealTime()->Unit(benchmark::kNanosecond);
+BENCHMARK(BM_LockFreeQueueSharedPtr_Throughput_ProducerConsumer)->ThreadRange(2, 16)->UseRealTime()->Unit(benchmark::kNanosecond);
 
-static void BM_LockFreeMPMCQueueBlob2K_Throughput_ProducerConsumer(benchmark::State& state) {
-    static LockFreeMPMCQueue<Blob2K>* q = nullptr;
+static void BM_LockFreeQueueBlob2K_Throughput_ProducerConsumer(benchmark::State& state) {
+    static LockFreeQueue<Blob2K>* q = nullptr;
     static std::vector<Blob2K>* pool = nullptr;
     static std::atomic<int> exit_count{0};
 
     if (state.thread_index() == 0) {
-        q = new LockFreeMPMCQueue<Blob2K>(kQueueCap);
+        q = new LockFreeQueue<Blob2K>(kQueueCap);
         pool = queue_bench::makeBlobPool();
         exit_count.store(0, std::memory_order_relaxed);
     }
@@ -178,7 +178,7 @@ static void BM_LockFreeMPMCQueueBlob2K_Throughput_ProducerConsumer(benchmark::St
     }
 }
 
-BENCHMARK(BM_LockFreeMPMCQueueBlob2K_Throughput_ProducerConsumer)->ThreadRange(2, 16)->UseRealTime()->Unit(benchmark::kNanosecond);
+BENCHMARK(BM_LockFreeQueueBlob2K_Throughput_ProducerConsumer)->ThreadRange(2, 16)->UseRealTime()->Unit(benchmark::kNanosecond);
 
 static void BM_LockFreeNodeQueueInt_Throughput_ProducerConsumer(benchmark::State& state) {
     static LockFreeNodeQueue<int>* q = nullptr;

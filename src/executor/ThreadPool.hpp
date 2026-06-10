@@ -32,8 +32,8 @@ namespace executor {
  * @brief Thread-safe work-stealing deque for fine-grained task distribution.
  *
  * Design:
- * - PushFront/PopFront: local LIFO (fast, single lock)
- * - StealBack: remote FIFO (for work stealing)
+ * - PushBack/PopFront: local FIFO to preserve actor fairness
+ * - StealBack: remote steal from the newest queued task
  * - IsEmpty: check if deque is empty
  */
 template <typename T>
@@ -47,7 +47,13 @@ public:
         m_deque.push_front(std::move(item));
     }
 
-    /** @brief Pop from front (local operation, LIFO) */
+    /** @brief Push to back (FIFO scheduling) */
+    void PushBack(T item) {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        m_deque.push_back(std::move(item));
+    }
+
+    /** @brief Pop from front (local FIFO consumer side) */
     Optional<T> PopFront() {
         std::lock_guard<std::mutex> lock(m_mutex);
         if (m_deque.empty()) return nullopt;
@@ -85,9 +91,10 @@ private:
 /**
  * @brief Work-stealing thread pool.
  *
- * Each worker has its own deque. Tasks are pushed to the front (LIFO) and
- * popped from the front (LIFO) for good cache locality. When a worker's
- * queue is empty, it tries to steal from another queue's back (FIFO).
+ * Each worker has its own deque. Tasks are pushed to the back and popped from
+ * the front so actor continuations cannot starve downstream actors on a single
+ * worker. When a worker's queue is empty, it tries to steal from another
+ * queue's back.
  */
 class ThreadPool {
 public:
@@ -138,7 +145,7 @@ public:
     void Submit(std::function<void()> task, bool detach = true) {
         std::size_t targetQueue = SelectQueue();
 
-        m_queues[targetQueue]->PushFront(std::move(task));
+        m_queues[targetQueue]->PushBack(std::move(task));
         m_pendingTasks.fetch_add(1, std::memory_order_relaxed);
 
         m_cond.notify_one();
@@ -152,7 +159,7 @@ private:
         while (true) {
             Optional<std::function<void()>> optTask;
 
-            // Try local queue first (LIFO)
+            // Try local queue first (FIFO)
             optTask = m_queues[workerIndex]->PopFront();
             if (!optTask) {
                 // Try to steal from other workers

@@ -18,7 +18,7 @@ namespace {
 
 class ManualSourceModule : public Module {
 public:
-    explicit ManualSourceModule(std::string name) : Module(std::move(name)) {}
+    explicit ManualSourceModule(std::string name) : Module(std::move(name)) { SetSourcePolicy(SourcePolicy::Manual); }
 
     void Send(int value, bool blocking) { Broadcast(MakeMessage(value, GetModuleName()), blocking); }
 
@@ -237,6 +237,42 @@ TEST(PipelineRuntimeTest, ExecutorThreadPool_ReusesThreadsAcrossMultipleActors) 
     ASSERT_EQ(pipeline->Init(), ErrorCode::SUCCESS);
     ASSERT_EQ(pipeline->Start(), ErrorCode::SUCCESS);
 
+    source->Send(42, true);
+
+    EXPECT_TRUE(sink->WaitForCount(1, 500ms));
+    EXPECT_EQ(sink->Values(), std::vector<int>({42}));
+
+    EXPECT_EQ(pipeline->Stop(), ErrorCode::SUCCESS);
+    EXPECT_EQ(pipeline->DeInit(), ErrorCode::SUCCESS);
+}
+
+TEST(PipelineRuntimeTest, ManualSource_DoesNotStarveSingleWorkerExecutor) {
+    auto source = std::make_shared<ManualSourceModule>("Source");
+    auto pass1 = std::make_shared<ForwardModule>("Pass1");
+    auto pass2 = std::make_shared<ForwardModule>("Pass2");
+    auto sink = std::make_shared<CollectSinkModule>("Sink");
+
+    PipelineConfig config;
+    config.executorThreadCount = 1;
+    config.queueSize = 16;
+    config.idleWaitUs = 0;
+
+    auto pipeline = PipelineBuilder()
+                        .AddModule(source)
+                        .AddModule(pass1)
+                        .AddModule(pass2)
+                        .AddModule(sink)
+                        .Connect("Source", "Pass1")
+                        .Connect("Pass1", "Pass2")
+                        .Connect("Pass2", "Sink")
+                        .WithConfig(config)
+                        .Build();
+
+    ASSERT_NE(pipeline, nullptr);
+    ASSERT_EQ(pipeline->Init(), ErrorCode::SUCCESS);
+    ASSERT_EQ(pipeline->Start(), ErrorCode::SUCCESS);
+
+    std::this_thread::sleep_for(20ms);
     source->Send(42, true);
 
     EXPECT_TRUE(sink->WaitForCount(1, 500ms));

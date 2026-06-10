@@ -8,8 +8,8 @@
 using namespace nexusflow;
 
 // 1. 基本的单线程测试
-TEST(LockFreeMPMCQueueTest, TryPushTryPop_BasicSingleThread) {
-    LockFreeMPMCQueue<int> q(8);
+TEST(LockFreeQueueTest, TryPushTryPop_BasicSingleThread) {
+    LockFreeQueue<int> q(8);
 
     int val = 0;
     EXPECT_TRUE(q.tryPush(42));
@@ -26,9 +26,9 @@ TEST(LockFreeMPMCQueueTest, TryPushTryPop_BasicSingleThread) {
 }
 
 // 2. 测试队列容量限制及 Try 接口
-TEST(LockFreeMPMCQueueTest, TryPushTryPop_CapacityLimits) {
+TEST(LockFreeQueueTest, TryPushTryPop_CapacityLimits) {
     // 申请容量 2，内部向上取整，刚好是 2
-    LockFreeMPMCQueue<int> q(2);
+    LockFreeQueue<int> q(2);
 
     EXPECT_TRUE(q.tryPush(1));
     EXPECT_TRUE(q.tryPush(2));
@@ -45,8 +45,8 @@ TEST(LockFreeMPMCQueueTest, TryPushTryPop_CapacityLimits) {
 }
 
 // 3. 测试超时逻辑 (手动实现 timeout 等效)
-TEST(LockFreeMPMCQueueTest, TryOperations_TimeoutEquivalentBehavior) {
-    LockFreeMPMCQueue<int> q(2);
+TEST(LockFreeQueueTest, TryOperations_TimeoutEquivalentBehavior) {
+    LockFreeQueue<int> q(2);
     int val = 0;
 
     // 队列为空，手动实现 timeout：多次 TryPop 应在 50ms 内返回 false
@@ -83,13 +83,13 @@ TEST(LockFreeMPMCQueueTest, TryOperations_TimeoutEquivalentBehavior) {
 
 // 4. 多线程高并发数据完整性测试 (最严苛的测试)
 // 测试场景：4 个生产者，4 个消费者，共发送 40 万条数据，确保 0 丢失、0 重复
-TEST(LockFreeMPMCQueueTest, ConcurrentProducersConsumers_DataIntegrity) {
+TEST(LockFreeQueueTest, ConcurrentProducersConsumers_DataIntegrity) {
     const int numProducers = 4;
     const int numConsumers = 4;
     const int itemsPerProducer = 100000;
     const int totalItems = numProducers * itemsPerProducer;
 
-    LockFreeMPMCQueue<int> q(1024);
+    LockFreeQueue<int> q(1024);
 
     // 用于记录每个数字被消费的次数（初始全为 0）
     std::vector<std::atomic<int>> counts(totalItems);

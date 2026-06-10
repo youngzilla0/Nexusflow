@@ -27,6 +27,7 @@ class Executor;
 class Module {
 public:
     enum class TriggerPolicy { Auto, OnAnyInput, OnAllInputs };
+    enum class SourcePolicy { Polling, Manual };
 
 public:
     explicit Module(std::string name);
@@ -44,6 +45,10 @@ public:
     TriggerPolicy GetTriggerPolicy() const { return m_triggerPolicy; }
 
     void SetTriggerPolicy(TriggerPolicy policy) { m_triggerPolicy = policy; }
+
+    SourcePolicy GetSourcePolicy() const { return m_sourcePolicy; }
+
+    void SetSourcePolicy(SourcePolicy policy) { m_sourcePolicy = policy; }
 
     const std::string& GetModuleName() const { return m_moduleName; }
 
@@ -64,6 +69,7 @@ private:
     std::shared_ptr<executor::Executor> m_executor;
     std::shared_ptr<PipelineContext> m_pipelineContext;
     TriggerPolicy m_triggerPolicy = TriggerPolicy::Auto;
+    SourcePolicy m_sourcePolicy = SourcePolicy::Polling;
 };
 
 } // namespace nexusflow
