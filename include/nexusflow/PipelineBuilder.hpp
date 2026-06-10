@@ -48,6 +48,9 @@ public:
      */
     PipelineBuilder& Connect(const std::string& srcModuleName, const std::string& dstModuleName);
 
+    PipelineBuilder& Connect(const std::string& srcModuleName, const std::string& srcPort,
+                             const std::string& dstModuleName, const std::string& dstPort);
+
     /**
      * @brief Sets the pipeline configuration.
      * @param config The PipelineConfig to use.

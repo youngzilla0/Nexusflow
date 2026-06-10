@@ -96,7 +96,7 @@ public:
      * @param numThreads Number of worker threads. Defaults to hardware concurrency.
      */
     explicit ThreadPool(std::size_t numThreads = std::thread::hardware_concurrency())
-        : m_running(true)
+        : m_running(false)
         , m_state(State::KRunning)
         , m_queues(numThreads)
         , m_nextWorkerIndex(0)

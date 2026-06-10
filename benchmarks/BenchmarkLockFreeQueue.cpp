@@ -1,211 +1,349 @@
 #include "common/LockFreeQueue.hpp"
+#include "QueueBenchmarkCommon.hpp"
 #include <atomic>
 #include <benchmark/benchmark.h>
 #include <thread>
 
 using namespace nexusflow;
+using queue_bench::Blob2K;
+using queue_bench::OpStats;
+using queue_bench::SharedPayloadPtr;
+using queue_bench::kPoolMask;
+using queue_bench::kQueueCap;
 
-// 测试上层封装队列 (附带统计和 Drop 策略) 性能
-static void BM_NodeQueue_DropTail(benchmark::State& state) {
-    static LockFreeNodeQueue<int>* shared_nq = nullptr;
+static void BM_LockFreeMPMCQueueInt_PushPop_SingleThread(benchmark::State& state) {
+    LockFreeMPMCQueue<int> q(1024);
+    int value = 42;
+
+    for (auto _ : state) {
+        q.tryPush(std::move(value));
+        int out = 0;
+        q.tryPop(out);
+        benchmark::DoNotOptimize(out);
+    }
+}
+BENCHMARK(BM_LockFreeMPMCQueueInt_PushPop_SingleThread);
+
+static void BM_LockFreeMPMCQueueInt_Throughput_ProducerConsumer(benchmark::State& state) {
+    static LockFreeMPMCQueue<int>* q = nullptr;
+    static std::atomic<int> exit_count{0};
+
+    if (state.thread_index() == 0) {
+        q = new LockFreeMPMCQueue<int>(kQueueCap);
+        exit_count.store(0, std::memory_order_relaxed);
+    }
+
+    while (q == nullptr) {
+        std::this_thread::yield();
+    }
+
+    const bool is_producer = (state.thread_index() % 2 == 0);
+    OpStats stats;
+    int value = 42;
+
+    for (auto _ : state) {
+        if (is_producer) {
+            if (q->tryPush(std::move(value))) {
+                ++stats.push_ok;
+            } else {
+                ++stats.push_fail;
+            }
+        } else {
+            int out = 0;
+            if (q->tryPop(out)) {
+                ++stats.pop_ok;
+                benchmark::DoNotOptimize(out);
+            } else {
+                ++stats.pop_fail;
+            }
+        }
+    }
+
+    if (!is_producer) {
+        state.SetItemsProcessed(static_cast<int64_t>(stats.pop_ok));
+    }
+    queue_bench::publishCounters(state, stats);
+
+    if (exit_count.fetch_add(1, std::memory_order_acq_rel) == state.threads() - 1) {
+        delete q;
+        q = nullptr;
+    }
+}
+
+BENCHMARK(BM_LockFreeMPMCQueueInt_Throughput_ProducerConsumer)->ThreadRange(2, 16)->UseRealTime()->Unit(benchmark::kNanosecond);
+
+static void BM_LockFreeMPMCQueueSharedPtr_Throughput_ProducerConsumer(benchmark::State& state) {
+    static LockFreeMPMCQueue<SharedPayloadPtr>* q = nullptr;
+    static std::vector<SharedPayloadPtr>* pool = nullptr;
+    static std::atomic<int> exit_count{0};
+
+    if (state.thread_index() == 0) {
+        q = new LockFreeMPMCQueue<SharedPayloadPtr>(kQueueCap);
+        pool = queue_bench::makeSharedPayloadPool();
+        exit_count.store(0, std::memory_order_relaxed);
+    }
+
+    while (q == nullptr || pool == nullptr) {
+        std::this_thread::yield();
+    }
+
+    const bool is_producer = (state.thread_index() % 2 == 0);
+    OpStats stats;
+    std::size_t index = static_cast<std::size_t>(state.thread_index());
+
+    for (auto _ : state) {
+        if (is_producer) {
+            SharedPayloadPtr item = (*pool)[index & kPoolMask];
+            if (q->tryPush(std::move(item))) {
+                ++stats.push_ok;
+            } else {
+                ++stats.push_fail;
+            }
+            ++index;
+        } else {
+            SharedPayloadPtr out;
+            if (q->tryPop(out)) {
+                ++stats.pop_ok;
+                benchmark::DoNotOptimize(out);
+            } else {
+                ++stats.pop_fail;
+            }
+        }
+    }
+
+    if (!is_producer) {
+        state.SetItemsProcessed(static_cast<int64_t>(stats.pop_ok));
+    }
+    queue_bench::publishCounters(state, stats);
+
+    if (exit_count.fetch_add(1, std::memory_order_acq_rel) == state.threads() - 1) {
+        delete q;
+        delete pool;
+        q = nullptr;
+        pool = nullptr;
+    }
+}
+
+BENCHMARK(BM_LockFreeMPMCQueueSharedPtr_Throughput_ProducerConsumer)->ThreadRange(2, 16)->UseRealTime()->Unit(benchmark::kNanosecond);
+
+static void BM_LockFreeMPMCQueueBlob2K_Throughput_ProducerConsumer(benchmark::State& state) {
+    static LockFreeMPMCQueue<Blob2K>* q = nullptr;
+    static std::vector<Blob2K>* pool = nullptr;
+    static std::atomic<int> exit_count{0};
+
+    if (state.thread_index() == 0) {
+        q = new LockFreeMPMCQueue<Blob2K>(kQueueCap);
+        pool = queue_bench::makeBlobPool();
+        exit_count.store(0, std::memory_order_relaxed);
+    }
+
+    while (q == nullptr || pool == nullptr) {
+        std::this_thread::yield();
+    }
+
+    const bool is_producer = (state.thread_index() % 2 == 0);
+    OpStats stats;
+    std::size_t index = static_cast<std::size_t>(state.thread_index());
+
+    for (auto _ : state) {
+        if (is_producer) {
+            Blob2K item = (*pool)[index & kPoolMask];
+            if (q->tryPush(std::move(item))) {
+                ++stats.push_ok;
+            } else {
+                ++stats.push_fail;
+            }
+            ++index;
+        } else {
+            Blob2K out;
+            if (q->tryPop(out)) {
+                ++stats.pop_ok;
+                benchmark::DoNotOptimize(out);
+            } else {
+                ++stats.pop_fail;
+            }
+        }
+    }
+
+    if (!is_producer) {
+        state.SetItemsProcessed(static_cast<int64_t>(stats.pop_ok));
+    }
+    queue_bench::publishCounters(state, stats);
+
+    if (exit_count.fetch_add(1, std::memory_order_acq_rel) == state.threads() - 1) {
+        delete q;
+        delete pool;
+        q = nullptr;
+        pool = nullptr;
+    }
+}
+
+BENCHMARK(BM_LockFreeMPMCQueueBlob2K_Throughput_ProducerConsumer)->ThreadRange(2, 16)->UseRealTime()->Unit(benchmark::kNanosecond);
+
+static void BM_LockFreeNodeQueueInt_Throughput_ProducerConsumer(benchmark::State& state) {
+    static LockFreeNodeQueue<int>* q = nullptr;
     static std::atomic<int> exit_count{0};
 
     if (state.thread_index() == 0) {
         LockFreeNodeQueue<int>::Config cfg;
-        cfg.capacity = 65536;
+        cfg.capacity = kQueueCap;
         cfg.drop_policy = LockFreeDropPolicy::DropTail;
-        cfg.track_statistics = true; // 开启统计看看开销大不大
-        shared_nq = new LockFreeNodeQueue<int>(std::move(cfg));
+        cfg.track_statistics = false;
+        q = new LockFreeNodeQueue<int>(cfg);
         exit_count.store(0, std::memory_order_relaxed);
     }
 
-    while (shared_nq == nullptr) {
+    while (q == nullptr) {
         std::this_thread::yield();
     }
 
-    bool isProducer = (state.thread_index() % 2 == 0);
-    uint64_t itemsProcessed = 0;
+    const bool is_producer = (state.thread_index() % 2 == 0);
+    OpStats stats;
+    int value = 42;
 
     for (auto _ : state) {
-        if (isProducer) {
-            shared_nq->push(42); // 调用上层 push 接口
+        if (is_producer) {
+            if (q->push(value)) {
+                ++stats.push_ok;
+            } else {
+                ++stats.push_fail;
+            }
         } else {
-            auto opt = shared_nq->tryPop();
-            if (opt.hasValue()) {
-                itemsProcessed++;
-                benchmark::DoNotOptimize(opt);
+            auto out = q->tryPop();
+            if (out.hasValue()) {
+                ++stats.pop_ok;
+                benchmark::DoNotOptimize(out.value());
+            } else {
+                ++stats.pop_fail;
             }
         }
     }
 
-    if (!isProducer) {
-        state.SetItemsProcessed(itemsProcessed);
+    if (!is_producer) {
+        state.SetItemsProcessed(static_cast<int64_t>(stats.pop_ok));
     }
+    queue_bench::publishCounters(state, stats);
 
     if (exit_count.fetch_add(1, std::memory_order_acq_rel) == state.threads() - 1) {
-        delete shared_nq;
-        shared_nq = nullptr;
+        delete q;
+        q = nullptr;
     }
 }
 
-// 注册测试：范围为 2, 4, 8, 16 线程
-BENCHMARK(BM_NodeQueue_DropTail)->ThreadRange(2, 16)->UseRealTime();
+BENCHMARK(BM_LockFreeNodeQueueInt_Throughput_ProducerConsumer)->ThreadRange(2, 16)->UseRealTime()->Unit(benchmark::kNanosecond);
 
-// 模拟常见的共享指针数据
-struct Payload {
-    uint64_t frame_id;
-    char raw_data[1024]; // 模拟 1KB 的数据负载
-};
-using PortDataPtr = std::shared_ptr<Payload>;
-
-// =============================================================================
-// 1. 底层核心队列压测 (LockFreeMPMCQueue)
-// 用于测量 Vyukov 算法本身的极限吞吐量
-// =============================================================================
-static void BM_CoreQueue_Throughput(benchmark::State& state) {
-    static LockFreeMPMCQueue<PortDataPtr>* shared_q = nullptr;
+static void BM_LockFreeNodeQueueSharedPtr_Throughput_ProducerConsumer(benchmark::State& state) {
+    static LockFreeNodeQueue<SharedPayloadPtr>* q = nullptr;
+    static std::vector<SharedPayloadPtr>* pool = nullptr;
     static std::atomic<int> exit_count{0};
 
     if (state.thread_index() == 0) {
-        shared_q = new LockFreeMPMCQueue<PortDataPtr>(16384);
-        exit_count.store(0);
-    }
-
-    while (!shared_q) std::this_thread::yield();
-
-    bool isProducer = (state.thread_index() % 2 == 0);
-    uint64_t itemsProcessed = 0;
-    auto data = std::make_shared<Payload>();
-
-    for (auto _ : state) {
-        if (isProducer) {
-            // 纯写入，不考虑满载
-            shared_q->tryPush(std::move(data));
-            // 压测需要循环利用数据，重新创建一个
-            data = std::make_shared<Payload>();
-        } else {
-            PortDataPtr out;
-            if (shared_q->tryPop(out)) {
-                itemsProcessed++;
-            }
-        }
-    }
-
-    if (!isProducer) state.SetItemsProcessed(itemsProcessed);
-
-    if (exit_count.fetch_add(1) == state.threads() - 1) {
-        delete shared_q;
-        shared_q = nullptr;
-    }
-}
-
-// =============================================================================
-// 2. 节点队列压测 - 正常吞吐 (DropTail 策略)
-// 测量上层封装 (统计、Optional、Policy 分发) 带来的额外开销
-// =============================================================================
-static void BM_NodeQueue_Normal_Throughput(benchmark::State& state) {
-    static LockFreeNodeQueue<PortDataPtr>* shared_nq = nullptr;
-    static std::atomic<int> exit_count{0};
-
-    if (state.thread_index() == 0) {
-        LockFreeNodeQueue<PortDataPtr>::Config cfg;
-        cfg.capacity = 16384;
+        LockFreeNodeQueue<SharedPayloadPtr>::Config cfg;
+        cfg.capacity = kQueueCap;
         cfg.drop_policy = LockFreeDropPolicy::DropTail;
-        cfg.track_statistics = true; // 开启统计以观察真实开销
-        shared_nq = new LockFreeNodeQueue<PortDataPtr>(cfg);
-        exit_count.store(0);
+        cfg.track_statistics = false;
+        q = new LockFreeNodeQueue<SharedPayloadPtr>(cfg);
+        pool = queue_bench::makeSharedPayloadPool();
+        exit_count.store(0, std::memory_order_relaxed);
     }
 
-    while (!shared_nq) std::this_thread::yield();
+    while (q == nullptr || pool == nullptr) {
+        std::this_thread::yield();
+    }
 
-    bool isProducer = (state.thread_index() % 2 == 0);
-    uint64_t itemsProcessed = 0;
-    auto data = std::make_shared<Payload>();
+    const bool is_producer = (state.thread_index() % 2 == 0);
+    OpStats stats;
+    std::size_t index = static_cast<std::size_t>(state.thread_index());
 
     for (auto _ : state) {
-        if (isProducer) {
-            shared_nq->push(std::move(data));
-            data = std::make_shared<Payload>();
+        if (is_producer) {
+            SharedPayloadPtr item = (*pool)[index & kPoolMask];
+            if (q->push(std::move(item))) {
+                ++stats.push_ok;
+            } else {
+                ++stats.push_fail;
+            }
+            ++index;
         } else {
-            // 使用你的 Optional 接口
-            nexusflow::Optional<PortDataPtr> opt = shared_nq->tryPop();
-            if (opt.hasValue()) {
-                itemsProcessed++;
+            auto out = q->tryPop();
+            if (out.hasValue()) {
+                ++stats.pop_ok;
+                benchmark::DoNotOptimize(out.value());
+            } else {
+                ++stats.pop_fail;
             }
         }
     }
 
-    if (!isProducer) state.SetItemsProcessed(itemsProcessed);
+    if (!is_producer) {
+        state.SetItemsProcessed(static_cast<int64_t>(stats.pop_ok));
+    }
+    queue_bench::publishCounters(state, stats);
 
-    if (exit_count.fetch_add(1) == state.threads() - 1) {
-        delete shared_nq;
-        shared_nq = nullptr;
+    if (exit_count.fetch_add(1, std::memory_order_acq_rel) == state.threads() - 1) {
+        delete q;
+        delete pool;
+        q = nullptr;
+        pool = nullptr;
     }
 }
 
-// =============================================================================
-// 3. 节点队列压测 - 溢出过载 (DropHead 策略)
-// 这是一个极端场景：生产者远快于消费者。
-// 测量 forcePush (挤出最老数据) 的逻辑在激烈竞争下的性能。
-// =============================================================================
-static void BM_NodeQueue_Overload_DropHead(benchmark::State& state) {
-    static LockFreeNodeQueue<PortDataPtr>* shared_nq = nullptr;
+BENCHMARK(BM_LockFreeNodeQueueSharedPtr_Throughput_ProducerConsumer)->ThreadRange(2, 16)->UseRealTime()->Unit(benchmark::kNanosecond);
+
+static void BM_LockFreeNodeQueueBlob2K_Throughput_ProducerConsumer(benchmark::State& state) {
+    static LockFreeNodeQueue<Blob2K>* q = nullptr;
+    static std::vector<Blob2K>* pool = nullptr;
     static std::atomic<int> exit_count{0};
 
     if (state.thread_index() == 0) {
-        LockFreeNodeQueue<PortDataPtr>::Config cfg;
-        cfg.capacity = 128; // 故意设小，强制触发溢出
-        cfg.drop_policy = LockFreeDropPolicy::DropHead;
-        shared_nq = new LockFreeNodeQueue<PortDataPtr>(cfg);
-        exit_count.store(0);
+        LockFreeNodeQueue<Blob2K>::Config cfg;
+        cfg.capacity = kQueueCap;
+        cfg.drop_policy = LockFreeDropPolicy::DropTail;
+        cfg.track_statistics = false;
+        q = new LockFreeNodeQueue<Blob2K>(cfg);
+        pool = queue_bench::makeBlobPool();
+        exit_count.store(0, std::memory_order_relaxed);
     }
 
-    while (!shared_nq) std::this_thread::yield();
+    while (q == nullptr || pool == nullptr) {
+        std::this_thread::yield();
+    }
 
-    // 模拟非对称压力：3个生产者对1个消费者
-    bool isProducer = (state.thread_index() % 4 != 0);
-    uint64_t itemsProcessed = 0;
-    auto data = std::make_shared<Payload>();
+    const bool is_producer = (state.thread_index() % 2 == 0);
+    OpStats stats;
+    std::size_t index = static_cast<std::size_t>(state.thread_index());
 
     for (auto _ : state) {
-        if (isProducer) {
-            // 在 DropHead 模式下，push 永远返回 true (因为它会挤掉老的)
-            shared_nq->push(std::move(data));
-            data = std::make_shared<Payload>();
-            itemsProcessed++; // 生产者也记数，看一共塞进去多少
-        } else {
-            nexusflow::Optional<PortDataPtr> opt = shared_nq->tryPop();
-            if (opt.hasValue()) {
-                itemsProcessed++;
+        if (is_producer) {
+            Blob2K item = (*pool)[index & kPoolMask];
+            if (q->push(std::move(item))) {
+                ++stats.push_ok;
+            } else {
+                ++stats.push_fail;
             }
-            // 模拟消费者比较慢（比如在做 AI 推理）
-            // 如果不加耗时，消费者太快就触发不了溢出了
-            for (volatile int i = 0; i < 100; ++i)
-                ;
+            ++index;
+        } else {
+            auto out = q->tryPop();
+            if (out.hasValue()) {
+                ++stats.pop_ok;
+                benchmark::DoNotOptimize(out.value());
+            } else {
+                ++stats.pop_fail;
+            }
         }
     }
 
-    state.SetItemsProcessed(itemsProcessed);
+    if (!is_producer) {
+        state.SetItemsProcessed(static_cast<int64_t>(stats.pop_ok));
+    }
+    queue_bench::publishCounters(state, stats);
 
-    if (exit_count.fetch_add(1) == state.threads() - 1) {
-        delete shared_nq;
-        shared_nq = nullptr;
+    if (exit_count.fetch_add(1, std::memory_order_acq_rel) == state.threads() - 1) {
+        delete q;
+        delete pool;
+        q = nullptr;
+        pool = nullptr;
     }
 }
 
-// =============================================================================
-// 注册测试
-// =============================================================================
-
-// 注册底层引擎测试
-BENCHMARK(BM_CoreQueue_Throughput)->ThreadRange(2, 16)->UseRealTime()->Unit(benchmark::kNanosecond);
-
-// 注册标准业务测试 (SPSC, MPMC)
-BENCHMARK(BM_NodeQueue_Normal_Throughput)->ThreadRange(2, 16)->UseRealTime()->Unit(benchmark::kNanosecond);
-
-// 注册过载测试 (测试 DropHead 的 CAS 自旋惩罚)
-BENCHMARK(BM_NodeQueue_Overload_DropHead)
-    ->Threads(4) // 3 产 1 消
-    ->Threads(8) // 6 产 2 消
-    ->UseRealTime()
-    ->Unit(benchmark::kNanosecond);
+BENCHMARK(BM_LockFreeNodeQueueBlob2K_Throughput_ProducerConsumer)->ThreadRange(2, 16)->UseRealTime()->Unit(benchmark::kNanosecond);

@@ -57,8 +57,8 @@ void runWithBuildModule() {
                         .AddModule(outputModule)
                         .Connect("InputNode", "ProcessNode1")
                         .Connect("InputNode", "ProcessNode2")
-                        .Connect("ProcessNode1", "OutputNode")
-                        .Connect("ProcessNode2", "OutputNode")
+                        .Connect("ProcessNode1", nexusflow::kDefaultOutputPort, "OutputNode", "left")
+                        .Connect("ProcessNode2", nexusflow::kDefaultOutputPort, "OutputNode", "right")
                         .Build();
 
     if (pipeline == nullptr) {

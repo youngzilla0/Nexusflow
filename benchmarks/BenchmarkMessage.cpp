@@ -31,23 +31,23 @@ using nexusflow::MakeMessage;
 // Benchmark 1: Message Creation
 // ========================================================================
 
-static void BM_Inheritance_Create(benchmark::State& state) {
+static void BM_MessageModelInheritance_Create_IntPayload(benchmark::State& state) {
     for (auto _ : state) {
         // Repeatedly create a message on the heap.
         auto msg = std::make_shared<inheritance::IntMessage>(42);
         benchmark::DoNotOptimize(msg);
     }
 }
-BENCHMARK(BM_Inheritance_Create);
+BENCHMARK(BM_MessageModelInheritance_Create_IntPayload);
 
-static void BM_TypeErasure_Create(benchmark::State& state) {
+static void BM_MessageModelTypeErasure_Create_IntPayload(benchmark::State& state) {
     for (auto _ : state) {
         // Create a message holding an int. Internally, this also heap-allocates.
         auto msg = type_erasure::Message(42);
         benchmark::DoNotOptimize(msg);
     }
 }
-BENCHMARK(BM_TypeErasure_Create);
+BENCHMARK(BM_MessageModelTypeErasure_Create_IntPayload);
 
 // ========================================================================
 // Benchmark 2: Message Broadcasting (Copying)
@@ -55,7 +55,7 @@ BENCHMARK(BM_TypeErasure_Create);
 
 const int NUM_SUBSCRIBERS = 10;
 
-static void BM_Inheritance_Broadcast(benchmark::State& state) {
+static void BM_MessageModelInheritance_Broadcast_SharedPtr(benchmark::State& state) {
     auto original_msg = std::make_shared<inheritance::IntMessage>(42);
     std::vector<std::shared_ptr<inheritance::MessageBase>> subscribers(NUM_SUBSCRIBERS);
 
@@ -67,9 +67,9 @@ static void BM_Inheritance_Broadcast(benchmark::State& state) {
         benchmark::ClobberMemory(); // Prevent compiler from optimizing away the loop
     }
 }
-BENCHMARK(BM_Inheritance_Broadcast);
+BENCHMARK(BM_MessageModelInheritance_Broadcast_SharedPtr);
 
-static void BM_TypeErasure_Broadcast(benchmark::State& state) {
+static void BM_MessageModelTypeErasure_Broadcast_CowHandle(benchmark::State& state) {
     auto original_msg = type_erasure::Message(42);
     std::vector<type_erasure::Message> subscribers(NUM_SUBSCRIBERS);
 
@@ -81,13 +81,13 @@ static void BM_TypeErasure_Broadcast(benchmark::State& state) {
         benchmark::ClobberMemory();
     }
 }
-BENCHMARK(BM_TypeErasure_Broadcast);
+BENCHMARK(BM_MessageModelTypeErasure_Broadcast_CowHandle);
 
 // ========================================================================
 // Benchmark 3: Message Processing (Data Access) - THE KEY DIFFERENCE
 // ========================================================================
 
-static void BM_Inheritance_Process(benchmark::State& state) {
+static void BM_MessageModelInheritance_Process_DynamicCast(benchmark::State& state) {
     // Create a vector of different message types
     std::vector<std::shared_ptr<inheritance::MessageBase>> messages;
     messages.push_back(std::make_shared<inheritance::IntMessage>(1));
@@ -106,9 +106,9 @@ static void BM_Inheritance_Process(benchmark::State& state) {
     }
     benchmark::DoNotOptimize(processed_sum);
 }
-BENCHMARK(BM_Inheritance_Process);
+BENCHMARK(BM_MessageModelInheritance_Process_DynamicCast);
 
-static void BM_TypeErasure_Process(benchmark::State& state) {
+static void BM_MessageModelTypeErasure_Process_BorrowPtr(benchmark::State& state) {
     // Create a vector of different message types
     std::vector<type_erasure::Message> messages;
     messages.emplace_back(1);
@@ -127,12 +127,9 @@ static void BM_TypeErasure_Process(benchmark::State& state) {
     }
     benchmark::DoNotOptimize(processed_sum);
 }
-BENCHMARK(BM_TypeErasure_Process);
+BENCHMARK(BM_MessageModelTypeErasure_Process_BorrowPtr);
 
-// -----------------------------------------------------------------------------
-// BM_Message_COW_Copy: Benchmark Message COW copy performance
-// -----------------------------------------------------------------------------
-static void BM_Message_COW_Copy(benchmark::State& state) {
+static void BM_MessageCopyOnWrite_Copy_VectorInt100(benchmark::State& state) {
     auto original = MakeMessage(std::vector<int>(100, 42));
 
     for (auto _ : state) {
@@ -140,9 +137,9 @@ static void BM_Message_COW_Copy(benchmark::State& state) {
         benchmark::DoNotOptimize(copy);
     }
 }
-BENCHMARK(BM_Message_COW_Copy);
+BENCHMARK(BM_MessageCopyOnWrite_Copy_VectorInt100);
 
-static void BM_Message_COW_Mutate(benchmark::State& state) {
+static void BM_MessageCopyOnWrite_Mutate_VectorInt100(benchmark::State& state) {
     auto original = MakeMessage(std::vector<int>(100, 42));
     auto copy = original;
 
@@ -153,12 +150,9 @@ static void BM_Message_COW_Mutate(benchmark::State& state) {
         }
     }
 }
-BENCHMARK(BM_Message_COW_Mutate);
+BENCHMARK(BM_MessageCopyOnWrite_Mutate_VectorInt100);
 
-// -----------------------------------------------------------------------------
-// BM_Message_Borrow_Mut: Benchmark Message access patterns
-// -----------------------------------------------------------------------------
-static void BM_Message_Borrow(benchmark::State& state) {
+static void BM_MessageBorrow_BorrowPtr_VectorInt100(benchmark::State& state) {
     auto msg = MakeMessage(std::vector<int>(100, 42));
 
     long sum = 0;
@@ -171,9 +165,9 @@ static void BM_Message_Borrow(benchmark::State& state) {
         benchmark::DoNotOptimize(sum);
     }
 }
-BENCHMARK(BM_Message_Borrow);
+BENCHMARK(BM_MessageBorrow_BorrowPtr_VectorInt100);
 
-static void BM_Message_Mut(benchmark::State& state) {
+static void BM_MessageMutate_MutPtr_VectorInt100(benchmark::State& state) {
     auto msg = MakeMessage(std::vector<int>(100, 42));
 
     for (auto _ : state) {
@@ -185,4 +179,4 @@ static void BM_Message_Mut(benchmark::State& state) {
         benchmark::DoNotOptimize(msg);
     }
 }
-BENCHMARK(BM_Message_Mut);
+BENCHMARK(BM_MessageMutate_MutPtr_VectorInt100);

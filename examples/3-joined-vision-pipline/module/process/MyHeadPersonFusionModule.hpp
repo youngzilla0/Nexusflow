@@ -18,7 +18,7 @@ public:
     nexusflow::ErrorCode Init() override;
 
 protected:
-    void Process(nexusflow::Message& inputMessage) override;
+    void Process(const nexusflow::PortInputsView& inputs, nexusflow::PortOutputs& outputs) override;
 
 private:
     InferenceMessage DoFusion(const InferenceMessage& headMessage, const InferenceMessage& personMessage) const;

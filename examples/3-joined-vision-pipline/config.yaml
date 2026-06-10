@@ -47,9 +47,11 @@ graph:
 
     - from: HeadDetector
       to: HeadPersonFusion
+      toPort: head
 
     - from: PersonDetector
       to: HeadPersonFusion
+      toPort: person
 
     - from: HeadPersonFusion
       to: BehaviorAnalyzer

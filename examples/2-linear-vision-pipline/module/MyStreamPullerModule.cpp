@@ -30,15 +30,9 @@ MyStreamPullerModule::MyStreamPullerModule(const std::string& name) : Module(nam
 
 MyStreamPullerModule::~MyStreamPullerModule() { LOG_TRACE("MyStreamPullerModule destructor, name={}", GetModuleName()); }
 
-void MyStreamPullerModule::Process(nexusflow::Message& inputMessage) {
-    // no input message
-    if (inputMessage.HasData()) {
-        LOG_WARN("MyStreamPullerModule: inputMessage is not nullptr");
-        return;
-    }
-
+void MyStreamPullerModule::Process(const nexusflow::PortInputsView& inputs, nexusflow::PortOutputs& outputs) {
+    (void)inputs;
     constexpr uint32_t kFPS = 25;
     auto msg = CreateMessage(kFPS);
-    nexusflow::Message dispatchMsg(msg);
-    Broadcast(dispatchMsg);
+    outputs.Emit(nexusflow::MakeMessage(std::move(msg), GetModuleName()), true);
 }

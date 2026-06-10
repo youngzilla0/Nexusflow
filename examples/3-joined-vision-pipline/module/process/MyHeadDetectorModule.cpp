@@ -44,12 +44,18 @@ nexusflow::ErrorCode MyHeadDetectorModule::Init() {
     return nexusflow::ErrorCode::SUCCESS;
 }
 
-void MyHeadDetectorModule::Process(nexusflow::Message& inputMessage) {
-    if (auto* msg = inputMessage.MutPtr<InferenceMessage>()) {
+void MyHeadDetectorModule::Process(const nexusflow::PortInputsView& inputs, nexusflow::PortOutputs& outputs) {
+    auto* inputMessage = inputs.OnlyMessage();
+    if (inputMessage == nullptr) {
+        return;
+    }
+
+    auto outputMessage = *inputMessage;
+    if (auto* msg = outputMessage.MutPtr<InferenceMessage>()) {
         msg->boxes = DetectInfer(msg->videoFrame.frameId);
         LOG_INFO("'{}' Send message to next module, data={}", GetModuleName(), msg->toString());
 
-        inputMessage.MetaData().sourceName = GetModuleName();
-        Broadcast(inputMessage);
+        outputMessage.MetaData().sourceName = GetModuleName();
+        outputs.Emit(std::move(outputMessage), true);
     }
 }

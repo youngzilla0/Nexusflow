@@ -5,8 +5,13 @@
 #include <nexusflow/Message.hpp>
 #include <nexusflow/Module.hpp>
 #include <nexusflow/ModuleFactory.hpp>
+#include <nexusflow/PipelineConfig.hpp>
+#include <nexusflow/PipelineContext.hpp>
 #include <nexusflow/Pipeline.hpp>
 #include <nexusflow/PipelineBuilder.hpp>
+#include <nexusflow/PipelineObserver.hpp>
+#include <nexusflow/Ports.hpp>
+#include <nexusflow/RuntimeStats.hpp>
 #include <nexusflow/TypeTraits.hpp>
 #include <nexusflow/Any.hpp>
 

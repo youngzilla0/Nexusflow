@@ -7,18 +7,23 @@
 #include <unordered_map>
 #include <unordered_set>
 
-void Graph::AddEdge(const std::shared_ptr<Node>& srcNodePtr, const std::shared_ptr<Node>& dstNodePtr) {
+void Graph::AddEdge(const std::shared_ptr<Node>& srcNodePtr, const std::shared_ptr<Node>& dstNodePtr, std::string srcPort,
+                    std::string dstPort) {
     if (srcNodePtr == nullptr || dstNodePtr == nullptr) return;
 
     m_nodeMap[srcNodePtr->name] = srcNodePtr;
     m_nodeMap[dstNodePtr->name] = dstNodePtr;
 
     m_adjList[srcNodePtr].emplace_back(dstNodePtr);
+    m_edges.push_back(Edge{srcNodePtr, dstNodePtr, std::move(srcPort), std::move(dstPort)});
 }
 
 bool Graph::hasCycle() const { return checkCycleAndConvertToEdgeList(nullptr).first; }
 
 std::vector<Edge> Graph::toEdgeListBFS(const std::shared_ptr<Node>& inputNodePtr) const {
+    if (inputNodePtr == nullptr) {
+        return m_edges;
+    }
     return checkCycleAndConvertToEdgeList(inputNodePtr).second;
 }
 
@@ -59,44 +64,44 @@ std::pair<bool, std::vector<Edge>> Graph::checkCycleAndConvertToEdgeList(const s
 
         auto iter = m_adjList.find(node);
         if (iter != m_adjList.end()) {
-            // 为当前节点的邻居创建一个临时的集合，用于去重
             std::unordered_set<std::shared_ptr<Node>> processedNeighbors;
 
             for (const auto& neighbor : iter->second) {
-                // 1. 入度计算：这部分逻辑必须对每一条边都执行，即使是重复的。
                 if (--inDegree[neighbor] == 0) {
                     nodeQueue.push(neighbor);
                 }
 
-                // 2. 边列表构建：这部分逻辑只对唯一的邻居执行一次。
-                //    我们检查这个邻居是否在本次循环中被处理过。
-                if (processedNeighbors.find(neighbor) == processedNeighbors.end()) {
-                    edgeList.push_back({node, neighbor});
-                    processedNeighbors.insert(neighbor); // 标记为已处理
+                if (processedNeighbors.find(neighbor) != processedNeighbors.end()) {
+                    continue;
+                }
+                processedNeighbors.insert(neighbor);
+
+                auto edgeIt = std::find_if(m_edges.begin(), m_edges.end(), [&](const Edge& edge) {
+                    return edge.srcNodePtr.lock() == node && edge.dstNodePtr.lock() == neighbor;
+                });
+                if (edgeIt != m_edges.end()) {
+                    edgeList.push_back(*edgeIt);
+                } else {
+                    edgeList.push_back(Edge{node, neighbor, "", ""});
                 }
             }
         }
     }
 
-    // 如果访问的节点数量小于图中的节点数量，则存在环
     return {visitedCount != allNodes.size(), std::move(edgeList)};
 }
 
 std::vector<std::shared_ptr<Node>> Graph::FindConvergeNodes() const {
     std::vector<std::shared_ptr<Node>> convergeNodes;
 
-    // For each node in the graph, count incoming edges.
     for (const auto& nodeEntry : m_nodeMap) {
         const auto& node = nodeEntry.second;
         int incomingCount = 0;
 
-        // Scan all adjacency list entries to count how many edges point TO this node.
-        // (This is O(V*E) but the graph is typically small. Could be optimized with inDegree map.)
-        for (const auto& adjEntry : m_adjList) {
-            for (const auto& neighbor : adjEntry.second) {
-                if (neighbor == node) {
-                    incomingCount++;
-                }
+        for (const auto& edge : m_edges) {
+            auto dstNode = edge.dstNodePtr.lock();
+            if (dstNode == node) {
+                incomingCount++;
             }
         }
 
@@ -112,11 +117,10 @@ bool Graph::IsConvergeNode(const std::shared_ptr<Node>& node) const {
     if (!node) return false;
 
     int incomingCount = 0;
-    for (const auto& adjEntry : m_adjList) {
-        for (const auto& neighbor : adjEntry.second) {
-            if (neighbor == node) {
-                incomingCount++;
-            }
+    for (const auto& edge : m_edges) {
+        auto dstNode = edge.dstNodePtr.lock();
+        if (dstNode == node) {
+            incomingCount++;
         }
     }
     return incomingCount >= 2;
@@ -131,7 +135,8 @@ std::string Graph::toString() const {
     for (auto&& edge : edgeList) {
         auto srcNodePtr = edge.srcNodePtr.lock();
         auto dstNodePtr = edge.dstNodePtr.lock();
-        oss << "  " << srcNodePtr->name + " -> " << dstNodePtr->name << "\n";
+        oss << "  " << srcNodePtr->name << ":" << edge.srcPort << " -> " << dstNodePtr->name << ":" << edge.dstPort
+            << "\n";
     }
     return oss.str();
 }

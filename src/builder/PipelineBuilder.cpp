@@ -18,7 +18,14 @@ namespace nexusflow {
 class PipelineBuilder::Impl {
 public:
     std::vector<std::shared_ptr<Module>> modules;
-    std::vector<std::pair<std::string, std::string>> connections;
+    struct Connection {
+        std::string srcModuleName;
+        std::string srcPort;
+        std::string dstModuleName;
+        std::string dstPort;
+    };
+
+    std::vector<Connection> connections;
     PipelineConfig config = PipelineConfig::Default();  // Default configuration
 };
 
@@ -41,8 +48,13 @@ PipelineBuilder& PipelineBuilder::AddModule(const std::shared_ptr<Module>& modul
 }
 
 PipelineBuilder& PipelineBuilder::Connect(const std::string& srcModuleName, const std::string& dstModuleName) {
+    return Connect(srcModuleName, kDefaultOutputPort, dstModuleName, kDefaultInputPort);
+}
+
+PipelineBuilder& PipelineBuilder::Connect(const std::string& srcModuleName, const std::string& srcPort,
+                                          const std::string& dstModuleName, const std::string& dstPort) {
     if (m_pImpl && !srcModuleName.empty() && !dstModuleName.empty()) {
-        m_pImpl->connections.emplace_back(srcModuleName, dstModuleName);
+        m_pImpl->connections.push_back(Impl::Connection{srcModuleName, srcPort, dstModuleName, dstPort});
     }
     return *this;
 }
@@ -88,8 +100,8 @@ std::unique_ptr<Pipeline> PipelineBuilder::Build() {
     std::unordered_set<std::string> nodesWithIncomingEdges;
 
     for (const auto& conn : m_pImpl->connections) {
-        const std::string& fromName = conn.first;
-        const std::string& toName = conn.second;
+        const std::string& fromName = conn.srcModuleName;
+        const std::string& toName = conn.dstModuleName;
 
         auto fromIt = nodeLookupMap.find(fromName);
         auto toIt = nodeLookupMap.find(toName);
@@ -99,7 +111,7 @@ std::unique_ptr<Pipeline> PipelineBuilder::Build() {
             return nullptr;
         }
 
-        graph->AddEdge(fromIt->second, toIt->second);
+        graph->AddEdge(fromIt->second, toIt->second, conn.srcPort, conn.dstPort);
         nodesWithIncomingEdges.insert(toName);
     }
 
@@ -122,7 +134,7 @@ std::unique_ptr<Pipeline> PipelineBuilder::Build() {
     // A better way would be to check for nodes with an out-degree of 0.
     std::shared_ptr<Node> sinkNode = nullptr;
     if (!m_pImpl->connections.empty()) {
-        sinkNode = nodeLookupMap.at(m_pImpl->connections.back().second);
+        sinkNode = nodeLookupMap.at(m_pImpl->connections.back().dstModuleName);
     } else if (m_pImpl->modules.size() == 1) {
         // Handle single-node graph
         sourceNode = nodeLookupMap.at(m_pImpl->modules[0]->GetModuleName());

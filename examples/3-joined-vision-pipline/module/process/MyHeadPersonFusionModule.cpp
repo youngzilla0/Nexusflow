@@ -4,9 +4,9 @@
 #include "../src/utils/logging.hpp" // TODO: remove
 #include "nexusflow/ErrorCode.hpp"
 #include "nexusflow/Message.hpp"
-#include <unordered_map>
 
 MyHeadPersonFusionModule::MyHeadPersonFusionModule(const std::string& name) : Module(name) {
+    SetTriggerPolicy(TriggerPolicy::OnAllInputs);
     LOG_TRACE("MyHeadPersonFusionModule constructor, name={}", name);
 }
 
@@ -25,32 +25,22 @@ nexusflow::ErrorCode MyHeadPersonFusionModule::Init() {
     return nexusflow::ErrorCode::SUCCESS;
 }
 
-void MyHeadPersonFusionModule::Process(nexusflow::Message& inputMessage) {
-    const std::string headKey = "HeadDetector";
-    const std::string personKey = "PersonDetector";
-
-    using InputType = std::unordered_map<std::string, nexusflow::Message>;
-    if (auto* msg = inputMessage.MutPtr<InputType>()) {
-        for (auto& pair : *msg) {
-            LOG_DEBUG("'{}' Receive message from previous module, data={}", pair.first,
-                      pair.second.BorrowPtr<InferenceMessage>()->toString());
-        }
-
-        // Check if the input message contains the required keys
-        if (msg->find(headKey) == msg->end() || msg->find(personKey) == msg->end()) {
-            LOG_ERROR("Input message does not contain the required keys");
-            return;
-        }
-
-        InferenceMessage* headMessage = msg->at(headKey).MutPtr<InferenceMessage>();
-        InferenceMessage* personMessage = msg->at(personKey).MutPtr<InferenceMessage>();
-
-        InferenceMessage fusedMessage = DoFusion(*headMessage, *personMessage);
-
-        LOG_INFO("'{}' Send message to next module, data={}", GetModuleName(), fusedMessage.toString());
-
-        Broadcast(nexusflow::MakeMessage(std::move(fusedMessage)));
+void MyHeadPersonFusionModule::Process(const nexusflow::PortInputsView& inputs, nexusflow::PortOutputs& outputs) {
+    auto* headMessage = inputs.Get<InferenceMessage>("head");
+    auto* personMessage = inputs.Get<InferenceMessage>("person");
+    if (headMessage == nullptr || personMessage == nullptr) {
+        LOG_ERROR("Fusion module '{}' requires both 'head' and 'person' inputs", GetModuleName());
+        return;
     }
+
+    LOG_DEBUG("'{}' Receive head data={}", GetModuleName(), headMessage->toString());
+    LOG_DEBUG("'{}' Receive person data={}", GetModuleName(), personMessage->toString());
+
+    auto fusedMessage = DoFusion(*headMessage, *personMessage);
+
+    LOG_INFO("'{}' Send message to next module, data={}", GetModuleName(), fusedMessage.toString());
+
+    outputs.Emit(nexusflow::MakeMessage(std::move(fusedMessage), GetModuleName()), true);
 }
 
 InferenceMessage MyHeadPersonFusionModule::DoFusion(const InferenceMessage& headMessage, const InferenceMessage& personMessage) const {

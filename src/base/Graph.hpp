@@ -38,6 +38,8 @@ struct NodeWithModulePtr : Node {
 
 struct Edge {
     std::weak_ptr<Node> srcNodePtr, dstNodePtr;
+    std::string srcPort;
+    std::string dstPort;
 };
 
 // DAG based on adjacency list representation, thread unsafe.
@@ -47,7 +49,8 @@ public:
     using AdjacencyList = std::unordered_map<std::shared_ptr<Node>, std::vector<std::shared_ptr<Node>>>;
 
     // Adds an edge from the source node to the destination node.
-    void AddEdge(const std::shared_ptr<Node>& srcNodePtr, const std::shared_ptr<Node>& dstNodePtr);
+    void AddEdge(const std::shared_ptr<Node>& srcNodePtr, const std::shared_ptr<Node>& dstNodePtr,
+                 std::string srcPort = "out", std::string dstPort = "in");
 
     // Checks if the graph has a cycle.
     bool hasCycle() const;
@@ -87,4 +90,5 @@ private:
 
     // Adjacency list representing the graph.
     AdjacencyList m_adjList;
+    std::vector<Edge> m_edges;
 };

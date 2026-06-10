@@ -25,6 +25,8 @@ graph:
 
     - from: ProcessNode1
       to: OutputNode
+      toPort: left
 
     - from: ProcessNode2
       to: OutputNode
+      toPort: right

@@ -10,7 +10,7 @@ auto e = std::make_shared<Node>("e");
 auto f = std::make_shared<Node>("f");
 static constexpr size_t kNumNode = 6;
 
-TEST(TestGraph, TestHasCycleUsingLinearGraph) {
+TEST(GraphTest, HasCycle_LinearGraphVariants) {
     // a -> b -> c -> d
     {
         Graph graph;
@@ -47,7 +47,7 @@ TEST(TestGraph, TestHasCycleUsingLinearGraph) {
     }
 }
 
-TEST(TestGraph, TestHasCycleUsingDAG) {
+TEST(GraphTest, HasCycle_DagAndCyclicVariants) {
     /**
      *           a
      *          / \
@@ -101,7 +101,7 @@ TEST(TestGraph, TestHasCycleUsingDAG) {
     }
 }
 
-TEST(TestGraph, TestBFSOnDisconnectedGraph) {
+TEST(GraphTest, ToEdgeListBfs_DisconnectedGraphFromDifferentRoots) {
     // Graph: a -> b   c -> d (两个不连通的组件)
     Graph graph;
     graph.AddEdge(a, b);
@@ -120,7 +120,7 @@ TEST(TestGraph, TestBFSOnDisconnectedGraph) {
     ASSERT_EQ(edgeListFromC[0].dstNodePtr.lock(), d);
 }
 
-TEST(TestGraph, TestAddEdgeEdgeCases) {
+TEST(GraphTest, AddEdge_EdgeCases) {
     // Case 1: 添加自环，应该被检测为有环
     {
         Graph graph;
@@ -146,7 +146,7 @@ TEST(TestGraph, TestAddEdgeEdgeCases) {
     }
 }
 
-TEST(TestGraph, TestIsEmpty) {
+TEST(GraphTest, IsEmpty_DependsOnGraphNameAndEdges) {
     Graph graph;
     ASSERT_TRUE(graph.IsEmpty());
 
@@ -171,7 +171,7 @@ TEST(TestGraph, TestIsEmpty) {
  *        f
  */
 
-TEST(TestGraph, TestDisplayByBFS) {
+TEST(GraphTest, ToEdgeListBfs_MatchesExpectedTraversalOrder) {
     Graph graph;
     graph.SetName("TestDAG");
 
@@ -208,7 +208,7 @@ TEST(TestGraph, TestDisplayByBFS) {
     // std::cout << "================== TestDisplayByBFS =====================" << std::endl;
 }
 
-TEST(TestGraph, TestToString) {
+TEST(GraphTest, ToString_IncludesGraphAndNodeNames) {
     Graph graph;
     graph.SetName("MyAwesomeGraph");
     graph.AddEdge(a, b);

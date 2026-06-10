@@ -13,7 +13,7 @@ public:
     nexusflow::ErrorCode Configure(const nexusflow::Config& config) override;
 
 protected:
-    void Process(nexusflow::Message& inputMessage) override;
+    void Process(const nexusflow::PortInputsView& inputs, nexusflow::PortOutputs& outputs) override;
 
 private:
     int m_sendIntervalMs = 1000 / 5; // 5fps

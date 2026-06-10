@@ -11,7 +11,7 @@ public:
     ~MockProcessModule() override;
 
 protected:
-    void Process(nexusflow::Message& inputMessage) override;
+    void Process(const nexusflow::PortInputsView& inputs, nexusflow::PortOutputs& outputs) override;
 
 private:
     int m_count = 0;

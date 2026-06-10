@@ -25,14 +25,20 @@ nexusflow::ErrorCode MyBehaviorAnalyzerModule::Init() {
     return nexusflow::ErrorCode::SUCCESS;
 }
 
-void MyBehaviorAnalyzerModule::Process(nexusflow::Message& inputMessage) {
-    if (auto* msg = inputMessage.MutPtr<InferenceMessage>()) {
+void MyBehaviorAnalyzerModule::Process(const nexusflow::PortInputsView& inputs, nexusflow::PortOutputs& outputs) {
+    auto* inputMessage = inputs.OnlyMessage();
+    if (inputMessage == nullptr) {
+        return;
+    }
+
+    auto outputMessage = *inputMessage;
+    if (auto* msg = outputMessage.MutPtr<InferenceMessage>()) {
         for (auto& box : msg->boxes) {
             box.clsLabel = 999;
             box.clsScore = 1.0f;
             box.clsLabelName = "Class-" + std::to_string(box.label);
         }
         LOG_INFO("'{}' Send message to next module, data={}", GetModuleName(), msg->toString());
-        Broadcast(inputMessage);
+        outputs.Emit(std::move(outputMessage), true);
     }
 }

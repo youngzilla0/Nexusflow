@@ -1,54 +1,627 @@
 #include "executor/Executor.hpp"
-#include "nexusflow/Config.hpp"
+
+#include "utils/logging.hpp"
+
+#include <algorithm>
+#include <chrono>
+#include <limits>
+#include <stdexcept>
 #include <thread>
+#include <utility>
 
 namespace nexusflow { namespace executor {
 
-Executor::Executor() : m_threadPool(std::make_unique<ThreadPool>(std::thread::hardware_concurrency())) {}
+namespace {
 
-Executor::~Executor() = default;
-
-void Executor::AddSubscriber(const std::string& name, ViewPtr<MessageQueue> queue) {
-    if (m_subscriberMap.find(name) != m_subscriberMap.end()) {
-        LOG_ERROR("Subscriber with name {} already exists", name);
-        throw std::invalid_argument("Subscriber with name " + name + " already exists");
-    }
-    m_subscriberMap[name] = queue;
+std::string MakeOutputKey(const std::string& actorName, const std::string& outputPortName) {
+    return actorName + "\n" + outputPortName;
 }
 
-void Executor::Emit(const Message& message, bool blocking) {
+uint64_t GetCurrentSystemTimeMs() {
+    auto now = std::chrono::system_clock::now();
+    return std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()).count();
+}
+
+std::size_t ResolveThreadCount(std::size_t configuredThreadCount, std::size_t actorCount) {
+    (void)actorCount;
+    if (configuredThreadCount > 0) {
+        return configuredThreadCount;
+    }
+
+    auto hardwareThreads = static_cast<std::size_t>(std::thread::hardware_concurrency());
+    if (hardwareThreads == 0) hardwareThreads = 1;
+    return std::max<std::size_t>(hardwareThreads, 1);
+}
+
+constexpr std::size_t kMaxInputStepsPerTask = 64;
+constexpr std::size_t kMaxSourceStepsPerTask = 1;
+
+} // namespace
+
+Executor::PortRuntimeStatsState::PortRuntimeStatsState(std::string srcModuleNameValue, std::string srcPortNameValue,
+                                                       std::string dstModuleNameValue, std::string dstPortNameValue)
+    : srcModuleName(std::move(srcModuleNameValue)),
+      srcPortName(std::move(srcPortNameValue)),
+      dstModuleName(std::move(dstModuleNameValue)),
+      dstPortName(std::move(dstPortNameValue)) {}
+
+void Executor::PortRuntimeStatsState::RecordPushAttempt(bool blocking) {
+    pushAttempts.fetch_add(1, std::memory_order_relaxed);
     if (blocking) {
-        for (auto& pair : m_subscriberMap) {
-            pair.second->Push(message);
+        blockingPushAttempts.fetch_add(1, std::memory_order_relaxed);
+    } else {
+        nonBlockingPushAttempts.fetch_add(1, std::memory_order_relaxed);
+    }
+}
+
+void Executor::PortRuntimeStatsState::RecordPushAccepted(std::size_t enqueuedCount, std::size_t droppedToMakeRoom) {
+    enqueueCount.fetch_add(1, std::memory_order_relaxed);
+    if (droppedToMakeRoom > 0) {
+        dropCount.fetch_add(static_cast<std::uint64_t>(droppedToMakeRoom), std::memory_order_relaxed);
+        depthSubtractions.fetch_add(static_cast<std::uint64_t>(droppedToMakeRoom), std::memory_order_relaxed);
+    }
+
+    const auto additionsAfter =
+        depthAdditions.fetch_add(static_cast<std::uint64_t>(enqueuedCount), std::memory_order_relaxed) +
+        static_cast<std::uint64_t>(enqueuedCount);
+    const auto subtractionsNow = depthSubtractions.load(std::memory_order_relaxed);
+    const auto depthAfter = additionsAfter > subtractionsNow ? additionsAfter - subtractionsNow : 0;
+
+    auto previousPeak = peakDepth.load(std::memory_order_relaxed);
+    while (depthAfter > previousPeak &&
+           !peakDepth.compare_exchange_weak(previousPeak, depthAfter, std::memory_order_relaxed)) {
+    }
+}
+
+void Executor::PortRuntimeStatsState::RecordPushDropped(std::size_t dropCountValue) {
+    dropCount.fetch_add(static_cast<std::uint64_t>(dropCountValue), std::memory_order_relaxed);
+}
+
+void Executor::PortRuntimeStatsState::RecordPushRejected() {
+    rejectCount.fetch_add(1, std::memory_order_relaxed);
+}
+
+void Executor::PortRuntimeStatsState::RecordDequeue() {
+    dequeueCount.fetch_add(1, std::memory_order_relaxed);
+    depthSubtractions.fetch_add(1, std::memory_order_relaxed);
+}
+
+PortRuntimeStats Executor::PortRuntimeStatsState::Snapshot() const {
+    PortRuntimeStats snapshot;
+    snapshot.srcModuleName = srcModuleName;
+    snapshot.srcPortName = srcPortName;
+    snapshot.dstModuleName = dstModuleName;
+    snapshot.dstPortName = dstPortName;
+    snapshot.pushAttempts = pushAttempts.load(std::memory_order_relaxed);
+    snapshot.blockingPushAttempts = blockingPushAttempts.load(std::memory_order_relaxed);
+    snapshot.nonBlockingPushAttempts = nonBlockingPushAttempts.load(std::memory_order_relaxed);
+    snapshot.enqueueCount = enqueueCount.load(std::memory_order_relaxed);
+    snapshot.dropCount = dropCount.load(std::memory_order_relaxed);
+    snapshot.rejectCount = rejectCount.load(std::memory_order_relaxed);
+    snapshot.dequeueCount = dequeueCount.load(std::memory_order_relaxed);
+    const auto additions = depthAdditions.load(std::memory_order_relaxed);
+    const auto subtractions = depthSubtractions.load(std::memory_order_relaxed);
+    snapshot.currentDepth = additions > subtractions ? additions - subtractions : 0;
+    snapshot.peakDepth = peakDepth.load(std::memory_order_relaxed);
+    return snapshot;
+}
+
+Executor::Executor(const std::shared_ptr<PipelineContext>& pipelineContext) : m_pipelineContext(pipelineContext) {}
+
+Executor::~Executor() { Stop(); }
+
+void Executor::RegisterActor(const std::string& actorName, const std::shared_ptr<Module>& module,
+                             const PipelineConfig& runtimeConfig) {
+    std::lock_guard<std::mutex> lock(m_mutex);
+
+    if (m_actorStates.find(actorName) != m_actorStates.end()) {
+        LOG_ERROR("Actor with name '{}' already exists", actorName);
+        throw std::invalid_argument("Actor with name " + actorName + " already exists");
+    }
+
+    auto state = std::make_shared<ActorState>();
+    state->actorName = actorName;
+    state->module = module;
+    state->runtimeConfig = runtimeConfig;
+    m_actorStates.emplace(actorName, std::move(state));
+}
+
+void Executor::AddInputQueue(const std::string& actorName, const std::string& inputPortName, ViewPtr<MessageQueue> queue,
+                             const PortRuntimeStatsStatePtr& stats) {
+    std::lock_guard<std::mutex> lock(m_mutex);
+
+    auto it = m_actorStates.find(actorName);
+    if (it == m_actorStates.end()) {
+        throw std::invalid_argument("Unknown actor " + actorName);
+    }
+
+    it->second->inputQueues.push_back(InputQueueBinding{inputPortName, queue, stats});
+}
+
+void Executor::AddOutputQueue(const std::string& actorName, const std::string& outputPortName, const std::string& dstActorName,
+                              const std::string& dstInputPortName, ViewPtr<MessageQueue> queue,
+                              const PortRuntimeStatsStatePtr& stats) {
+    std::lock_guard<std::mutex> lock(m_mutex);
+
+    auto portStats = stats;
+    if (portStats == nullptr) {
+        portStats = std::make_shared<PortRuntimeStatsState>(actorName, outputPortName, dstActorName, dstInputPortName);
+    }
+
+    auto dstIt = m_actorStates.find(dstActorName);
+    if (dstIt == m_actorStates.end()) {
+        throw std::invalid_argument("Unknown actor " + dstActorName);
+    }
+
+    OutputSubscriber subscriber{dstActorName, dstInputPortName, queue, portStats, dstIt->second};
+    m_broadcastSubscribers[actorName].push_back(subscriber);
+    m_outputSubscribers[MakeOutputKey(actorName, outputPortName)].push_back(std::move(subscriber));
+    auto duplicateIt = std::find_if(m_portStats.begin(), m_portStats.end(),
+                                    [&portStats](const PortRuntimeStatsStatePtr& existing) {
+                                        return existing.get() == portStats.get();
+                                    });
+    if (duplicateIt == m_portStats.end()) {
+        m_portStats.push_back(std::move(portStats));
+    }
+}
+
+void Executor::SetThreadCount(std::size_t threadCount) { m_threadCount = threadCount; }
+
+std::vector<PortRuntimeStats> Executor::GetPortStats() const {
+    std::lock_guard<std::mutex> lock(m_mutex);
+
+    std::vector<PortRuntimeStats> snapshots;
+    snapshots.reserve(m_portStats.size());
+    for (const auto& stats : m_portStats) {
+        if (stats != nullptr) {
+            snapshots.push_back(stats->Snapshot());
+        }
+    }
+    return snapshots;
+}
+
+std::vector<ActorRuntimeStats> Executor::GetActorStats() const {
+    std::lock_guard<std::mutex> lock(m_mutex);
+
+    std::vector<ActorRuntimeStats> snapshots;
+    snapshots.reserve(m_actorStates.size());
+    for (const auto& item : m_actorStates) {
+        const auto& state = item.second;
+        if (!state) {
+            continue;
+        }
+
+        ActorRuntimeStats snapshot;
+        snapshot.actorName = state->actorName;
+        snapshot.processCount = state->runtimeStats.processCount.load(std::memory_order_relaxed);
+        snapshot.inputMessageCount = state->runtimeStats.inputMessageCount.load(std::memory_order_relaxed);
+        snapshot.emittedBroadcastCount = state->runtimeStats.emittedBroadcastCount.load(std::memory_order_relaxed);
+        snapshot.emittedRouteCount = state->runtimeStats.emittedRouteCount.load(std::memory_order_relaxed);
+        snapshot.joinTimeoutDropCount = state->runtimeStats.joinTimeoutDropCount.load(std::memory_order_relaxed);
+        snapshot.joinOverflowDropCount = state->runtimeStats.joinOverflowDropCount.load(std::memory_order_relaxed);
+        {
+            std::lock_guard<std::mutex> pendingLock(state->pendingJoinGroupsMutex);
+            snapshot.pendingJoinGroupCount = state->pendingJoinGroups.size();
+        }
+        snapshots.push_back(std::move(snapshot));
+    }
+    return snapshots;
+}
+
+void Executor::Start() {
+    bool expected = false;
+    if (!m_started.compare_exchange_strong(expected, true)) {
+        return;
+    }
+
+    m_stopFlag.store(false, std::memory_order_release);
+
+    std::vector<std::pair<std::string, std::shared_ptr<ActorState>>> actorEntries;
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        actorEntries.reserve(m_actorStates.size());
+        for (const auto& pair : m_actorStates) {
+            actorEntries.push_back(pair);
+        }
+    }
+
+    auto resolvedThreadCount = ResolveThreadCount(m_threadCount, actorEntries.size());
+    if (m_pipelineContext != nullptr) {
+        m_pipelineContext->SetExecutorThreadCount(resolvedThreadCount);
+    }
+
+    m_threadPool = std::make_unique<ThreadPool>(resolvedThreadCount);
+    m_threadPool->Start();
+    PrimeActorsOnStart();
+}
+
+void Executor::Stop() {
+    bool expected = true;
+    if (!m_started.compare_exchange_strong(expected, false)) {
+        return;
+    }
+
+    m_stopFlag.store(true, std::memory_order_release);
+
+    if (m_threadPool) {
+        m_threadPool->Stop();
+        m_threadPool.reset();
+    }
+}
+
+void Executor::PrimeActorsOnStart() {
+    std::vector<std::shared_ptr<ActorState>> actorStates;
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        actorStates.reserve(m_actorStates.size());
+        for (const auto& item : m_actorStates) {
+            actorStates.push_back(item.second);
+        }
+    }
+
+    for (const auto& state : actorStates) {
+        if (!state) {
+            continue;
+        }
+        state->taskScheduled.store(false, std::memory_order_release);
+        state->pendingRunSignals.store(0, std::memory_order_release);
+        if (state->inputQueues.empty() || HasPendingWork(state)) {
+            NotifyActorReady(state);
+        }
+    }
+}
+
+void Executor::SubmitActorTask(const std::shared_ptr<ActorState>& state) {
+    if (!state || !m_threadPool || !m_started.load(std::memory_order_acquire) ||
+        m_stopFlag.load(std::memory_order_acquire)) {
+        return;
+    }
+
+    bool expected = false;
+    if (!state->taskScheduled.compare_exchange_strong(expected, true, std::memory_order_acq_rel)) {
+        return;
+    }
+
+    m_threadPool->Submit([this, state]() { RunActorTask(state); });
+}
+
+void Executor::NotifyActorReady(const std::shared_ptr<ActorState>& state) {
+    if (!state) {
+        return;
+    }
+    state->pendingRunSignals.fetch_add(1, std::memory_order_relaxed);
+    SubmitActorTask(state);
+}
+
+bool Executor::HasPendingWork(const std::shared_ptr<ActorState>& state) const {
+    if (!state) {
+        return false;
+    }
+    if (state->inputQueues.empty()) {
+        return true;
+    }
+
+    for (const auto& inputQueue : state->inputQueues) {
+        if (!inputQueue.queue->IsEmpty()) {
+            return true;
+        }
+    }
+    return false;
+}
+
+void Executor::RunActorTask(const std::shared_ptr<ActorState>& state) {
+    if (!state || !state->module) {
+        LOG_ERROR("Invalid actor state for '{}'", state ? state->actorName : std::string("<null>"));
+        return;
+    }
+
+    state->pendingRunSignals.store(0, std::memory_order_release);
+
+    if (state->inputQueues.empty()) {
+        for (std::size_t step = 0; step < kMaxSourceStepsPerTask && !m_stopFlag.load(std::memory_order_acquire); ++step) {
+            if (!RunSourceStep(state)) {
+                break;
+            }
         }
     } else {
-        // Async: submit dispatch task to thread pool for parallel fan-out
-        m_threadPool->Submit([this, msg = message]() { DispatchTask(msg); });
+        auto triggerPolicy = state->module->GetTriggerPolicy();
+        if (triggerPolicy == Module::TriggerPolicy::Auto) {
+            triggerPolicy = Module::TriggerPolicy::OnAnyInput;
+        }
+
+        for (std::size_t step = 0; step < kMaxInputStepsPerTask && !m_stopFlag.load(std::memory_order_acquire); ++step) {
+            bool didWork =
+                triggerPolicy == Module::TriggerPolicy::OnAllInputs ? RunOnAllInputsStep(state) : RunOnAnyInputStep(state);
+            if (!didWork) {
+                break;
+            }
+        }
+    }
+
+    state->taskScheduled.store(false, std::memory_order_release);
+    if (m_stopFlag.load(std::memory_order_acquire)) {
+        return;
+    }
+
+    bool needsReschedule = state->inputQueues.empty();
+    if (!needsReschedule && state->pendingRunSignals.load(std::memory_order_acquire) > 0) {
+        needsReschedule = true;
+    }
+    if (!needsReschedule && HasPendingWork(state)) {
+        needsReschedule = true;
+    }
+    if (needsReschedule) {
+        SubmitActorTask(state);
     }
 }
 
-void Executor::Route(const std::string& outputName, const Message& msg, bool blocking) {
-    auto it = m_subscriberMap.find(outputName);
-    if (it == m_subscriberMap.end()) {
-        return; // Silently ignore unknown output names
+bool Executor::RunSourceStep(const std::shared_ptr<ActorState>& state) {
+    std::vector<PortMessage> inputs;
+    PortInputsView inputView(inputs);
+    PortOutputs outputs;
+    state->module->Process(inputView, outputs);
+    state->runtimeStats.processCount.fetch_add(1, std::memory_order_relaxed);
+    DispatchOutputs(state->actorName, outputs);
+
+    if (outputs.Empty() && state->runtimeConfig.idleWaitUs > 0) {
+        std::this_thread::sleep_for(std::chrono::microseconds(state->runtimeConfig.idleWaitUs));
+    }
+    return true;
+}
+
+bool Executor::RunOnAnyInputStep(const std::shared_ptr<ActorState>& state) {
+    PortMessage portMessage;
+    if (!TryPopAnyInput(state, portMessage)) {
+        return false;
+    }
+
+    std::vector<PortMessage> inputs;
+    inputs.push_back(std::move(portMessage));
+
+    PortInputsView inputView(inputs);
+    PortOutputs outputs;
+    state->module->Process(inputView, outputs);
+    state->runtimeStats.processCount.fetch_add(1, std::memory_order_relaxed);
+    DispatchOutputs(state->actorName, outputs);
+    return true;
+}
+
+bool Executor::RunOnAllInputsStep(const std::shared_ptr<ActorState>& state) {
+    bool receivedInput = false;
+
+    for (const auto& inputQueue : state->inputQueues) {
+        Message message;
+        if (!inputQueue.queue->TryPop(message)) {
+            continue;
+        }
+
+        receivedInput = true;
+        if (inputQueue.stats != nullptr) {
+            inputQueue.stats->RecordDequeue();
+        }
+        state->runtimeStats.inputMessageCount.fetch_add(1, std::memory_order_relaxed);
+
+        const auto messageId = message.GetMetaData().messageId;
+        std::lock_guard<std::mutex> lock(state->pendingJoinGroupsMutex);
+        auto groupIt = state->pendingJoinGroups.find(messageId);
+        if (groupIt == state->pendingJoinGroups.end()) {
+            auto insertResult = state->pendingJoinGroups.emplace(messageId, ActorState::PendingJoinGroup{});
+            groupIt = insertResult.first;
+        }
+
+        auto& group = groupIt->second;
+        const auto messageTimestamp = message.GetMetaData().timestamp;
+        if (group.oldestTimestampMs == 0 || messageTimestamp < group.oldestTimestampMs) {
+            group.oldestTimestampMs = messageTimestamp;
+        }
+        group.messages[inputQueue.inputPortName] = std::move(message);
+    }
+
+    const auto currentTimeMs = GetCurrentSystemTimeMs();
+    CleanupExpiredJoinGroups(state, currentTimeMs);
+    EnforcePendingJoinGroupLimit(state);
+
+    std::vector<PortMessage> inputs;
+    if (!TryTakeCompleteJoinInputs(state, inputs)) {
+        return receivedInput;
+    }
+
+    PortInputsView inputView(inputs);
+    PortOutputs outputs;
+    state->module->Process(inputView, outputs);
+    state->runtimeStats.processCount.fetch_add(1, std::memory_order_relaxed);
+    DispatchOutputs(state->actorName, outputs);
+    return true;
+}
+
+bool Executor::TryPopAnyInput(const std::shared_ptr<ActorState>& state, PortMessage& portMessage) {
+    if (state->inputQueues.empty()) {
+        return false;
+    }
+
+    const std::size_t queueCount = state->inputQueues.size();
+    for (std::size_t offset = 0; offset < queueCount; ++offset) {
+        auto index = (state->nextInputIndex + offset) % queueCount;
+        auto& inputQueue = state->inputQueues[index];
+
+        Message message;
+        if (inputQueue.queue->TryPop(message)) {
+            state->nextInputIndex = (index + 1) % queueCount;
+        if (inputQueue.stats != nullptr) {
+            inputQueue.stats->RecordDequeue();
+        }
+        state->runtimeStats.inputMessageCount.fetch_add(1, std::memory_order_relaxed);
+        portMessage.port = inputQueue.inputPortName;
+            portMessage.message = std::move(message);
+            return true;
+        }
+    }
+
+    return false;
+}
+
+bool Executor::TryTakeCompleteJoinInputs(const std::shared_ptr<ActorState>& state, std::vector<PortMessage>& inputs) {
+    if (!state) {
+        return false;
+    }
+
+    std::lock_guard<std::mutex> lock(state->pendingJoinGroupsMutex);
+    const auto expectedInputCount = state->inputQueues.size();
+    for (auto groupIt = state->pendingJoinGroups.begin(); groupIt != state->pendingJoinGroups.end(); ++groupIt) {
+        auto& group = groupIt->second;
+        if (group.messages.size() != expectedInputCount) {
+            continue;
+        }
+
+        inputs.clear();
+        inputs.reserve(expectedInputCount);
+        for (const auto& inputQueue : state->inputQueues) {
+            auto messageIt = group.messages.find(inputQueue.inputPortName);
+            if (messageIt != group.messages.end()) {
+                inputs.push_back(PortMessage{inputQueue.inputPortName, std::move(messageIt->second)});
+            }
+        }
+        state->pendingJoinGroups.erase(groupIt);
+        return true;
+    }
+
+    return false;
+}
+
+void Executor::CleanupExpiredJoinGroups(const std::shared_ptr<ActorState>& state, std::uint64_t currentTimeMs) {
+    if (!state) {
+        return;
+    }
+
+    std::lock_guard<std::mutex> lock(state->pendingJoinGroupsMutex);
+    for (auto groupIt = state->pendingJoinGroups.begin(); groupIt != state->pendingJoinGroups.end();) {
+        const auto oldestTimestampMs = groupIt->second.oldestTimestampMs;
+        if (oldestTimestampMs + state->runtimeConfig.fusionTimeoutMs < currentTimeMs) {
+            state->runtimeStats.joinTimeoutDropCount.fetch_add(1, std::memory_order_relaxed);
+            groupIt = state->pendingJoinGroups.erase(groupIt);
+        } else {
+            ++groupIt;
+        }
+    }
+}
+
+void Executor::EnforcePendingJoinGroupLimit(const std::shared_ptr<ActorState>& state) {
+    if (!state || state->runtimeConfig.maxPendingJoinGroups == 0) {
+        return;
+    }
+
+    std::lock_guard<std::mutex> lock(state->pendingJoinGroupsMutex);
+    while (state->pendingJoinGroups.size() > state->runtimeConfig.maxPendingJoinGroups) {
+        auto oldestIt = state->pendingJoinGroups.end();
+        auto oldestTimestamp = std::numeric_limits<std::uint64_t>::max();
+        for (auto it = state->pendingJoinGroups.begin(); it != state->pendingJoinGroups.end(); ++it) {
+            if (it->second.oldestTimestampMs < oldestTimestamp) {
+                oldestTimestamp = it->second.oldestTimestampMs;
+                oldestIt = it;
+            }
+        }
+
+        if (oldestIt == state->pendingJoinGroups.end()) {
+            break;
+        }
+        state->runtimeStats.joinOverflowDropCount.fetch_add(1, std::memory_order_relaxed);
+        state->pendingJoinGroups.erase(oldestIt);
+    }
+}
+
+void Executor::DispatchOutputs(const std::string& actorName, PortOutputs& outputs) {
+    auto actorIt = m_actorStates.find(actorName);
+    if (actorIt != m_actorStates.end()) {
+        actorIt->second->runtimeStats.emittedBroadcastCount.fetch_add(static_cast<std::uint64_t>(outputs.m_broadcasts.size()),
+                                                                      std::memory_order_relaxed);
+        actorIt->second->runtimeStats.emittedRouteCount.fetch_add(static_cast<std::uint64_t>(outputs.m_routes.size()),
+                                                                  std::memory_order_relaxed);
+    }
+
+    for (const auto& command : outputs.m_broadcasts) {
+        Emit(actorName, command.message, command.blocking);
+    }
+
+    for (const auto& command : outputs.m_routes) {
+        Route(actorName, command.portMessage.port, command.portMessage.message, command.blocking);
+    }
+}
+
+void Executor::Emit(const std::string& actorName, const Message& message, bool blocking) {
+    auto it = m_broadcastSubscribers.find(actorName);
+    if (it == m_broadcastSubscribers.end()) {
+        return;
+    }
+
+    for (const auto& subscriber : it->second) {
+        DispatchToSubscriber(subscriber, message, blocking);
+    }
+}
+
+void Executor::Route(const std::string& actorName, const std::string& outputPortName, const Message& message, bool blocking) {
+    auto it = m_outputSubscribers.find(MakeOutputKey(actorName, outputPortName));
+    if (it == m_outputSubscribers.end()) {
+        return;
+    }
+
+    for (const auto& subscriber : it->second) {
+        DispatchToSubscriber(subscriber, message, blocking);
+    }
+}
+
+void Executor::DispatchToSubscriber(const OutputSubscriber& subscriber, const Message& message, bool blocking) {
+    if (subscriber.stats != nullptr) {
+        subscriber.stats->RecordPushAttempt(blocking);
     }
 
     if (blocking) {
-        it->second->Push(msg);
-    } else {
-        auto subscriber = it->second;
-        m_threadPool->Submit([subscriber, msg = msg]() { subscriber->TryPush(msg); });
+        auto status = subscriber.queue->PushWithStatus(message);
+        if (status == MessageQueue::PushStatus::Success) {
+            if (subscriber.stats != nullptr) {
+                subscriber.stats->RecordPushAccepted(1, 0);
+            }
+            NotifyActorReady(subscriber.dstActorState);
+        } else if (subscriber.stats != nullptr) {
+            subscriber.stats->RecordPushRejected();
+        }
+        return;
+    }
+
+    auto queueFullPolicy = QueueFullPolicy::DropTail;
+    if (m_pipelineContext != nullptr) {
+        queueFullPolicy = m_pipelineContext->GetConfig().nonBlockingQueueFullPolicy;
+    }
+
+    if (queueFullPolicy == QueueFullPolicy::DropHead) {
+        auto result = subscriber.queue->TryPushDropHead(message);
+        if (result.status == MessageQueue::PushStatus::Success) {
+            if (subscriber.stats != nullptr) {
+                subscriber.stats->RecordPushAccepted(1, result.droppedCount);
+            }
+            NotifyActorReady(subscriber.dstActorState);
+        } else if (result.status == MessageQueue::PushStatus::Shutdown) {
+            if (subscriber.stats != nullptr) {
+                subscriber.stats->RecordPushRejected();
+            }
+        } else if (subscriber.stats != nullptr) {
+            subscriber.stats->RecordPushDropped(1);
+        }
+        return;
+    }
+
+    auto status = subscriber.queue->TryPushWithStatus(message);
+    if (status == MessageQueue::PushStatus::Success) {
+        if (subscriber.stats != nullptr) {
+            subscriber.stats->RecordPushAccepted(1, 0);
+        }
+        NotifyActorReady(subscriber.dstActorState);
+    } else if (status == MessageQueue::PushStatus::Shutdown) {
+        if (subscriber.stats != nullptr) {
+            subscriber.stats->RecordPushRejected();
+        }
+    } else if (subscriber.stats != nullptr) {
+        subscriber.stats->RecordPushDropped(1);
     }
 }
-
-void Executor::DispatchTask(const Message& msg) {
-    for (auto& pair : m_subscriberMap) {
-        pair.second->TryPush(msg);
-    }
-}
-
-void Executor::Start() { m_threadPool->Start(); }
-
-void Executor::Stop() { m_threadPool->Stop(); }
 
 }} // namespace nexusflow::executor

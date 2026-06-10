@@ -3,6 +3,7 @@
 #include "base/Graph.hpp"
 #include "nexusflow/Any.hpp"
 #include "nexusflow/Config.hpp"
+#include "nexusflow/Ports.hpp"
 #include "utils/logging.hpp"
 #include "yaml-cpp/node/node.h"
 #include "yaml-cpp/yaml.h"
@@ -162,6 +163,12 @@ std::unique_ptr<Graph> CreateGraphFromYaml(const std::string& configPath) {
             for (const auto& connection_item : connections_yaml) {
                 std::string fromName = connection_item["from"].as<std::string>();
                 std::string toName = connection_item["to"].as<std::string>();
+                std::string fromPort = connection_item["fromPort"]
+                                           ? connection_item["fromPort"].as<std::string>()
+                                           : std::string(nexusflow::kDefaultOutputPort);
+                std::string toPort =
+                    connection_item["toPort"] ? connection_item["toPort"].as<std::string>()
+                                               : std::string(nexusflow::kDefaultInputPort);
 
                 auto srcIt = tempNodeMap.find(fromName);
                 auto dstIt = tempNodeMap.find(toName);
@@ -170,8 +177,7 @@ std::unique_ptr<Graph> CreateGraphFromYaml(const std::string& configPath) {
                     return nullptr;
                 }
 
-                // 假设 addEdge 会将节点添加到 Graph 的内部 m_nodeMap 中
-                graph->AddEdge(srcIt->second, dstIt->second);
+                graph->AddEdge(srcIt->second, dstIt->second, std::move(fromPort), std::move(toPort));
                 outDegree[fromName]++;
                 inDegree[toName]++;
             }

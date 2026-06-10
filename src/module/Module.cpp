@@ -1,66 +1,54 @@
 #include "nexusflow/Module.hpp"
-#include "dispatcher/Dispatcher.hpp"
-#include "nexusflow/Config.hpp"
-#include "nexusflow/ErrorCode.hpp"
-#include "nexusflow/Message.hpp"
+
+#include "executor/Executor.hpp"
 #include "utils/logging.hpp"
+
+#include <stdexcept>
+#include <utility>
 
 namespace nexusflow {
 
-Module::Module(std::string name) : m_moduleName(std::move(name)) {
-    // Initialize the module with the given name.
-    LOG_TRACE("Module '{}' created.", m_moduleName);
-}
+Module::Module(std::string name) : m_moduleName(std::move(name)) { LOG_TRACE("Module '{}' created.", m_moduleName); }
 
-Module::~Module() {
-    // Ensure the module is stopped before destruction.
-    LOG_TRACE("Module '{}' destroying...", m_moduleName);
-};
+Module::~Module() { LOG_TRACE("Module '{}' destroying...", m_moduleName); }
 
 ErrorCode Module::Configure(const Config& config) {
-    // Initialize the module.
-    LOG_TRACE("Module '{}' initializing...", m_moduleName);
+    (void)config;
+    LOG_TRACE("Module '{}' configuring...", m_moduleName);
     return ErrorCode::SUCCESS;
 }
 
 ErrorCode Module::Init() {
-    // Initialize the module.
     LOG_TRACE("Module '{}' initializing...", m_moduleName);
     return ErrorCode::SUCCESS;
 }
 
 ErrorCode Module::DeInit() {
-    // De-initialize the module.
     LOG_TRACE("Module '{}' de-initializing...", m_moduleName);
     return ErrorCode::SUCCESS;
 }
 
-void Module::ProcessBatch(std::vector<Message>& inputBatchMessages) {
-    // Process the batch of input messages.
-    LOG_DEBUG("Module '{}' processing batch of {} messages.", m_moduleName, inputBatchMessages.size());
-    for (auto& message : inputBatchMessages) {
-        Process(message);
+const PipelineContext& Module::GetPipelineContext() const {
+    if (m_pipelineContext == nullptr) {
+        throw std::runtime_error("PipelineContext is not available for module '" + m_moduleName + "'");
     }
+    return *m_pipelineContext;
 }
+
+void Module::SetPipelineContext(const std::shared_ptr<PipelineContext>& pipelineContext) { m_pipelineContext = pipelineContext; }
 
 void Module::Broadcast(const Message& message, bool blocking) {
-    if (m_dispatcherPtr != nullptr) {
-        LOG_DEBUG("Module '{}' broadcasting message (blocking={}).", m_moduleName, blocking);
-        m_dispatcherPtr->Broadcast(message, blocking);
-    } else {
-        LOG_WARN("Module '{}' has no handle, cannot broadcast message.", m_moduleName);
+    if (m_executor != nullptr) {
+        m_executor->Emit(m_moduleName, message, blocking);
     }
 }
 
-void Module::SendTo(const std::string& outputName, const Message& msg, bool blocking) {
-    if (m_dispatcherPtr != nullptr) {
-        LOG_DEBUG("Module '{}' sending message to '{}' (blocking={}).", m_moduleName, outputName, blocking);
-        m_dispatcherPtr->SendTo(outputName, msg, blocking);
-    } else {
-        LOG_WARN("Module '{}' has no handle, cannot send message.", m_moduleName);
+void Module::SendTo(const std::string& outputPortName, const Message& message, bool blocking) {
+    if (m_executor != nullptr) {
+        m_executor->Route(m_moduleName, outputPortName, message, blocking);
     }
 }
 
-void Module::SetDispatcher(const std::shared_ptr<dispatcher::Dispatcher>& dispatcher) { m_dispatcherPtr = dispatcher; }
+void Module::SetExecutor(const std::shared_ptr<executor::Executor>& executor) { m_executor = executor; }
 
 } // namespace nexusflow

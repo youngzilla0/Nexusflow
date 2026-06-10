@@ -1,9 +1,30 @@
 #include "PipelineImpl.hpp"
 #include "base/Graph.hpp"
+#include "utils/logging.hpp"
 #include <nexusflow/ModuleFactory.hpp>
+
+#include <algorithm>
 #include <stdexcept>
+#include <thread>
 
 namespace nexusflow {
+
+namespace {
+
+std::size_t ResolveExecutorThreadCount(std::size_t configuredThreadCount, std::size_t actorCount) {
+    (void)actorCount;
+    if (configuredThreadCount > 0) {
+        return configuredThreadCount;
+    }
+
+    auto hardwareThreads = static_cast<std::size_t>(std::thread::hardware_concurrency());
+    if (hardwareThreads == 0) {
+        hardwareThreads = 1;
+    }
+    return std::max<std::size_t>(hardwareThreads, 1);
+}
+
+} // namespace
 
 std::shared_ptr<ActorNode> Pipeline::Impl::GetOrCreateActorNode(const std::shared_ptr<Node>& node) {
     // 此处NodeName == ModuleName
@@ -29,7 +50,7 @@ std::shared_ptr<ActorNode> Pipeline::Impl::GetOrCreateActorNode(const std::share
     }
 
     // 2. 创建 ActiveNode 并存入 map
-    auto actorNode = std::make_shared<ActorNode>(module, this->config);
+    auto actorNode = std::make_shared<ActorNode>(module, this->config, pipelineContext, executor);
     actorModuleMap.emplace(nodeName, actorNode);
 
     return actorNode;
@@ -55,11 +76,11 @@ ErrorCode Pipeline::Impl::Init() {
 
         auto queue = std::make_unique<MessageQueue>(this->config.queueSize);
         auto queueView = makeViewPtr(queue.get());
+        auto portStats = std::make_shared<executor::Executor::PortRuntimeStatsState>(srcNode->name, edge.srcPort, dstNode->name,
+                                                                                     edge.dstPort);
 
-        std::string queueName = srcNode->name + " -> " + dstNode->name;
-
-        srcActorNode->AddOutputQueue(queueName, queueView);
-        dstActorNode->AddInputQueue(queueName, queueView);
+        srcActorNode->AddOutputQueue(edge.srcPort, dstNode->name, edge.dstPort, queueView, portStats);
+        dstActorNode->AddInputQueue(edge.dstPort, queueView, portStats);
 
         queues.push_back(std::move(queue));
 
@@ -71,36 +92,21 @@ ErrorCode Pipeline::Impl::Init() {
     CHECK(actorModuleMap.size() == actorOrderedNodes.size(), "actorModuleMap size != actorOrderedNodes size, [{} != {}]",
           actorModuleMap.size(), actorOrderedNodes.size());
 
-    // Apply topology-based join detection
-    ApplyTopologyJoin();
+    auto executorThreadCount = ResolveExecutorThreadCount(config.executorThreadCount, actorOrderedNodes.size());
+    pipelineContext->SetExecutorThreadCount(executorThreadCount);
+    executor->SetThreadCount(executorThreadCount);
+
+    ApplyTopologyPolicies();
 
     return ErrorCode::SUCCESS;
 }
 
-void Pipeline::Impl::ApplyTopologyJoin() {
+void Pipeline::Impl::ApplyTopologyPolicies() {
     if (!graph) return;
 
     auto convergeNodes = graph->FindConvergeNodes();
-    LOG_DEBUG("Topology join analysis: found {} converge nodes", convergeNodes.size());
-
-    for (const auto& node : convergeNodes) {
-        // Check if the module explicitly forbid join
-        if (auto* nodeWithModule = dynamic_cast<NodeWithModulePtr*>(node.get())) {
-            if (nodeWithModule->modulePtr) {
-                auto& module = nodeWithModule->modulePtr;
-                auto hint = module->GetJoinHint();
-
-                if (hint == Module::JoinHint::NeverJoin) {
-                    LOG_DEBUG("Node '{}' is a converge node but JoinHint=NeverJoin, skipping", node->name);
-                    continue;
-                }
-
-                // Enable join mode (as a hint — actual decision is in JoinInputs())
-                module->SetJoinMode(true);
-                LOG_DEBUG("Enabled join mode for converge node '{}'", node->name);
-            }
-        }
-    }
+    LOG_DEBUG("Topology analysis: found {} converge nodes", convergeNodes.size());
+    (void)convergeNodes;
 }
 
 } // namespace nexusflow

@@ -9,13 +9,18 @@ MockProcessModule::MockProcessModule(const std::string& name) : Module(name) {
 
 MockProcessModule::~MockProcessModule() { LOG_TRACE("MockProcessModule destructor, name={}", GetModuleName()); }
 
-void MockProcessModule::Process(nexusflow::Message& inputMessage) {
-    if (auto& seqMsg = inputMessage.Mut<std::shared_ptr<SeqMessage>>()) {
+void MockProcessModule::Process(const nexusflow::PortInputsView& inputs, nexusflow::PortOutputs& outputs) {
+    auto* inputMessage = inputs.OnlyMessage();
+    if (inputMessage == nullptr) {
+        return;
+    }
+
+    auto outputMessage = *inputMessage;
+    if (auto& seqMsg = outputMessage.Mut<std::shared_ptr<SeqMessage>>()) {
         LOG_DEBUG("Received message is {}", seqMsg->toString());
-        // Add some data to the message
         seqMsg->addData(GetModuleName() + "_" + std::to_string(m_count++));
         LOG_INFO(GetModuleName() + ": send message: {}", seqMsg->toString());
-        Broadcast(nexusflow::MakeMessage(std::move(seqMsg)));
+        outputs.Emit(nexusflow::MakeMessage(std::move(seqMsg), GetModuleName()), true);
     }
 }
 

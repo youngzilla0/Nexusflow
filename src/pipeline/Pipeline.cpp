@@ -2,9 +2,6 @@
 #include "base/Define.hpp"
 #include "base/Graph.hpp"
 #include "base/GraphUtils.hpp"
-#include "common/ViewPtr.hpp"
-#include "core/Worker.hpp"
-#include "dispatcher/Dispatcher.hpp"
 #include "utils/logging.hpp"
 #include <nexusflow/ModuleFactory.hpp>
 
@@ -24,9 +21,11 @@ Pipeline::~Pipeline() = default;
 
 void Pipeline::InitWithGraph(std::unique_ptr<Graph> graph, const PipelineConfig& config) {
     LOG_DEBUG("Initializing pipeline with graph, graph={}", graph->toString());
+    m_pImpl->pipelineContext = std::shared_ptr<PipelineContext>(new PipelineContext(graph->GetName(), config));
+    m_pImpl->executor = std::make_shared<executor::Executor>(m_pImpl->pipelineContext);
     m_pImpl->graph = std::move(graph);
-    m_pImpl->config = config; // Store config
-    m_pImpl->Init(); // Init the graph
+    m_pImpl->config = config;
+    m_pImpl->Init();
 }
 
 // --- Public APIs ---
@@ -115,6 +114,20 @@ ErrorCode Pipeline::Stop() {
     }
     LOG_DEBUG("Pipeline stopped successfully.");
     return ErrorCode::SUCCESS;
+}
+
+std::vector<PortRuntimeStats> Pipeline::GetPortStats() const {
+    if (!m_pImpl || !m_pImpl->executor) {
+        return {};
+    }
+    return m_pImpl->executor->GetPortStats();
+}
+
+std::vector<ActorRuntimeStats> Pipeline::GetActorStats() const {
+    if (!m_pImpl || !m_pImpl->executor) {
+        return {};
+    }
+    return m_pImpl->executor->GetActorStats();
 }
 
 }; // namespace nexusflow

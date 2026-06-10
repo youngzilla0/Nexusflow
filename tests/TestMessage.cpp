@@ -20,7 +20,7 @@ protected:
 };
 
 // --- Basic Functionality Tests ---
-TEST_F(MessageTest, BasicFunctionality) {
+TEST_F(MessageTest, ConstructionAndMetadata_BasicBehavior) {
     // 1. Test a default-constructed (empty) message.
     Message empty_msg;
     EXPECT_FALSE(empty_msg.HasData());
@@ -43,7 +43,7 @@ TEST_F(MessageTest, BasicFunctionality) {
 }
 
 // --- Data Access Tests ---
-TEST_F(MessageTest, DataAccess) {
+TEST_F(MessageTest, BorrowAndMutate_TypedAccess) {
     auto msg = MakeMessage(std::vector<int>{10, 20});
 
     // 1. Test successful access with Borrow<T>.
@@ -82,7 +82,7 @@ TEST_F(MessageTest, DataAccess) {
 }
 
 // --- Core Copy-On-Write (COW) Test ---
-TEST_F(MessageTest, CopyOnWrite) {
+TEST_F(MessageTest, CopyOnWrite_ValueMutationDoesNotAffectOriginal) {
     // 1. Create an original message and a copy.
     auto original_msg = MakeMessage(std::vector<int>{1, 2, 3});
     auto shared_copy = original_msg; // Cheap copy, data is shared.
@@ -101,7 +101,7 @@ TEST_F(MessageTest, CopyOnWrite) {
     EXPECT_EQ(original_msg.Borrow<std::vector<int>>()[1], 2);
 }
 
-TEST_F(MessageTest, CopyOnWriteWithPtr) {
+TEST_F(MessageTest, CopyOnWrite_PointerMutationDoesNotAffectOriginal) {
     // Test COW semantics using the pointer-based MutPtr.
     auto original_msg = MakeMessage(std::string("original"));
     auto shared_copy = original_msg;
@@ -115,7 +115,7 @@ TEST_F(MessageTest, CopyOnWriteWithPtr) {
 }
 
 // --- Clone Test ---
-TEST_F(MessageTest, Clone) {
+TEST_F(MessageTest, Clone_CopiesPayloadAndMetadata) {
     auto original_msg = MakeMessage(42, "SourceA");
     auto cloned_msg = original_msg.Clone();
 
@@ -136,7 +136,7 @@ TEST_F(MessageTest, Clone) {
 }
 
 // --- Ownership and Lifecycle Test ---
-TEST_F(MessageTest, OwnershipAndLifecycle) {
+TEST_F(MessageTest, Lifetime_SharedOwnershipKeepsPayloadAlive) {
     auto original_ptr = std::make_shared<int>(10);
     // Use a weak_ptr to track the lifetime of the underlying data.
     std::weak_ptr<int> tracker = original_ptr;
@@ -161,7 +161,7 @@ TEST_F(MessageTest, OwnershipAndLifecycle) {
 }
 
 // --- Multithreading Test ---
-TEST_F(MessageTest, Multithreading) {
+TEST_F(MessageTest, ConcurrentReadWrite_RemainsConsistent) {
     auto shared_msg = MakeMessage(std::vector<int>{0});
     std::atomic<int> read_sum{0};
     const int num_readers = 10;

@@ -1,558 +1,266 @@
-# NexusFlow架构设计文档
+# NexusFlow Architecture
 
-> High-Performance Modern C++ Dataflow Pipeline Framework
+## 1. Runtime Shape
 
----
+The current runtime is pipeline-scoped:
 
-##1.总体架构
-
-NexusFlow 是一个基于 **DAG (Directed Acyclic Graph)** 的高性能数据流框架。核心思想是:
-
-> **业务逻辑 (Module) 与框架机制 (Worker/Dispatcher/Queue) 完全解耦。**
-
-```
-┌─────────────────────────────────────────────────────────────────────┐
-│ Public API Layer │
-│ │
-│ Pipeline::CreateFromYaml() PipelineBuilder::Build() │
-│ nexusflow::Module nexusflow::PipelineConfig │
-│ nexusflow::Message NEXUSFLOW_REGISTER_MODULE() │
-└──────────────────────────────┬──────────────────────────────────────┘
- │
- ▼
-┌─────────────────────────────────────────────────────────────────────┐
-│ Pipeline Orchestration │
-│ │
-│ Pipeline::Impl │
-│ ├── Graph (DAG topology) │
-│ ├── PipelineConfig (runtime: batch/queue) │
-│ └── ActorNode map │
-└──────────────────────────────┬──────────────────────────────────────┘
- │
- ▼
-┌─────────────────────────────────────────────────────────────────────┐
-│ Module Runtime Actor │
-│ │
-│ ModuleActor │
-│ ├── Module ← 用户实现的业务逻辑 │
-│ ├── Dispatcher ←消息分发 (Broadcast/SendTo) │
-│ └── Worker ←线程驱动 +批处理 │
-└──────────────────────────────┬──────────────────────────────────────┘
- │
- ▼
-┌─────────────────────────────────────────────────────────────────────┐
-│ Internal Infrastructure │
-│ │
-│ MessageQueue (Bounded BlockingQueue) │
-│ ViewPtr (Non-owning pointer) │
-│ Any (Type-erased value) │
-└─────────────────────────────────────────────────────────────────────┘
+```text
+Pipeline
+  ├─ PipelineContext
+  ├─ Graph
+  ├─ Executor
+  │   └─ ThreadPool
+  └─ ModuleActor[N]
 ```
 
----
+Key decisions:
 
-##2.目录结构
+- one `Executor` per `Pipeline`
+- one `ThreadPool` per `Executor`
+- modules are logical actors, not dedicated OS threads
+- user modules process port views, not queue batches
 
-```
-NexusFlow/
-├── include/nexusflow/ #公共 API头文件
-│ ├── Pipeline.hpp # Pipeline 类 + PipelineConfig
-│ ├── PipelineBuilder.hpp #链式构造器
-│ ├── Module.hpp # 用户实现的基类
-│ ├── Message.hpp # 类型擦除 + COW 数据容器
-│ ├── Config.hpp #通用配置容器 (ModuleConfig 别名)
-│ ├── ModuleFactory.hpp # 模块反射注册
-│ ├── ErrorCode.hpp #统一错误码
-│ ├── Any.hpp # 类型擦除容器
-│ └── TypeTraits.hpp
-│
-├── src/ #内部实现 (不对外暴露)
-│ ├── pipeline/
-│ │ ├── Pipeline.cpp # Pipeline公共 API 实现
-│ │ └── impl/
-│ │ └── PipelineImpl.* # Pipeline 的 pImpl 实现 (核心编排)
-│ ├── module/
-│ │ ├── Module.cpp
-│ │ ├── ModuleActor.* # 模块运行 Actor (Module+Worker+Dispatcher)
-│ │ └── ModuleFactory.cpp
-│ ├── core/
-│ │ └── Worker.* #线程驱动 +批处理循环
-│ ├── dispatcher/
-│ │ └── Dispatcher.* #消息广播/单播
-│ ├── base/
-│ │ ├── Define.hpp #公共类型别名 (MessageQueue 等)
-│ │ └── Graph.* # DAG 数据结构
-│ ├── builder/
-│ │ └── PipelineBuilder.cpp # Builder 实现
-│ ├── common/
-│ │ ├── ConcurrentQueue.hpp # 有界阻塞队列
-│ │ ├── ViewPtr.hpp # 非拥有指针
-│ │ └── Optional.hpp
-│ └── utils/
-│ └── logging.hpp
-│
-├── examples/ # 示例
-├── benchmarks/ #性能基准
-└── tests/ #单元测试
-```
+## 2. Public API Model
 
----
-
-##3.核心组件
-
-###3.1 Pipeline (流水线编排)
-
-**职责**:拥有 Graph、创建 Actor、调度生命周期。
-
-```
-┌─────────────────────────────┐
-│ Pipeline │
-├─────────────────────────────┤
-│ - m_pImpl: Impl │
-│ - CreateFromYaml() │
-│ - Init/Start/Stop/DeInit │
-└─────────────────────────────┘
- │
- ▼
-┌─────────────────────────────┐
-│ Pipeline::Impl │
-├─────────────────────────────┤
-│ - graph: unique_ptr<Graph> │
-│ - queues: vector<Queue> │ ←拥有所有消息队列
-│ - config: PipelineConfig │
-│ - actorModuleMap │
-│ - actorOrderedNodes │
-└─────────────────────────────┘
-```
-
-**生命周期**: `Init() → Start() → Stop() → DeInit()`
-
-|阶段 |动作 |
-|------|------|
-| `Init()` | 调用每个 ModuleActor.Init() → Module.Init() |
-| `Start()` |启动每个 ModuleActor 的工作线程 |
-| `Stop()` | shutdown 所有队列, join 所有线程 |
-| `DeInit()` |逆序调用 Module.DeInit() |
-
----
-
-###3.2 Graph (DAG拓扑)
-
-**职责**:存储 Module节点和连接关系 (纯数据结构)。
-
-```
-Graph
-├── m_nodeMap: name → Node
-├── m_adjList: adjacency list
-└── m_name: pipeline name
-
-Node (abstract)
-├── NodeWithModulePtr (Builder 创建, 直接持有 Module 实例)
-└── NodeWithModuleClassName (YAML 创建, 通过类名反射构造)
-
-Edge
-├── srcNodePtr (weak)
-└── dstNodePtr (weak)
-```
-
-**关键 API**:
-- `AddEdge(src, dst)` - 添加边
-- `hasCycle()` - 检测环
-- `toEdgeListBFS()` - BFS遍历生成边列表
-- `IsEmpty()` - 检查是否为空
-- `SetName/GetName` - 设置/获取图名称
-
----
-
-### 3.3 ModuleActor (模块运行时 Actor)
-
-**职责**: 把一个 Module包装成可独立运行的实体。**这是核心组合类**。
-
-```
-┌─────────────────────────────────────────────┐
-│ ModuleActor │
-├─────────────────────────────────────────────┤
-│ - m_module: Module (业务逻辑) │
-│ - m_worker: Worker (线程驱动) │
-│ - m_dispatcher: Dispatcher (消息发送) │
-│ - m_workThread: thread (工作线程) │
-└─────────────────────────────────────────────┘
-```
-
-**构造参数**:
-```cpp
-ModuleActor(module, runtimeConfig)
-       │       │
-       │       └─ PipelineConfig (batch/queue运行时参数)
-       └─ 用户实现的 Module
-```
-
-**JoinInputs 配置**: 通过 `Module::JoinInputs()` 虚函数控制。
-
----
-
-### 3.4 Worker (线程驱动 +批处理)
-
-**职责**:持有独立线程,循环从输入队列拉消息 →调 Module 处理。
-
-```
-┌─────────────────────────────────────────────┐
-│ Worker │
-├─────────────────────────────────────────────┤
-│ - m_modulePtr: Module │
-│ - m_runtimeConfig: PipelineConfig │
-│ - m_inputQueueMap: name → MessageQueue │
-│ - m_stopFlag: atomic<bool> │
-└─────────────────────────────────────────────┘
-```
-
-**JoinInputs 决定执行模式**:
+### Module processing
 
 ```cpp
-// Worker::WorkLoop()
-bool isJoinInputs = m_modulePtr->JoinInputs(); // ← 虚函数
+virtual void Process(const PortInputsView& inputs,
+                     PortOutputs& outputs) = 0;
 ```
 
-| 模式 | `JoinInputs()` | 行为 |
-|------|----------------|------|
-| **普通流水线** | `false` (默认) | 调 `PullBatchMessage()` 拉一批, 调 `ProcessBatch()` |
-| **Fusion同步融合** | `true` (通过 `JoinHint::AlwaysJoin` 或 `m_joinMode`) | 等所有输入队列凑齐一个 messageId 的消息, 合并后处理 |
+`PortInputsView` keeps business code simple:
 
-**批处理流程 (PullBatchMessage)**:
-```
-Phase1 (Greedy): 非阻塞 tryPop 所有队列 →尽可能多收集
-Phase2 (Blocking): waitAndPopFor(1ms)轮询 →凑齐 batch 或超时
-```
+- `OnlyAs<T>()`: single-input fast path
+- `Get<T>("port")`: named-port access
+- `OnlyMessage()` / `GetMessage("port")`: raw `Message` access when needed
 
----
+`PortOutputs` keeps emission explicit:
 
-###3.5 Dispatcher (消息分发)
+- `Emit(msg, blocking)`: broadcast to every downstream subscriber
+- `Set("port", msg, blocking)`: route to a named output port
 
-**职责**:持有下游队列视图, 提供 Broadcast/SendTo 接口。
-
-```
-┌─────────────────────────────────────────────┐
-│ Dispatcher │
-├─────────────────────────────────────────────┤
-│ - m_subscriberMap: name → MessageQueue │
-└─────────────────────────────────────────────┘
-```
-
-**两种发送模式**:
-|模式 | 函数 |行为 |
-|------|------|------|
-| **Broadcast** | `Broadcast(msg, blocking=true)` |复制 N-1 次, move 最后一份 |
-| **SendTo** | `SendTo(name, msg, blocking=true)` | 发到指定队列 |
-
-`blocking=true` 用 `push()` (阻塞); `blocking=false` 用 `tryPush()` (丢消息保吞吐)。
-
----
-
-###3.6 Message (类型擦除数据容器)
-
-**职责**: 在队列中流动的通用数据包装。
-
-```
-Message
-├── m_data: shared_ptr<void> (实际数据)
-├── m_meta: MessageMetaData (id/source/timestamp)
-└── m_typeInfo: TypeInfo (类型信息 for Borrow/Mut)
-```
-
-**Copy-On-Write语义**:
-```
-原 msg (refcount=1) ──┬──> copy ──→ refcount=2
- │
- └──> Mut() → COW触发:
- ├─ 原 msg refcount=1 (保留旧数据)
- └─ 新 msg refcount=1 (新数据)
-```
-
-**访问 API**:
-| 函数 | 返回 |行为 |
-|------|------|------|
-| `Borrow<T>()` | `const T&` | 只读, 不触发 COW |
-| `BorrowPtr<T>()` | `const T*` | 只读指针 (no-throw) |
-| `Mut<T>()` | `T&` | 可写,触发 COW |
-| `MutPtr<T>()` | `T*` | 可写指针 (no-throw) |
-
----
-
-###3.7 ConcurrentQueue (有界阻塞队列)
-
-**职责**:线程安全的有界消息队列。
-
-```
-ConcurrentQueue<Message>
-├── m_queue: deque<Message> (数据)
-├── m_capacity: size_t (上限)
-├── m_mutex + m_cvNotFull/Empty (条件变量)
-└── shutdown() →唤醒所有等待线程
-```
-
-**API**:
-| 函数 | 行为 |
-|------|------|
-| `Push(msg)` | 阻塞直到有空间 |
-| `TryPush(msg)` | 非阻塞, 满则丢弃/返回 false |
-| `WaitAndPopFor(msg, timeout)` | 阻塞 pop, 带超时 |
-| `TryPop(msg)` | 非阻塞 pop |
-| `Shutdown()` | 唤醒所有阻塞线程 |
-| `IsEmpty()` | 检查队列是否为空 |
-| `GetSize()` | 获取队列大小 |
-
----
-
-##4.依赖关系图
-
-```
-┌──────────────────────┐
- │ Pipeline (Public) │
- └──────────┬───────────┘
- │ has-a
- ▼
-┌──────────────────────┐
- │ Pipeline::Impl │
- └──────────┬───────────┘
- │ owns
-┌────────────┼────────────┐
- ▼ ▼ ▼
-┌─────────┐┌─────────┐┌──────────────┐
- │ Graph │ │ Queues │ │ ModuleActors │
- └─────────┘ └─────────┘ └──────┬───────┘
- │ contains
- ▼
-┌──────────────────────┐
- │ ModuleActor │
- └──┬─────────┬─────────┘
- │ │
-┌──────────────┘ └──────────────┐
- ▼ ▼
-┌──────────────┐┌──────────────┐
- │ Worker │◄────────uses──────────│ Module │
- │ (thread) │ │ (user code) │
- └──────┬───────┘ └──────┬───────┘
- │ │
- │ reads batch from │ sends via
- ▼ ▼
-┌──────────────┐┌──────────────┐
- │MessageQueue │ │ Dispatcher │
- └──────────────┘ └──────┬───────┘
- │
- │ writes to
- ▼
-┌──────────────┐
- │MessageQueue │
- └──────────────┘
-
-═══════════════════════════════════════════════════════════════════════
- Layer Responsibilities
-═══════════════════════════════════════════════════════════════════════
-
-Layer0 (Foundation - src/common, src/base):
- ConcurrentQueue, ViewPtr, Any, Graph, Define
-
-Layer1 (Runtime - src/core, src/dispatcher, src/module):
- Worker, Dispatcher, ModuleActor, Module (base)
-
-Layer2 (Orchestration - src/pipeline):
- Pipeline, PipelineImpl, GraphUtils
-
-Layer3 (Construction - src/builder, include/nexusflow):
- PipelineBuilder, ModuleFactory
-
-Layer4 (Public API - include/nexusflow):
- Pipeline, Module, Message, Config
-```
-
----
-
-##5. 配置系统 (Config vs PipelineConfig)
-
-这是最容易被混淆的部分, 因此单独说明。
-
-###5.1 两类配置
-
-| 类型 | 定义 |作用域 |注入方式 | 示例字段 |
-|------|------|--------|---------|---------|
-| **ModuleConfig** | YAML `modules[name].params` | 单个模块 | 通过 Node → ModuleActor → Worker | `syncInputs`, `threshold`, `modelPath` |
-| **PipelineConfig** | `PipelineBuilder::WithConfig()` 或代码 |整个流水线 | Pipeline → Impl → 所有 Actor | `maxBatchSize`, `batchTimeoutMs`, `queueSize` |
-
-###5.2 设计原则
-
-```
-❌错误做法: 把 PipelineConfig字段塞进 ModuleConfig
- → ModuleConfig语义被污染, 用户困惑
-
-✅正确做法: 完全分离, PipelineConfig 通过构造函数显式传递
- → ModuleConfig =业务参数 (YAML)
- → PipelineConfig =运行时参数 (代码)
-```
-
-###5.3 调用链
-
-```
-PipelineBuilder
- └─ WithConfig(PipelineConfig) ─┐
- │
-YAML/YAML ▼
- └─ modules[name].params ──→ ModuleConfig
- │
- ▼
- Pipeline::InitWithGraph(graph, PipelineConfig)
- │
- ▼
- Pipeline::Impl::Init()
- │
-┌───────────────────┴────────────────────┐
- ▼ ▼
- GraphUtils.CreateGraphFromYaml() m_pImpl->config = config
- │ │
- ▼ ▼
- creates Graph with Node{...ModuleConfig}┌──────────────────┐
- │ │ GetOrCreateActor │
- └─────────────────┬──────────────────┴────────┬─────────┘
- ▼ ▼
- ModuleActor(module, moduleConfig, runtimeConfig)
- │
-┌───────────────┴───────────────┐
- ▼ ▼
- Worker(module, Dispatcher(configView)
- moduleConfig, │
- runtimeConfig) └─ 只持有 ModuleConfig视图
- │
- └─ WorkLoop() 用 m_runtimeConfig决定 batch行为
- 用 m_moduleConfig读 syncInputs
-```
-
-###5.4字段映射
-
-**ModuleConfig (YAML)**:
-```yaml
-modules:
- - name: "Decoder"
- class: "DecoderModule"
- params:
- syncInputs: true # ← Worker用来决定 RunFusion模式
- modelPath: "/models/yolo"
- confidence:0.7
-```
-
-**PipelineConfig (代码)**:
-```cpp
-auto pipeline = PipelineBuilder()
- .AddModule(...)
- .Connect(...)
- .WithConfig(PipelineConfig{
- .maxBatchSize =32,
- .batchTimeoutMs =5,
- .queueSize =100
- })
- .Build();
-```
-
----
-
-##6. 数据流示例
-
-以 `InputNode → ProcessNode → OutputNode` 为例:
-
-```
-Time ──────────────────────────────────────────────────►
-
-InputNode.Worker:
-┌─────────────────────────────────────────┐
- │ Process(empty) │
- │ ↓ make Message{data} │
- │ Broadcast(msg) ──────────────────────┐ │
- └─────────────────────────────────────┘ │
- │
- ▼
-ProcessNode.Worker:
-┌─────────────────────────────────────────┐
- │ PullBatchMessage(32,5ms) │
- │ ↓ get {msg1, msg2, msg3, ...} │
- │ ProcessBatch({msg1, msg2, ...}) │
- │ ↓ make Message{result} │
- │ Broadcast(msg) ──────────────────────┐ │
- └─────────────────────────────────────────┘ │
- │
- ▼
-OutputNode.Worker:
-┌─────────────────────────────────────────┐
- │ PullBatchMessage(32,5ms) │
- │ ↓ get {result1, result2, ...} │
- │ ProcessBatch({...}) │
- └─────────────────────────────────────────┘
-```
-
----
-
-##7.线程模型
-
-每个 ModuleActor拥有独立的线程:
-
-```
-┌──────────────┐┌──────────────┐┌──────────────┐
-│ Thread-1 │ │ Thread-2 │ │ Thread-3 │
-│┌──────────┐ │ │┌──────────┐ │ │┌──────────┐ │
-│ │ Worker-A │ │ │ │ Worker-B │ │ │ │ Worker-C │ │
-│ └────┬─────┘ │ │ └────┬─────┘ │ │ └────┬─────┘ │
-│ │ │ │ │ │ │ │ │
-│ Module-A │ │ Module-B │ │ Module-C │
-└──────┼───────┘ └──────┼───────┘ └──────┼───────┘
- │ │ │
- └───── Queue A→B ───┴───── Queue B→C ───┘
-```
-
-- **Source Module** (无输入队列):主动循环调用 `Process(empty)`
-- **普通 Module**: `PullBatchMessage`拉批 → `ProcessBatch` 处理
-- **Sync Module** (Fusion): 等所有输入凑齐一个 messageId 后处理
-
----
-
-##8.扩展点
-
-###8.1 添加新 Module
+### TriggerPolicy
 
 ```cpp
-//1.继承 Module
-class MyModule : public nexusflow::Module {
-public:
- explicit MyModule(std::string name) : Module(std::move(name)) {}
- void Process(Message& msg) override { /* ... */ }
+enum class TriggerPolicy {
+    Auto,
+    OnAnyInput,
+    OnAllInputs
+};
+```
+
+Semantics:
+
+- `Auto`: currently treated as `OnAnyInput`
+- `OnAnyInput`: any arrived message triggers one `Process()` call
+- `OnAllInputs`: the executor waits until all input ports have a message with the same `messageId`
+
+This makes synchronization a scheduling concern rather than something hidden inside `Process()`.
+
+### PipelineContext
+
+`PipelineContext` is injected implicitly into each module and exposes:
+
+- pipeline name
+- `PipelineConfig`
+- resolved executor thread count
+
+Modules read it through `GetPipelineContext()`.
+
+## 3. Graph and Ports
+
+`Graph` stores:
+
+- nodes
+- directed edges
+- optional `fromPort` / `toPort` metadata per edge
+
+Default ports:
+
+- output: `out`
+- input: `in`
+
+Port metadata is used only for routing and fusion. The `Message` payload remains independent from the graph topology.
+
+## 4. Executor Responsibilities
+
+The executor owns all runtime scheduling logic.
+
+### 4.1 Actor registration
+
+Each `ModuleActor` registers:
+
+- module instance
+- runtime config snapshot
+- input queues
+- output subscribers
+
+### 4.2 Start / Stop
+
+On `Start()`:
+
+1. resolve thread count
+2. create `ThreadPool`
+3. prime runnable actors
+4. submit short actor tasks on demand
+
+On `Stop()`:
+
+1. flip stop flag
+2. stop thread pool
+3. let queues finish shutdown
+
+### 4.3 OnAnyInput scheduling
+
+For normal modules the executor:
+
+1. schedules the actor when an upstream enqueue succeeds
+2. scans input queues round-robin for available work
+3. wraps the arrived item as one `PortMessage`
+4. builds a `PortInputsView`
+5. calls `Process()`
+6. dispatches `PortOutputs`
+
+### 4.4 OnAllInputs scheduling
+
+For fusion modules the executor:
+
+1. caches messages by `messageId`
+2. groups them by input port
+3. calls `Process()` once every required port is present
+4. drops incomplete groups after `fusionTimeoutMs`
+5. caps pending groups with `maxPendingJoinGroups`
+
+This is intentionally simple and readable. It is not yet the final performance shape.
+
+## 5. Message Model
+
+`Message` is still the payload carrier.
+
+Properties:
+
+- type-erased
+- copy-on-write
+- cheap to broadcast
+- metadata includes `messageId`, `timestamp`, and `sourceName`
+
+The port layer does not replace `Message`; it replaces the old "single raw message argument" API.
+
+## 6. PipelineConfig
+
+Current fields:
+
+```cpp
+enum class QueueFullPolicy {
+    DropTail,
+    DropHead,
 };
 
-//2. 注册到 Factory
-NEXUSFLOW_REGISTER_MODULE(MyModule);
-
-//3. YAML 中使用
-// modules:
-// - name: "MyNode"
-// class: "MyModule"
+struct PipelineConfig {
+    size_t executorThreadCount = 0;
+    size_t queueSize = 100;
+    size_t idleWaitUs = 50;
+    size_t fusionTimeoutMs = 60000;
+    size_t maxPendingJoinGroups = 1024;
+    QueueFullPolicy nonBlockingQueueFullPolicy = QueueFullPolicy::DropTail;
+};
 ```
 
-###8.2替换 Worker行为
+Intent:
 
-继承 `Worker` 并在 `ModuleActor` 中替换 (当前未暴露此扩展点)。
+- `executorThreadCount`: explicit sizing or auto
+- `queueSize`: per-edge queue capacity
+- `idleWaitUs`: backoff for sparse polling
+- `fusionTimeoutMs`: stale join cleanup
+- `maxPendingJoinGroups`: cap for pending `OnAllInputs` groups
+- `nonBlockingQueueFullPolicy`: whether a full queue drops the new item or evicts the oldest one
 
-###8.3替换 Dispatcher行为
+## 7. Runtime Stats
 
-继承 `dispatcher::Dispatcher` 并在 `ModuleActor`构造时替换。
+Each graph edge owns one runtime stats object shared by the producer side and consumer side.
 
----
+Each actor also tracks:
 
-##9.已知限制 / TODO
+- process count
+- consumed input count
+- emitted broadcast and route counts
+- pending join group count
+- join timeout and join overflow drops
 
-- `Pipeline::Stop()` 有 `// TODO:优化一下`注释
-- `RunFusion()`注释: "如何优化呢, 现在只有单 Batch, 并且需要测试下内存占用"
-- Builder 的 source/sink节点推断是启发式的
-- Dispatcher持有 Config视图但实际未使用 (可清理)
+Snapshots expose:
 
----
+- source module and source port
+- destination module and destination port
+- blocking vs non-blocking push attempts
+- enqueue, drop, reject, and dequeue counts
+- current queue depth and peak depth
 
-##10. 相关文档
+`Pipeline::GetPortStats()` and `Pipeline::GetActorStats()` collect these snapshots without exposing queue internals to modules.
+`PipelineObserver` builds a combined actor + edge view for observability and debugging.
 
-- [README.md](../README.md) - 用户文档
-- [BENCHMARK.md](../benchmarks/README.md) -性能基准
-- [examples/](../examples/) - 示例代码
+## 8. Data Flow Example
+
+### Single-input path
+
+```text
+Source(out) -> Decoder(in) -> Detector(in) -> Sink(in)
+```
+
+The module sees only one message at a time:
+
+```cpp
+auto* frame = inputs.OnlyAs<Frame>();
+```
+
+### Fusion path
+
+```text
+DetectorA(out) -> Fusion(head)
+DetectorB(out) -> Fusion(person)
+```
+
+The fusion module reads named ports:
+
+```cpp
+auto* head = inputs.Get<Inference>("head");
+auto* person = inputs.Get<Inference>("person");
+```
+
+## 9. Why This Direction
+
+Compared with the old `Worker + Dispatcher + ProcessBatch` model, this version is cleaner in three ways:
+
+1. scheduling is centralized in `Executor`
+2. thread ownership is explicit and pipeline-scoped
+3. module business code is closer to modern graph frameworks that expose ports directly
+
+It also makes future work easier:
+
+- better wake-up strategy
+- per-pipeline scheduling policy
+- richer port metadata
+- stronger delivery semantics
+
+## 10. Current Gaps
+
+These are known limitations of the current implementation:
+
+- `CreateFromYaml()` still uses default `PipelineConfig`
+- `OnAllInputs` depends on `messageId` only; there is no watermark or time-window fusion
+- runtime stats are snapshot-oriented; there is no push-based monitoring hook yet
+- the runtime queue is lock-based, so queue contention is still a meaningful cost
+- source actors still rely on `idleWaitUs` when idle, and multi-input actors still scan input queues on each activation
+
+## 11. Code Map
+
+Important files:
+
+- [include/nexusflow/Module.hpp](/Users/yang/Code/Nexusflow/include/nexusflow/Module.hpp)
+- [include/nexusflow/PipelineContext.hpp](/Users/yang/Code/Nexusflow/include/nexusflow/PipelineContext.hpp)
+- [include/nexusflow/Ports.hpp](/Users/yang/Code/Nexusflow/include/nexusflow/Ports.hpp)
+- [include/nexusflow/PipelineObserver.hpp](/Users/yang/Code/Nexusflow/include/nexusflow/PipelineObserver.hpp)
+- [include/nexusflow/RuntimeStats.hpp](/Users/yang/Code/Nexusflow/include/nexusflow/RuntimeStats.hpp)
+- [src/executor/Executor.hpp](/Users/yang/Code/Nexusflow/src/executor/Executor.hpp)
+- [src/executor/Executor.cpp](/Users/yang/Code/Nexusflow/src/executor/Executor.cpp)
+- [src/pipeline/impl/PipelineImpl.cpp](/Users/yang/Code/Nexusflow/src/pipeline/impl/PipelineImpl.cpp)

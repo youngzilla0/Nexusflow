@@ -22,6 +22,17 @@
 template <typename T>
 class LockBaseQueue {
 public:
+    enum class PushStatus {
+        Success,
+        Full,
+        Shutdown,
+    };
+
+    struct PushResult {
+        PushStatus status = PushStatus::Success;
+        std::size_t droppedCount = 0;
+    };
+
     /**
      * @brief Constructs a LockBaseQueue.
      * @param capacity The maximum capacity of the queue. A value of -1 (default)
@@ -41,16 +52,20 @@ public:
      * @return true if the item was successfully pushed, false if the queue has been shut down.
      */
     bool Push(T&& item) {
+        return PushWithStatus(std::move(item)) == PushStatus::Success;
+    }
+
+    PushStatus PushWithStatus(T&& item) {
         std::unique_lock<std::mutex> lock(m_mutex);
         m_condNotFull.wait(lock, [this] { return m_shutdown || !IsFull(); });
 
         if (m_shutdown) {
-            return false;
+            return PushStatus::Shutdown;
         }
 
         m_queue.push(std::move(item));
         m_condNotEmpty.notify_one();
-        return true;
+        return PushStatus::Success;
     }
 
     /**
@@ -59,6 +74,11 @@ public:
     bool Push(const T& item) {
         T temp = item;
         return Push(std::move(temp));
+    }
+
+    PushStatus PushWithStatus(const T& item) {
+        T temp = item;
+        return PushWithStatus(std::move(temp));
     }
 
     /**
@@ -93,14 +113,21 @@ public:
      * @return true if the item was successfully pushed, false if the queue was full or has been shut down.
      */
     bool TryPush(T&& item) {
+        return TryPushWithStatus(std::move(item)) == PushStatus::Success;
+    }
+
+    PushStatus TryPushWithStatus(T&& item) {
         std::lock_guard<std::mutex> lock(m_mutex);
-        if (m_shutdown || IsFull()) {
-            return false;
+        if (m_shutdown) {
+            return PushStatus::Shutdown;
+        }
+        if (IsFull()) {
+            return PushStatus::Full;
         }
 
         m_queue.push(std::move(item));
         m_condNotEmpty.notify_one();
-        return true;
+        return PushStatus::Success;
     }
 
     /**
@@ -109,6 +136,37 @@ public:
     bool TryPush(const T& item) {
         T temp = item;
         return TryPush(std::move(temp));
+    }
+
+    PushStatus TryPushWithStatus(const T& item) {
+        T temp = item;
+        return TryPushWithStatus(std::move(temp));
+    }
+
+    PushResult TryPushDropHead(T&& item) {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        if (m_shutdown) {
+            return PushResult{PushStatus::Shutdown, 0};
+        }
+
+        if (IsFull()) {
+            if (m_queue.empty()) {
+                return PushResult{PushStatus::Full, 0};
+            }
+            m_queue.pop();
+            m_queue.push(std::move(item));
+            m_condNotEmpty.notify_one();
+            return PushResult{PushStatus::Success, 1};
+        }
+
+        m_queue.push(std::move(item));
+        m_condNotEmpty.notify_one();
+        return PushResult{PushStatus::Success, 0};
+    }
+
+    PushResult TryPushDropHead(const T& item) {
+        T temp = item;
+        return TryPushDropHead(std::move(temp));
     }
 
     /**

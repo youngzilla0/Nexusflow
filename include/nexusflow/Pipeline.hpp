@@ -1,13 +1,13 @@
 #ifndef NEXUSFLOW_PIPELINE_HPP
 #define NEXUSFLOW_PIPELINE_HPP
 
-#include <nexusflow/Config.hpp>
 #include <nexusflow/ErrorCode.hpp>
-#include <nexusflow/Module.hpp>
+#include <nexusflow/PipelineConfig.hpp>
+#include <nexusflow/RuntimeStats.hpp>
 
 #include <memory>
 #include <string>
-#include <unordered_map>
+#include <vector>
 
 // Forward declaration
 class Graph;
@@ -16,18 +16,6 @@ class PipelineBuilder;
 }
 
 namespace nexusflow {
-
-/**
- * @brief Pipeline configuration parameters.
- */
-struct PipelineConfig {
-    size_t maxBatchSize = 32;           // Max messages per batch in Worker
-    size_t batchTimeoutMs = 5;           // Batch timeout in milliseconds
-    size_t queueSize = 100;              // Queue capacity between modules
-
-    // Factory method to create default config
-    static PipelineConfig Default() { return PipelineConfig{}; }
-};
 
 /**
  * @brief Pipeline
@@ -44,6 +32,9 @@ public:
     ErrorCode Stop();
 
     ErrorCode DeInit();
+
+    std::vector<PortRuntimeStats> GetPortStats() const;
+    std::vector<ActorRuntimeStats> GetActorStats() const;
 
     ~Pipeline();
 

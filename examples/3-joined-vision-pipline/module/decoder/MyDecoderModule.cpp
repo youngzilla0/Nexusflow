@@ -20,16 +20,21 @@ nexusflow::ErrorCode MyDecoderModule::Configure(const nexusflow::Config& config)
     return nexusflow::ErrorCode::SUCCESS;
 }
 
-void MyDecoderModule::Process(nexusflow::Message& inputMessage) {
-    if (auto* msg = inputMessage.MutPtr<DecoderMessage>()) {
-        auto& videoPackage = msg->videoPackage;
+void MyDecoderModule::Process(const nexusflow::PortInputsView& inputs, nexusflow::PortOutputs& outputs) {
+    auto* inputMessage = inputs.OnlyMessage();
+    if (inputMessage == nullptr) {
+        return;
+    }
+
+    auto outputMessage = *inputMessage;
+    if (auto* msg = outputMessage.MutPtr<DecoderMessage>()) {
         if (m_frameIdx % m_skipInterval == 0) {
             msg->videoFrame.frameId = m_frameIdx;
             msg->videoFrame.frameData = "frameData-" + std::to_string(m_frameIdx);
             LOG_INFO("'{}' Send message to next module, data={}", GetModuleName(), msg->toString());
 
-            auto outputMessage = ConvertDecoderMessageToInferenceMessage(*msg);
-            Broadcast(nexusflow::MakeMessage(std::move(outputMessage)));
+            auto inferenceMessage = ConvertDecoderMessageToInferenceMessage(*msg);
+            outputs.Emit(nexusflow::MakeMessage(std::move(inferenceMessage), GetModuleName()), true);
         }
         m_frameIdx++;
     }

@@ -8,7 +8,7 @@
 using namespace nexusflow;
 
 // 1. 基本的单线程测试
-TEST(LockFreeMPMCQueueTest, BasicPushPop) {
+TEST(LockFreeMPMCQueueTest, TryPushTryPop_BasicSingleThread) {
     LockFreeMPMCQueue<int> q(8);
 
     int val = 0;
@@ -26,7 +26,7 @@ TEST(LockFreeMPMCQueueTest, BasicPushPop) {
 }
 
 // 2. 测试队列容量限制及 Try 接口
-TEST(LockFreeMPMCQueueTest, CapacityAndTryLogic) {
+TEST(LockFreeMPMCQueueTest, TryPushTryPop_CapacityLimits) {
     // 申请容量 2，内部向上取整，刚好是 2
     LockFreeMPMCQueue<int> q(2);
 
@@ -45,7 +45,7 @@ TEST(LockFreeMPMCQueueTest, CapacityAndTryLogic) {
 }
 
 // 3. 测试超时逻辑 (手动实现 timeout 等效)
-TEST(LockFreeMPMCQueueTest, TimeoutLogic) {
+TEST(LockFreeMPMCQueueTest, TryOperations_TimeoutEquivalentBehavior) {
     LockFreeMPMCQueue<int> q(2);
     int val = 0;
 
@@ -83,7 +83,7 @@ TEST(LockFreeMPMCQueueTest, TimeoutLogic) {
 
 // 4. 多线程高并发数据完整性测试 (最严苛的测试)
 // 测试场景：4 个生产者，4 个消费者，共发送 40 万条数据，确保 0 丢失、0 重复
-TEST(LockFreeMPMCQueueTest, MultiThreadedDataIntegrity) {
+TEST(LockFreeMPMCQueueTest, ConcurrentProducersConsumers_DataIntegrity) {
     const int numProducers = 4;
     const int numConsumers = 4;
     const int itemsPerProducer = 100000;
@@ -161,7 +161,7 @@ protected:
 };
 
 // 1. 基础功能测试：入队与出队
-TEST_F(LockFreeNodeQueueTest, BasicPushPop) {
+TEST_F(LockFreeNodeQueueTest, PushPop_BasicSingleThread) {
     LockFreeNodeQueue<TestFrame> nq(4); // 默认 DropHead
 
     TestFrame f1{101, "frame1"};
@@ -179,7 +179,7 @@ TEST_F(LockFreeNodeQueueTest, BasicPushPop) {
 }
 
 // 2. 策略测试：DropTail (满了就拒收)
-TEST_F(LockFreeNodeQueueTest, PolicyDropTail) {
+TEST_F(LockFreeNodeQueueTest, DropTail_RejectsNewestWhenFull) {
     auto cfg = createConfig(2, LockFreeDropPolicy::DropTail);
     LockFreeNodeQueue<TestFrame> nq(cfg);
 
@@ -195,7 +195,7 @@ TEST_F(LockFreeNodeQueueTest, PolicyDropTail) {
 }
 
 // 3. 策略测试：DropHead (满了就踢掉最老的)
-TEST_F(LockFreeNodeQueueTest, PolicyDropHead) {
+TEST_F(LockFreeNodeQueueTest, DropHead_EvictsOldestWhenFull) {
     auto cfg = createConfig(2, LockFreeDropPolicy::DropHead);
     LockFreeNodeQueue<TestFrame> nq(cfg);
 
@@ -214,7 +214,7 @@ TEST_F(LockFreeNodeQueueTest, PolicyDropHead) {
 }
 
 // 4. 策略测试：KeepLatest (只保留最新的 N 个)
-TEST_F(LockFreeNodeQueueTest, PolicyKeepLatest) {
+TEST_F(LockFreeNodeQueueTest, KeepLatest_RetainsNewestItems) {
     auto cfg = createConfig(8, LockFreeDropPolicy::KeepLatest);
     cfg.keep_latest_n = 1; // 极其激进：只要最新的
     LockFreeNodeQueue<TestFrame> nq(cfg);
@@ -228,7 +228,7 @@ TEST_F(LockFreeNodeQueueTest, PolicyKeepLatest) {
 }
 
 // 5. 功能测试：统计指标跟踪
-TEST_F(LockFreeNodeQueueTest, StatisticsTracking) {
+TEST_F(LockFreeNodeQueueTest, Statistics_TracksPushPopAndReset) {
     LockFreeNodeQueue<int> nq(10);
 
     for (int i = 0; i < 5; ++i) nq.push(i);
@@ -244,7 +244,7 @@ TEST_F(LockFreeNodeQueueTest, StatisticsTracking) {
 }
 
 // 6. 核心测试：丢弃回调函数 (Drop Callback)
-TEST_F(LockFreeNodeQueueTest, DropCallbackAndAccessor) {
+TEST_F(LockFreeNodeQueueTest, DropCallback_ReportsEvictedFrame) {
     auto cfg = createConfig(2, LockFreeDropPolicy::DropHead);
     LockFreeNodeQueue<TestFrame> nq(cfg);
 
@@ -270,7 +270,7 @@ TEST_F(LockFreeNodeQueueTest, DropCallbackAndAccessor) {
 }
 
 // 7. 功能测试：Clear 清空队列
-TEST_F(LockFreeNodeQueueTest, ClearOperation) {
+TEST_F(LockFreeNodeQueueTest, Clear_RemovesAllQueuedItems) {
     LockFreeNodeQueue<int> nq(10);
     nq.push(1);
     nq.push(2);
@@ -283,7 +283,7 @@ TEST_F(LockFreeNodeQueueTest, ClearOperation) {
 }
 
 // 8. 并发边界测试：多生产单消费下的策略表现
-TEST_F(LockFreeNodeQueueTest, ConcurrentDropHead) {
+TEST_F(LockFreeNodeQueueTest, DropHead_ConcurrentProducersRespectsCapacity) {
     LockFreeNodeQueue<int>::Config cfg;
     {
         cfg.capacity = 16;
