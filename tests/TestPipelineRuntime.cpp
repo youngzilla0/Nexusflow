@@ -540,3 +540,18 @@ TEST(PipelineRuntimeTest, PortRuntimeStatsState_CurrentDepthDoesNotLeakWhenDeque
     EXPECT_EQ(snapshot.dequeueCount, 1u);
     EXPECT_EQ(snapshot.currentDepth, 0u);
 }
+
+TEST(PipelineRuntimeTest, PipelineBuilder_RejectsDuplicateModuleNames) {
+    auto source1 = std::make_shared<ManualSourceModule>("Duplicated");
+    auto source2 = std::make_shared<ManualSourceModule>("Duplicated");
+
+    auto pipeline = PipelineBuilder().WithName("DuplicateNames").AddModule(source1).AddModule(source2).Build();
+    EXPECT_EQ(pipeline, nullptr);
+}
+
+TEST(PipelineRuntimeTest, PipelineBuilder_RejectsConnectionsToMissingModules) {
+    auto source = std::make_shared<ManualSourceModule>("Source");
+
+    auto pipeline = PipelineBuilder().WithName("MissingNode").AddModule(source).Connect("Source", "Sink").Build();
+    EXPECT_EQ(pipeline, nullptr);
+}

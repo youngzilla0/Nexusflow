@@ -34,6 +34,8 @@ All phases below follow the same design direction:
 
 ## 3. v0.4 Stabilize Boundaries
 
+Status: partially implemented on branch/tag `v0.4-architecture-boundaries`
+
 ### 3.1 Goal
 
 Make the current architecture easier to reason about without changing the public
@@ -128,7 +130,16 @@ This can begin as configuration and later evolve into a richer policy model.
 - runtime no longer depends directly on raw topology-only `Node`
 - `OnAllInputs` can correlate by something other than `messageId`
 
+Implemented so far:
+
+- pipeline initialization now performs explicit graph validation before runtime materialization
+- runtime assembly now flows through a lightweight build-plan step
+- actor lifecycle order is stored explicitly in topological order instead of pointer-ordered storage
+- lifecycle order is covered by runtime tests
+
 ## 4. v0.5 Decouple Runtime Components
+
+Status: partially implemented on branch/tag `v0.5-runtime-semantics`
 
 ### 4.1 Goal
 
@@ -201,7 +212,15 @@ Expected long-term behavior:
 - scheduling tweaks do not require editing unrelated routing or join code
 - YAML and builder pipelines share one internal construction pipeline
 
+Implemented so far:
+
+- `OnAllInputs` join correlation is no longer hard-coded to `messageId`
+- runtime config now supports `JoinKeyPolicy`
+- timestamp-based join correlation is covered by tests
+
 ## 5. v1.0 Expand Runtime Semantics
+
+Status: partially implemented on branch/tag `v1.0-module-build-context`
 
 ### 5.1 Goal
 
@@ -278,6 +297,23 @@ That will make future compatibility decisions much easier.
 - new runtime features can be added without rewriting `Graph` or `Executor`
 - module instantiation can support richer real-world dependencies
 - synchronization semantics are no longer tied to one implicit correlation rule
+
+Implemented so far:
+
+- module materialization can now flow through `ModuleBuildContext`
+- the legacy `CreateModule(className, moduleName, config)` path remains as a compatibility wrapper
+
+## 5.5 Current In-Progress Slice
+
+The current branch continues beyond the three tagged milestones in one additional area:
+
+- make `PipelineBuilder` more like a first-class construction path
+- add explicit builder naming via `WithName(...)`
+- fail fast on duplicate module names
+- fail fast on connections that reference missing modules
+
+These changes are intended to reduce hidden builder-time errors before the broader
+YAML/builder unification work is finished.
 
 ## 6. Recommended Implementation Order
 

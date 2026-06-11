@@ -41,6 +41,13 @@ public:
     PipelineBuilder& AddModule(const std::shared_ptr<Module>& module);
 
     /**
+     * @brief Sets a human-readable pipeline name for the graph built by this builder.
+     * @param pipelineName The graph / pipeline name.
+     * @return A reference to this builder for chaining.
+     */
+    PipelineBuilder& WithName(const std::string& pipelineName);
+
+    /**
      * @brief Defines a connection from one module to another.
      * @param srcModuleName The name of the source module.
      * @param dstModuleName The name of the destination module.

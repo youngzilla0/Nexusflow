@@ -5,6 +5,7 @@
 #include <nexusflow/PipelineBuilder.hpp>
 
 #include <memory>
+#include <unordered_map>
 #include <string>
 #include <unordered_set>
 #include <utility>
@@ -43,7 +44,14 @@ PipelineBuilder& PipelineBuilder::operator=(PipelineBuilder&&) noexcept = defaul
 
 PipelineBuilder& PipelineBuilder::AddModule(const std::shared_ptr<Module>& module) {
     if (m_pImpl && module) {
-        m_pImpl->modules.push_back(std::move(module));
+        m_pImpl->modules.push_back(module);
+    }
+    return *this;
+}
+
+PipelineBuilder& PipelineBuilder::WithName(const std::string& pipelineName) {
+    if (m_pImpl && !pipelineName.empty()) {
+        m_pImpl->pipelineName = pipelineName;
     }
     return *this;
 }
@@ -79,11 +87,20 @@ std::unique_ptr<Pipeline> PipelineBuilder::Build() {
     // --- Step 2: Create all Node objects and populate a lookup map ---
     // This map allows us to quickly find a Node shared_ptr by its name.
     std::unordered_map<std::string, std::shared_ptr<Node>> nodeLookupMap;
+    std::unordered_set<std::string> seenModuleNames;
 
     for (const auto& module_ptr : m_pImpl->modules) {
         if (!module_ptr) continue;
 
         const std::string& moduleName = module_ptr->GetModuleName();
+        if (moduleName.empty()) {
+            LOG_ERROR("PipelineBuilder: encountered a module with an empty name.");
+            return nullptr;
+        }
+        if (!seenModuleNames.insert(moduleName).second) {
+            LOG_ERROR("PipelineBuilder: duplicate module name '{}'.", moduleName);
+            return nullptr;
+        }
 
         // Assign the pre-created module instance
         auto node = std::make_shared<NodeWithModulePtr>(moduleName, module_ptr);
@@ -94,6 +111,7 @@ std::unique_ptr<Pipeline> PipelineBuilder::Build() {
     // --- Step 3: Add edges to the graph based on connections ---
     if (m_pImpl->connections.empty() && m_pImpl->modules.size() > 1) {
         // Error: modules provided but no connections defined.
+        LOG_ERROR("PipelineBuilder: multiple modules were added, but no connections were defined.");
         return nullptr;
     }
 
@@ -109,6 +127,8 @@ std::unique_ptr<Pipeline> PipelineBuilder::Build() {
 
         if (fromIt == nodeLookupMap.end() || toIt == nodeLookupMap.end()) {
             // Error: Connection references a module that was not added.
+            LOG_ERROR("PipelineBuilder: connection '{}:{} -> {}:{}' references a missing module.", fromName, conn.srcPort,
+                      toName, conn.dstPort);
             return nullptr;
         }
 
@@ -145,6 +165,7 @@ std::unique_ptr<Pipeline> PipelineBuilder::Build() {
     // --- Step 5: Check for cycles ---
     if (graph->hasCycle()) {
         // Error: The defined graph has a cycle.
+        LOG_ERROR("PipelineBuilder: the constructed graph '{}' contains a cycle.", graph->GetName());
         return nullptr;
     }
 
