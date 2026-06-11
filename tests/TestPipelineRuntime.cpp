@@ -5,6 +5,7 @@
 #include <nexusflow/Nexusflow.hpp>
 
 #include <chrono>
+#include <fstream>
 #include <condition_variable>
 #include <mutex>
 #include <thread>
@@ -30,6 +31,10 @@ struct LifecycleRecorder {
     mutable std::mutex mutex;
     std::vector<std::string> events;
 };
+
+bool g_yamlStatisticsEnabled = true;
+std::size_t g_yamlExecutorThreadCount = 0;
+std::size_t g_yamlQueueSize = 0;
 
 class ManualSourceModule : public Module {
 public:
@@ -160,6 +165,33 @@ public:
 
 private:
     std::shared_ptr<LifecycleRecorder> m_recorder;
+};
+
+class YamlSourceModule : public Module {
+public:
+    explicit YamlSourceModule(std::string name) : Module(std::move(name)) { SetSourcePolicy(SourcePolicy::Manual); }
+
+    void Process(const PortInputsView& inputs, PortOutputs& outputs) override {
+        (void)inputs;
+        (void)outputs;
+    }
+};
+
+class YamlSinkModule : public Module {
+public:
+    explicit YamlSinkModule(std::string name) : Module(std::move(name)) {}
+
+    ErrorCode Init() override {
+        g_yamlStatisticsEnabled = GetPipelineContext().IsStatisticsEnabled();
+        g_yamlExecutorThreadCount = GetPipelineContext().GetExecutorThreadCount();
+        g_yamlQueueSize = GetPipelineContext().GetConfig().queueSize;
+        return ErrorCode::SUCCESS;
+    }
+
+    void Process(const PortInputsView& inputs, PortOutputs& outputs) override {
+        (void)inputs;
+        (void)outputs;
+    }
 };
 
 PortRuntimeStats GetOnlyPortStats(const Pipeline& pipeline) {
@@ -554,4 +586,46 @@ TEST(PipelineRuntimeTest, PipelineBuilder_RejectsConnectionsToMissingModules) {
 
     auto pipeline = PipelineBuilder().WithName("MissingNode").AddModule(source).Connect("Source", "Sink").Build();
     EXPECT_EQ(pipeline, nullptr);
+}
+
+TEST(PipelineRuntimeTest, CreateFromYaml_LoadsRuntimeConfig) {
+    NEXUSFLOW_REGISTER_MODULE(YamlSourceModule);
+    NEXUSFLOW_REGISTER_MODULE(YamlSinkModule);
+
+    const std::string yamlPath = "/tmp/nexusflow_runtime_config_test.yaml";
+    std::ofstream out(yamlPath);
+    out << "runtime:\n";
+    out << "  executorThreadCount: 3\n";
+    out << "  queueSize: 9\n";
+    out << "  idleWaitUs: 7\n";
+    out << "  joinKeyPolicy: Timestamp\n";
+    out << "  nonBlockingQueueFullPolicy: DropHead\n";
+    out << "  statistics:\n";
+    out << "    enableStatistics: false\n";
+    out << "    enableThroughput: false\n";
+    out << "    enableLatency: false\n";
+    out << "graph:\n";
+    out << "  name: RuntimeConfigGraph\n";
+    out << "  modules:\n";
+    out << "    - name: Source\n";
+    out << "      class: YamlSourceModule\n";
+    out << "    - name: Sink\n";
+    out << "      class: YamlSinkModule\n";
+    out << "  connections:\n";
+    out << "    - from: Source\n";
+    out << "      to: Sink\n";
+    out.close();
+
+    auto pipeline = Pipeline::CreateFromYaml(yamlPath);
+    ASSERT_NE(pipeline, nullptr);
+
+    ASSERT_EQ(pipeline->Init(), ErrorCode::SUCCESS);
+    EXPECT_FALSE(g_yamlStatisticsEnabled);
+    EXPECT_EQ(g_yamlExecutorThreadCount, 3u);
+    EXPECT_EQ(g_yamlQueueSize, 9u);
+    ASSERT_EQ(pipeline->Start(), ErrorCode::SUCCESS);
+    EXPECT_TRUE(pipeline->GetPortStats().empty());
+    EXPECT_TRUE(pipeline->GetActorStats().empty());
+    EXPECT_EQ(pipeline->Stop(), ErrorCode::SUCCESS);
+    EXPECT_EQ(pipeline->DeInit(), ErrorCode::SUCCESS);
 }

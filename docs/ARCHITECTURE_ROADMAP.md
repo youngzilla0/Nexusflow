@@ -217,6 +217,8 @@ Implemented so far:
 - `OnAllInputs` join correlation is no longer hard-coded to `messageId`
 - runtime config now supports `JoinKeyPolicy`
 - timestamp-based join correlation is covered by tests
+- `Pipeline::CreateFromYaml()` now loads the optional top-level `runtime:` block
+- YAML runtime config coverage now includes executor threads, queue size, and statistics disablement
 
 ## 5. v1.0 Expand Runtime Semantics
 

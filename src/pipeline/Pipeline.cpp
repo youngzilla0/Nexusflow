@@ -39,7 +39,7 @@ void Pipeline::InitWithGraph(std::unique_ptr<Graph> graph, const PipelineConfig&
 // --- Public APIs ---
 std::unique_ptr<Pipeline> Pipeline::CreateFromYaml(const std::string& configPath) {
     auto pipeline = std::unique_ptr<Pipeline>(new Pipeline());
-    pipeline->InitWithGraph(graphutils::CreateGraphFromYaml(configPath), PipelineConfig::Default());
+    pipeline->InitWithGraph(graphutils::CreateGraphFromYaml(configPath), graphutils::LoadPipelineConfigFromYaml(configPath));
     return pipeline;
 }
 

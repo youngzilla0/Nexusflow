@@ -3,6 +3,7 @@
 #include "base/Graph.hpp"
 #include "nexusflow/Any.hpp"
 #include "nexusflow/Config.hpp"
+#include "nexusflow/PipelineConfig.hpp"
 #include "nexusflow/Ports.hpp"
 #include "utils/logging.hpp"
 #include "yaml-cpp/node/node.h"
@@ -47,6 +48,18 @@ inline bool isBool(const std::string& str, bool& out) {
         return true;
     }
     return false;
+}
+
+inline nexusflow::QueueFullPolicy parseQueueFullPolicy(const std::string& value) {
+    if (value == "DropTail") return nexusflow::QueueFullPolicy::DropTail;
+    if (value == "DropHead") return nexusflow::QueueFullPolicy::DropHead;
+    throw std::runtime_error("Unsupported QueueFullPolicy: " + value);
+}
+
+inline nexusflow::JoinKeyPolicy parseJoinKeyPolicy(const std::string& value) {
+    if (value == "MessageId") return nexusflow::JoinKeyPolicy::MessageId;
+    if (value == "Timestamp") return nexusflow::JoinKeyPolicy::Timestamp;
+    throw std::runtime_error("Unsupported JoinKeyPolicy: " + value);
 }
 
 } // namespace detail
@@ -230,6 +243,58 @@ std::unique_ptr<Graph> CreateGraphFromYaml(const std::string& configPath) {
         LOG_ERROR("Failed to process YAML file '{}' due to a parsing error: {}", configPath, e.what());
         return nullptr;
     }
+}
+
+nexusflow::PipelineConfig LoadPipelineConfigFromYaml(const std::string& configPath) {
+    nexusflow::PipelineConfig config = nexusflow::PipelineConfig::Default();
+
+    try {
+        YAML::Node root = YAML::LoadFile(configPath);
+        const YAML::Node& runtimeYaml = root["runtime"];
+        if (!runtimeYaml || !runtimeYaml.IsMap()) {
+            return config;
+        }
+
+        if (runtimeYaml["executorThreadCount"]) {
+            config.executorThreadCount = runtimeYaml["executorThreadCount"].as<std::size_t>();
+        }
+        if (runtimeYaml["queueSize"]) {
+            config.queueSize = runtimeYaml["queueSize"].as<std::size_t>();
+        }
+        if (runtimeYaml["idleWaitUs"]) {
+            config.idleWaitUs = runtimeYaml["idleWaitUs"].as<std::size_t>();
+        }
+        if (runtimeYaml["fusionTimeoutMs"]) {
+            config.fusionTimeoutMs = runtimeYaml["fusionTimeoutMs"].as<std::size_t>();
+        }
+        if (runtimeYaml["maxPendingJoinGroups"]) {
+            config.maxPendingJoinGroups = runtimeYaml["maxPendingJoinGroups"].as<std::size_t>();
+        }
+        if (runtimeYaml["nonBlockingQueueFullPolicy"]) {
+            config.nonBlockingQueueFullPolicy =
+                detail::parseQueueFullPolicy(runtimeYaml["nonBlockingQueueFullPolicy"].as<std::string>());
+        }
+        if (runtimeYaml["joinKeyPolicy"]) {
+            config.joinKeyPolicy = detail::parseJoinKeyPolicy(runtimeYaml["joinKeyPolicy"].as<std::string>());
+        }
+
+        const YAML::Node& statisticsYaml = runtimeYaml["statistics"];
+        if (statisticsYaml && statisticsYaml.IsMap()) {
+            if (statisticsYaml["enableStatistics"]) {
+                config.statistics.enableStatistics = statisticsYaml["enableStatistics"].as<bool>();
+            }
+            if (statisticsYaml["enableThroughput"]) {
+                config.statistics.enableThroughput = statisticsYaml["enableThroughput"].as<bool>();
+            }
+            if (statisticsYaml["enableLatency"]) {
+                config.statistics.enableLatency = statisticsYaml["enableLatency"].as<bool>();
+            }
+        }
+    } catch (const YAML::Exception& e) {
+        LOG_ERROR("Failed to parse runtime config from '{}' due to YAML error: {}", configPath, e.what());
+    }
+
+    return config;
 }
 
 } // namespace graphutils
