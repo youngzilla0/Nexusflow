@@ -16,6 +16,21 @@ using namespace std::chrono_literals;
 
 namespace {
 
+struct LifecycleRecorder {
+    void Record(const std::string& event) {
+        std::lock_guard<std::mutex> lock(mutex);
+        events.push_back(event);
+    }
+
+    std::vector<std::string> Snapshot() const {
+        std::lock_guard<std::mutex> lock(mutex);
+        return events;
+    }
+
+    mutable std::mutex mutex;
+    std::vector<std::string> events;
+};
+
 class ManualSourceModule : public Module {
 public:
     explicit ManualSourceModule(std::string name) : Module(std::move(name)) { SetSourcePolicy(SourcePolicy::Manual); }
@@ -119,6 +134,32 @@ public:
         }
         outputs.Emit(MakeMessage((*left) + (*right), GetModuleName()), true);
     }
+};
+
+class LifecycleProbeModule : public Module {
+public:
+    LifecycleProbeModule(std::string name, std::shared_ptr<LifecycleRecorder> recorder)
+        : Module(std::move(name)), m_recorder(std::move(recorder)) {}
+
+    ErrorCode Init() override {
+        m_recorder->Record("Init:" + GetModuleName());
+        return ErrorCode::SUCCESS;
+    }
+
+    ErrorCode DeInit() override {
+        m_recorder->Record("DeInit:" + GetModuleName());
+        return ErrorCode::SUCCESS;
+    }
+
+    void Process(const PortInputsView& inputs, PortOutputs& outputs) override {
+        auto* message = inputs.OnlyMessage();
+        if (message != nullptr) {
+            outputs.Emit(*message, true);
+        }
+    }
+
+private:
+    std::shared_ptr<LifecycleRecorder> m_recorder;
 };
 
 PortRuntimeStats GetOnlyPortStats(const Pipeline& pipeline) {
@@ -280,6 +321,30 @@ TEST(PipelineRuntimeTest, ManualSource_DoesNotStarveSingleWorkerExecutor) {
 
     EXPECT_EQ(pipeline->Stop(), ErrorCode::SUCCESS);
     EXPECT_EQ(pipeline->DeInit(), ErrorCode::SUCCESS);
+}
+
+TEST(PipelineRuntimeTest, Lifecycle_OrderFollowsTopologyAndReverseTopology) {
+    auto recorder = std::make_shared<LifecycleRecorder>();
+    auto source = std::make_shared<ManualSourceModule>("Source");
+    auto pass = std::make_shared<LifecycleProbeModule>("Pass", recorder);
+    auto sink = std::make_shared<LifecycleProbeModule>("Sink", recorder);
+
+    PipelineConfig config;
+    config.executorThreadCount = 1;
+    config.queueSize = 8;
+
+    auto pipeline =
+        PipelineBuilder().AddModule(source).AddModule(pass).AddModule(sink).Connect("Source", "Pass").Connect("Pass", "Sink").WithConfig(config).Build();
+
+    ASSERT_NE(pipeline, nullptr);
+    ASSERT_EQ(pipeline->Init(), ErrorCode::SUCCESS);
+    EXPECT_EQ(recorder->Snapshot(), std::vector<std::string>({"Init:Pass", "Init:Sink"}));
+
+    ASSERT_EQ(pipeline->Start(), ErrorCode::SUCCESS);
+    EXPECT_EQ(pipeline->Stop(), ErrorCode::SUCCESS);
+    EXPECT_EQ(pipeline->DeInit(), ErrorCode::SUCCESS);
+    EXPECT_EQ(recorder->Snapshot(),
+              std::vector<std::string>({"Init:Pass", "Init:Sink", "DeInit:Sink", "DeInit:Pass"}));
 }
 
 TEST(PipelineRuntimeTest, StatisticsCanBeDisabledFromPipelineContext) {

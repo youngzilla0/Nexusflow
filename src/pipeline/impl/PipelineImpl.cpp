@@ -45,6 +45,93 @@ std::shared_ptr<Module> CreateModuleForGraphNode(const std::shared_ptr<Node>& no
 
 } // namespace
 
+ErrorCode Pipeline::Impl::ValidateGraph() const {
+    if (!graph) {
+        LOG_ERROR("Pipeline graph is null.");
+        return ErrorCode::UNINITIALIZED_ERROR;
+    }
+
+    if (graph->GetName().empty()) {
+        LOG_ERROR("Pipeline graph name is empty.");
+        return ErrorCode::FAILURE;
+    }
+
+    if (graph->IsEmpty()) {
+        LOG_ERROR("Pipeline graph '{}' is empty or incomplete.", graph->GetName());
+        return ErrorCode::FAILURE;
+    }
+
+    if (graph->HasCycle()) {
+        LOG_ERROR("Pipeline graph '{}' contains a cycle.", graph->GetName());
+        return ErrorCode::FAILURE;
+    }
+
+    return ErrorCode::SUCCESS;
+}
+
+PipelineBuildPlan Pipeline::Impl::BuildPlan() const {
+    PipelineBuildPlan plan;
+    auto edgeList = graph->ToEdgeListBfs();
+    LOG_TRACE("edgeList size: {}", edgeList.size());
+
+    std::unordered_map<std::string, std::shared_ptr<Node>> orderedNodes;
+    for (const auto& edge : edgeList) {
+        auto srcNode = edge.srcNodePtr.lock();
+        auto dstNode = edge.dstNodePtr.lock();
+
+        if (!srcNode || !dstNode) {
+            throw std::runtime_error("Expired node pointer in graph edge.");
+        }
+
+        if (orderedNodes.find(srcNode->name) == orderedNodes.end()) {
+            orderedNodes.emplace(srcNode->name, srcNode);
+            plan.topoNodes.push_back(srcNode);
+        }
+        if (orderedNodes.find(dstNode->name) == orderedNodes.end()) {
+            orderedNodes.emplace(dstNode->name, dstNode);
+            plan.topoNodes.push_back(dstNode);
+        }
+
+        plan.edges.push_back(PipelineBuildPlan::PlannedEdge{srcNode, dstNode, edge.srcPort, edge.dstPort});
+    }
+
+    return plan;
+}
+
+ErrorCode Pipeline::Impl::MaterializeRuntime(const PipelineBuildPlan& plan) {
+    for (const auto& plannedEdge : plan.edges) {
+        auto srcActorNode = GetOrCreateActorNode(plannedEdge.srcNode);
+        auto dstActorNode = GetOrCreateActorNode(plannedEdge.dstNode);
+
+        auto queue = std::make_unique<MessageQueue>(this->config.queueSize);
+        auto queueView = makeViewPtr(queue.get());
+        executor::Executor::PortRuntimeStatsStatePtr portStats;
+        if (pipelineContext != nullptr && pipelineContext->IsStatisticsEnabled()) {
+            portStats = std::make_shared<executor::Executor::PortRuntimeStatsState>(
+                plannedEdge.srcNode->name, plannedEdge.srcPort, plannedEdge.dstNode->name, plannedEdge.dstPort);
+        }
+
+        srcActorNode->AddOutputQueue(plannedEdge.srcPort, plannedEdge.dstNode->name, plannedEdge.dstPort, queueView, portStats);
+        dstActorNode->AddInputQueue(plannedEdge.dstPort, queueView, portStats);
+
+        queues.push_back(std::move(queue));
+    }
+
+    actorOrderedNodes.clear();
+    actorOrderedNodes.reserve(plan.topoNodes.size());
+    for (const auto& node : plan.topoNodes) {
+        auto it = actorModuleMap.find(node->name);
+        if (it != actorModuleMap.end()) {
+            actorOrderedNodes.push_back(it->second);
+        }
+    }
+
+    CHECK(actorModuleMap.size() == actorOrderedNodes.size(), "actorModuleMap size != actorOrderedNodes size, [{} != {}]",
+          actorModuleMap.size(), actorOrderedNodes.size());
+
+    return ErrorCode::SUCCESS;
+}
+
 std::shared_ptr<ActorNode> Pipeline::Impl::GetOrCreateActorNode(const std::shared_ptr<Node>& node) {
     // 此处NodeName == ModuleName
     const auto& nodeName = node->name;
@@ -68,42 +155,16 @@ std::shared_ptr<ActorNode> Pipeline::Impl::GetOrCreateActorNode(const std::share
 
 ErrorCode Pipeline::Impl::Init() {
     LOG_TRACE("Try init pipeline with graph, [graphName={}]", graph->GetName());
-
-    auto edgeList = graph->ToEdgeListBfs();
-    LOG_TRACE("edgeList size: {}", edgeList.size());
-
-    for (const auto& edge : edgeList) {
-        auto srcNode = edge.srcNodePtr.lock();
-        auto dstNode = edge.dstNodePtr.lock();
-
-        if (!srcNode || !dstNode) {
-            LOG_ERROR("An edge contains an expired node pointer. Pipeline initialization failed.");
-            throw std::runtime_error("Expired node pointer in graph edge.");
-        }
-
-        auto srcActorNode = GetOrCreateActorNode(srcNode);
-        auto dstActorNode = GetOrCreateActorNode(dstNode);
-
-        auto queue = std::make_unique<MessageQueue>(this->config.queueSize);
-        auto queueView = makeViewPtr(queue.get());
-        executor::Executor::PortRuntimeStatsStatePtr portStats;
-        if (pipelineContext != nullptr && pipelineContext->IsStatisticsEnabled()) {
-            portStats = std::make_shared<executor::Executor::PortRuntimeStatsState>(srcNode->name, edge.srcPort,
-                                                                                    dstNode->name, edge.dstPort);
-        }
-
-        srcActorNode->AddOutputQueue(edge.srcPort, dstNode->name, edge.dstPort, queueView, portStats);
-        dstActorNode->AddInputQueue(edge.dstPort, queueView, portStats);
-
-        queues.push_back(std::move(queue));
-
-        // store ordered actor nodes
-        actorOrderedNodes.insert(srcActorNode);
-        actorOrderedNodes.insert(dstActorNode);
+    auto validationResult = ValidateGraph();
+    if (validationResult != ErrorCode::SUCCESS) {
+        return validationResult;
     }
 
-    CHECK(actorModuleMap.size() == actorOrderedNodes.size(), "actorModuleMap size != actorOrderedNodes size, [{} != {}]",
-          actorModuleMap.size(), actorOrderedNodes.size());
+    auto plan = BuildPlan();
+    auto materializeResult = MaterializeRuntime(plan);
+    if (materializeResult != ErrorCode::SUCCESS) {
+        return materializeResult;
+    }
 
     auto executorThreadCount = ResolveExecutorThreadCount(config.executorThreadCount, actorOrderedNodes.size());
     pipelineContext->SetExecutorThreadCount(executorThreadCount);

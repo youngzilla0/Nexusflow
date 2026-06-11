@@ -10,6 +10,7 @@
 #include <nexusflow/ErrorCode.hpp>
 #include <nexusflow/Module.hpp>
 #include <nexusflow/Pipeline.hpp>
+#include <stdexcept>
 #include <string>
 #include <unordered_map>
 
@@ -20,12 +21,19 @@ Pipeline::Pipeline() : m_pImpl(std::make_unique<Pipeline::Impl>()) {}
 Pipeline::~Pipeline() = default;
 
 void Pipeline::InitWithGraph(std::unique_ptr<Graph> graph, const PipelineConfig& config) {
+    if (!graph) {
+        throw std::invalid_argument("Pipeline graph cannot be null.");
+    }
+
     LOG_DEBUG("Initializing pipeline with graph, graph={}", graph->ToString());
     m_pImpl->pipelineContext = std::shared_ptr<PipelineContext>(new PipelineContext(graph->GetName(), config));
     m_pImpl->executor = std::make_shared<executor::Executor>(m_pImpl->pipelineContext);
     m_pImpl->graph = std::move(graph);
     m_pImpl->config = config;
-    m_pImpl->Init();
+    auto initResult = m_pImpl->Init();
+    if (initResult != ErrorCode::SUCCESS) {
+        throw std::runtime_error("Failed to initialize pipeline runtime from graph.");
+    }
 }
 
 // --- Public APIs ---

@@ -17,6 +17,7 @@ namespace nexusflow {
 // to store the user's configuration before the Graph is built.
 class PipelineBuilder::Impl {
 public:
+    std::string pipelineName = "Programmatically_Built_Pipeline";
     std::vector<std::shared_ptr<Module>> modules;
     struct Connection {
         std::string srcModuleName;
@@ -73,7 +74,7 @@ std::unique_ptr<Pipeline> PipelineBuilder::Build() {
 
     // --- Step 1: Create a Graph object ---
     auto graph = std::make_unique<Graph>();
-    graph->SetName("Programmatically_Built_Pipeline"); // Or generate a unique name
+    graph->SetName(m_pImpl->pipelineName);
 
     // --- Step 2: Create all Node objects and populate a lookup map ---
     // This map allows us to quickly find a Node shared_ptr by its name.
