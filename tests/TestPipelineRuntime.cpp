@@ -439,6 +439,60 @@ TEST(PipelineRuntimeTest, OnAllInputsJoinLimit_EvictsOldestPendingGroup) {
     EXPECT_EQ(pipeline->DeInit(), ErrorCode::SUCCESS);
 }
 
+TEST(PipelineRuntimeTest, OnAllInputs_CanCorrelateByTimestamp) {
+    auto leftSource = std::make_shared<ManualSourceModule>("Left");
+    auto rightSource = std::make_shared<ManualSourceModule>("Right");
+    auto join = std::make_shared<JoinSumModule>("Join");
+    auto sink = std::make_shared<CollectSinkModule>("Sink");
+
+    PipelineConfig config;
+    config.queueSize = 8;
+    config.idleWaitUs = 10;
+    config.joinKeyPolicy = JoinKeyPolicy::Timestamp;
+    config.fusionTimeoutMs = 60000;
+
+    auto pipeline = PipelineBuilder()
+                        .AddModule(leftSource)
+                        .AddModule(rightSource)
+                        .AddModule(join)
+                        .AddModule(sink)
+                        .Connect("Left", "out", "Join", "left")
+                        .Connect("Right", "out", "Join", "right")
+                        .Connect("Join", "Sink")
+                        .WithConfig(config)
+                        .Build();
+
+    ASSERT_NE(pipeline, nullptr);
+    ASSERT_EQ(pipeline->Init(), ErrorCode::SUCCESS);
+    ASSERT_EQ(pipeline->Start(), ErrorCode::SUCCESS);
+
+    const auto baseTimestampMs =
+        static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::milliseconds>(
+                                       std::chrono::system_clock::now().time_since_epoch())
+                                       .count());
+
+    auto sendTagged = [&](const std::shared_ptr<ManualSourceModule>& source, int value, std::uint64_t messageId,
+                          std::uint64_t timestampOffsetMs) {
+        auto message = MakeMessage(value, source->GetModuleName());
+        message.MetaData().messageId = messageId;
+        message.MetaData().timestamp = baseTimestampMs + timestampOffsetMs;
+        source->SendMessage(std::move(message), true);
+    };
+
+    sendTagged(leftSource, 10, 1, 1000);
+    std::this_thread::sleep_for(20ms);
+    sendTagged(rightSource, 20, 2, 1000);
+
+    if (!sink->WaitForCount(1, 500ms)) {
+        PipelineObserver observer(*pipeline);
+        ADD_FAILURE() << observer.Describe();
+    }
+    EXPECT_EQ(sink->Values(), std::vector<int>({30}));
+
+    EXPECT_EQ(pipeline->Stop(), ErrorCode::SUCCESS);
+    EXPECT_EQ(pipeline->DeInit(), ErrorCode::SUCCESS);
+}
+
 TEST(PipelineRuntimeTest, PipelineObserver_AggregatesEdgeDropsToActors) {
     auto source = std::make_shared<ManualSourceModule>("Source");
     auto sink = std::make_shared<CollectSinkModule>("Sink");

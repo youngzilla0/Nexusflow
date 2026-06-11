@@ -12,12 +12,18 @@ enum class QueueFullPolicy {
     DropHead,
 };
 
+enum class JoinKeyPolicy {
+    MessageId,
+    Timestamp,
+};
+
 struct PipelineConfig {
     size_t executorThreadCount = 0; // 0 = auto
     size_t queueSize = 100;         // Queue capacity between modules
     size_t idleWaitUs = 50;         // Sleep time when no input is available
     size_t fusionTimeoutMs = 60000; // Drop incomplete joins after timeout
     size_t maxPendingJoinGroups = 1024; // Cap pending OnAllInputs join groups, 0 = unlimited
+    JoinKeyPolicy joinKeyPolicy = JoinKeyPolicy::MessageId;
     QueueFullPolicy nonBlockingQueueFullPolicy = QueueFullPolicy::DropTail;
     StatisticsOptions statistics = StatisticsOptions::Default();
 

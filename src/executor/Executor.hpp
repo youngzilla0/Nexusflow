@@ -119,6 +119,7 @@ private:
     };
 
 private:
+    std::uint64_t ResolveJoinKey(const ActorState& state, const Message& message) const;
     bool StatisticsEnabled() const;
     void PrimeActorsOnStart();
     void SubmitActorTask(const std::shared_ptr<ActorState>& state);

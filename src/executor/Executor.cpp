@@ -307,6 +307,14 @@ bool Executor::StatisticsEnabled() const {
     return m_pipelineContext == nullptr || m_pipelineContext->IsStatisticsEnabled();
 }
 
+std::uint64_t Executor::ResolveJoinKey(const ActorState& state, const Message& message) const {
+    switch (state.runtimeConfig.joinKeyPolicy) {
+        case JoinKeyPolicy::Timestamp: return message.GetMetaData().timestamp;
+        case JoinKeyPolicy::MessageId:
+        default: return message.GetMetaData().messageId;
+    }
+}
+
 bool Executor::HasPendingWork(const std::shared_ptr<ActorState>& state) const {
     if (!state) {
         return false;
@@ -423,7 +431,7 @@ bool Executor::RunOnAllInputsStep(const std::shared_ptr<ActorState>& state) {
             state->runtimeStats.inputMessageCount.fetch_add(1, std::memory_order_relaxed);
         }
 
-        const auto messageId = message.GetMetaData().messageId;
+        const auto messageId = ResolveJoinKey(*state, message);
         std::lock_guard<std::mutex> lock(state->pendingJoinGroupsMutex);
         auto groupIt = state->pendingJoinGroups.find(messageId);
         if (groupIt == state->pendingJoinGroups.end()) {
