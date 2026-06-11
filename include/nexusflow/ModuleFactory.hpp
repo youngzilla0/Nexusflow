@@ -11,6 +11,12 @@
 
 namespace nexusflow {
 
+struct ModuleBuildContext {
+    std::string className;
+    std::string moduleName;
+    Config config;
+};
+
 /**
  * @class ModuleFactory
  * @brief A singleton factory for creating Module instances from class names.
@@ -70,6 +76,7 @@ public:
      *         class name is not registered.
      */
     std::shared_ptr<Module> CreateModule(const std::string& className, const std::string& moduleName, const Config& config);
+    std::shared_ptr<Module> CreateModule(const ModuleBuildContext& context);
 
 private:
     // A type alias for the creator function. It takes an instance name.

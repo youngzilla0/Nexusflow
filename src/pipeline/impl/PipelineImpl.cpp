@@ -34,7 +34,7 @@ std::shared_ptr<Module> CreateModuleForGraphNode(const std::shared_ptr<Node>& no
         case NodeKind::ModuleClass: {
             auto& moduleNode = static_cast<ModuleClassNode&>(*node);
             auto& moduleFactory = ModuleFactory::GetInstance();
-            return moduleFactory.CreateModule(moduleNode.moduleClassName, moduleNode.name, moduleNode.config);
+            return moduleFactory.CreateModule(ModuleBuildContext{moduleNode.moduleClassName, moduleNode.name, moduleNode.config});
         }
         case NodeKind::Generic:
         default:
