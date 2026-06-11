@@ -4,7 +4,6 @@
 
 #include <algorithm>
 #include <chrono>
-#include <limits>
 #include <stdexcept>
 #include <thread>
 #include <utility>
@@ -61,8 +60,7 @@ void Executor::RegisterActor(const std::string& actorName, const std::shared_ptr
     m_statsCollector.RegisterActor(
         actorName, actorState->runtimeStats,
         [state = std::move(actorState)]() -> std::uint64_t {
-            std::lock_guard<std::mutex> pendingLock(state->pendingJoinGroupsMutex);
-            return static_cast<std::uint64_t>(state->pendingJoinGroups.size());
+            return state->joinState.PendingGroupCount();
         });
 }
 
@@ -322,28 +320,27 @@ bool Executor::RunOnAllInputsStep(const std::shared_ptr<ActorState>& state) {
             state->runtimeStats->inputMessageCount.fetch_add(1, std::memory_order_relaxed);
         }
 
-        const auto messageId = ResolveJoinKey(*state, message);
-        std::lock_guard<std::mutex> lock(state->pendingJoinGroupsMutex);
-        auto groupIt = state->pendingJoinGroups.find(messageId);
-        if (groupIt == state->pendingJoinGroups.end()) {
-            auto insertResult = state->pendingJoinGroups.emplace(messageId, ActorState::PendingJoinGroup{});
-            groupIt = insertResult.first;
-        }
-
-        auto& group = groupIt->second;
-        const auto messageTimestamp = message.GetMetaData().timestamp;
-        if (group.oldestTimestampMs == 0 || messageTimestamp < group.oldestTimestampMs) {
-            group.oldestTimestampMs = messageTimestamp;
-        }
-        group.messages[inputQueue.inputPortName] = std::move(message);
+        state->joinState.Insert(ResolveJoinKey(*state, message), inputQueue.inputPortName, std::move(message));
     }
 
     const auto currentTimeMs = GetCurrentSystemTimeMs();
-    CleanupExpiredJoinGroups(state, currentTimeMs);
-    EnforcePendingJoinGroupLimit(state);
+    if (StatisticsEnabled() && state->runtimeStats != nullptr) {
+        state->runtimeStats->joinTimeoutDropCount.fetch_add(
+            state->joinState.EvictExpired(currentTimeMs, state->runtimeConfig.fusionTimeoutMs), std::memory_order_relaxed);
+        state->runtimeStats->joinOverflowDropCount.fetch_add(
+            state->joinState.EnforceLimit(state->runtimeConfig.maxPendingJoinGroups), std::memory_order_relaxed);
+    } else {
+        state->joinState.EvictExpired(currentTimeMs, state->runtimeConfig.fusionTimeoutMs);
+        state->joinState.EnforceLimit(state->runtimeConfig.maxPendingJoinGroups);
+    }
 
     std::vector<PortMessage> inputs;
-    if (!TryTakeCompleteJoinInputs(state, inputs)) {
+    std::vector<std::string> expectedInputPorts;
+    expectedInputPorts.reserve(state->inputQueues.size());
+    for (const auto& inputQueue : state->inputQueues) {
+        expectedInputPorts.push_back(inputQueue.inputPortName);
+    }
+    if (!state->joinState.TakeCompleteInputs(expectedInputPorts, inputs)) {
         return receivedInput;
     }
 
@@ -384,79 +381,6 @@ bool Executor::TryPopAnyInput(const std::shared_ptr<ActorState>& state, PortMess
     }
 
     return false;
-}
-
-bool Executor::TryTakeCompleteJoinInputs(const std::shared_ptr<ActorState>& state, std::vector<PortMessage>& inputs) {
-    if (!state) {
-        return false;
-    }
-
-    std::lock_guard<std::mutex> lock(state->pendingJoinGroupsMutex);
-    const auto expectedInputCount = state->inputQueues.size();
-    for (auto groupIt = state->pendingJoinGroups.begin(); groupIt != state->pendingJoinGroups.end(); ++groupIt) {
-        auto& group = groupIt->second;
-        if (group.messages.size() != expectedInputCount) {
-            continue;
-        }
-
-        inputs.clear();
-        inputs.reserve(expectedInputCount);
-        for (const auto& inputQueue : state->inputQueues) {
-            auto messageIt = group.messages.find(inputQueue.inputPortName);
-            if (messageIt != group.messages.end()) {
-                inputs.push_back(PortMessage{inputQueue.inputPortName, std::move(messageIt->second)});
-            }
-        }
-        state->pendingJoinGroups.erase(groupIt);
-        return true;
-    }
-
-    return false;
-}
-
-void Executor::CleanupExpiredJoinGroups(const std::shared_ptr<ActorState>& state, std::uint64_t currentTimeMs) {
-    if (!state) {
-        return;
-    }
-
-    std::lock_guard<std::mutex> lock(state->pendingJoinGroupsMutex);
-    for (auto groupIt = state->pendingJoinGroups.begin(); groupIt != state->pendingJoinGroups.end();) {
-        const auto oldestTimestampMs = groupIt->second.oldestTimestampMs;
-        if (oldestTimestampMs + state->runtimeConfig.fusionTimeoutMs < currentTimeMs) {
-            if (StatisticsEnabled() && state->runtimeStats != nullptr) {
-                state->runtimeStats->joinTimeoutDropCount.fetch_add(1, std::memory_order_relaxed);
-            }
-            groupIt = state->pendingJoinGroups.erase(groupIt);
-        } else {
-            ++groupIt;
-        }
-    }
-}
-
-void Executor::EnforcePendingJoinGroupLimit(const std::shared_ptr<ActorState>& state) {
-    if (!state || state->runtimeConfig.maxPendingJoinGroups == 0) {
-        return;
-    }
-
-    std::lock_guard<std::mutex> lock(state->pendingJoinGroupsMutex);
-    while (state->pendingJoinGroups.size() > state->runtimeConfig.maxPendingJoinGroups) {
-        auto oldestIt = state->pendingJoinGroups.end();
-        auto oldestTimestamp = std::numeric_limits<std::uint64_t>::max();
-        for (auto it = state->pendingJoinGroups.begin(); it != state->pendingJoinGroups.end(); ++it) {
-            if (it->second.oldestTimestampMs < oldestTimestamp) {
-                oldestTimestamp = it->second.oldestTimestampMs;
-                oldestIt = it;
-            }
-        }
-
-        if (oldestIt == state->pendingJoinGroups.end()) {
-            break;
-        }
-        if (StatisticsEnabled() && state->runtimeStats != nullptr) {
-            state->runtimeStats->joinOverflowDropCount.fetch_add(1, std::memory_order_relaxed);
-        }
-        state->pendingJoinGroups.erase(oldestIt);
-    }
 }
 
 void Executor::DispatchOutputs(const std::string& actorName, PortOutputs& outputs) {

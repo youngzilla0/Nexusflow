@@ -221,6 +221,7 @@ Implemented so far:
 - YAML runtime config coverage now includes executor threads, queue size, and statistics disablement
 - `PipelineBuilder` and YAML graph creation now share one internal graph assembly and validation helper
 - runtime statistics state/snapshot logic now lives in a dedicated `RuntimeStatsCollector`
+- pending `OnAllInputs` join state now lives in a dedicated `JoinStateStore`
 
 ## 5. v1.0 Expand Runtime Semantics
 

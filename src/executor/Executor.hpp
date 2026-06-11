@@ -1,6 +1,7 @@
 #ifndef NEXUSFLOW_EXECUTOR_HPP
 #define NEXUSFLOW_EXECUTOR_HPP
 
+#include "JoinStateStore.hpp"
 #include "RuntimeStatsCollector.hpp"
 #include "ThreadPool.hpp"
 #include "base/Define.hpp"
@@ -60,18 +61,12 @@ private:
     };
 
     struct ActorState {
-        struct PendingJoinGroup {
-            std::unordered_map<std::string, Message> messages;
-            std::uint64_t oldestTimestampMs = 0;
-        };
-
         std::string actorName;
         std::shared_ptr<Module> module;
         PipelineConfig runtimeConfig;
         std::vector<InputQueueBinding> inputQueues;
         std::size_t nextInputIndex = 0;
-        mutable std::mutex pendingJoinGroupsMutex;
-        std::unordered_map<std::uint64_t, PendingJoinGroup> pendingJoinGroups;
+        JoinStateStore joinState;
         std::atomic<bool> taskScheduled{false};
         std::atomic<std::uint64_t> pendingRunSignals{0};
         ActorRuntimeStatsStatePtr runtimeStats = std::make_shared<ActorRuntimeStatsState>();
@@ -97,9 +92,6 @@ private:
     bool RunOnAnyInputStep(const std::shared_ptr<ActorState>& state);
     bool RunOnAllInputsStep(const std::shared_ptr<ActorState>& state);
     bool TryPopAnyInput(const std::shared_ptr<ActorState>& state, PortMessage& portMessage);
-    bool TryTakeCompleteJoinInputs(const std::shared_ptr<ActorState>& state, std::vector<PortMessage>& inputs);
-    void CleanupExpiredJoinGroups(const std::shared_ptr<ActorState>& state, std::uint64_t currentTimeMs);
-    void EnforcePendingJoinGroupLimit(const std::shared_ptr<ActorState>& state);
     void DispatchOutputs(const std::string& actorName, PortOutputs& outputs);
     void DispatchToSubscriber(const OutputSubscriber& subscriber, const Message& message, bool blocking);
 
