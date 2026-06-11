@@ -256,3 +256,4 @@ Benchmark names follow `BM_<DomainOrComponent>_<Operation>_<Scenario>` so filter
 ## Architecture Notes
 
 Detailed design notes live in [docs/ARCHITECTURE.md](/Users/yang/Code/Nexusflow/docs/ARCHITECTURE.md).
+The staged refactoring plan lives in [docs/ARCHITECTURE_ROADMAP.md](/Users/yang/Code/Nexusflow/docs/ARCHITECTURE_ROADMAP.md).

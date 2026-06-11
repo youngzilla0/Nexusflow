@@ -20,7 +20,7 @@ Pipeline::Pipeline() : m_pImpl(std::make_unique<Pipeline::Impl>()) {}
 Pipeline::~Pipeline() = default;
 
 void Pipeline::InitWithGraph(std::unique_ptr<Graph> graph, const PipelineConfig& config) {
-    LOG_DEBUG("Initializing pipeline with graph, graph={}", graph->toString());
+    LOG_DEBUG("Initializing pipeline with graph, graph={}", graph->ToString());
     m_pImpl->pipelineContext = std::shared_ptr<PipelineContext>(new PipelineContext(graph->GetName(), config));
     m_pImpl->executor = std::make_shared<executor::Executor>(m_pImpl->pipelineContext);
     m_pImpl->graph = std::move(graph);

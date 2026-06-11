@@ -140,7 +140,7 @@ std::unique_ptr<Graph> CreateGraphFromYaml(const std::string& configPath) {
                 }
             }
 
-            auto node = std::make_shared<NodeWithModuleClassName>(nodeName, moduleClassName, std::move(config));
+            auto node = std::make_shared<ModuleClassNode>(nodeName, moduleClassName, std::move(config));
 
             auto item = tempNodeMap.emplace(nodeName, node);
             if (!item.second) {
@@ -214,7 +214,7 @@ std::unique_ptr<Graph> CreateGraphFromYaml(const std::string& configPath) {
         // // LOG_INFO("Graph validation passed: Found a single sink node '{}'.", sinkNodes[0]->name);
 
         // 5. 最终校验
-        if (graph->hasCycle()) {
+        if (graph->HasCycle()) {
             LOG_ERROR("The constructed graph '{}' has a cycle.", graph->GetName());
             return nullptr;
         }

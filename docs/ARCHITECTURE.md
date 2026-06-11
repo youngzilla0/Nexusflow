@@ -258,6 +258,7 @@ Important files:
 
 - [include/nexusflow/Module.hpp](/Users/yang/Code/Nexusflow/include/nexusflow/Module.hpp)
 - [include/nexusflow/PipelineContext.hpp](/Users/yang/Code/Nexusflow/include/nexusflow/PipelineContext.hpp)
+- [docs/ARCHITECTURE_ROADMAP.md](/Users/yang/Code/Nexusflow/docs/ARCHITECTURE_ROADMAP.md)
 - [include/nexusflow/Ports.hpp](/Users/yang/Code/Nexusflow/include/nexusflow/Ports.hpp)
 - [include/nexusflow/PipelineObserver.hpp](/Users/yang/Code/Nexusflow/include/nexusflow/PipelineObserver.hpp)
 - [include/nexusflow/RuntimeStats.hpp](/Users/yang/Code/Nexusflow/include/nexusflow/RuntimeStats.hpp)

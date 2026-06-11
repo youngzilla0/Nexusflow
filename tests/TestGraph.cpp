@@ -19,7 +19,7 @@ TEST(GraphTest, HasCycle_LinearGraphVariants) {
         graph.AddEdge(b, c);
         graph.AddEdge(c, d);
 
-        ASSERT_FALSE(graph.hasCycle());
+        ASSERT_FALSE(graph.HasCycle());
     }
 
     // a -> b -> c -> b -> d, 有环.
@@ -31,7 +31,7 @@ TEST(GraphTest, HasCycle_LinearGraphVariants) {
         graph.AddEdge(c, b);
         graph.AddEdge(b, d);
 
-        ASSERT_TRUE(graph.hasCycle());
+        ASSERT_TRUE(graph.HasCycle());
     }
 
     // a -> b -> c -> a -> d, 有环.
@@ -43,7 +43,7 @@ TEST(GraphTest, HasCycle_LinearGraphVariants) {
         graph.AddEdge(c, a);
         graph.AddEdge(a, d);
 
-        ASSERT_TRUE(graph.hasCycle());
+        ASSERT_TRUE(graph.HasCycle());
     }
 }
 
@@ -71,7 +71,7 @@ TEST(GraphTest, HasCycle_DagAndCyclicVariants) {
         graph.AddEdge(d, f);
         graph.AddEdge(e, f);
 
-        ASSERT_TRUE(!graph.hasCycle());
+        ASSERT_TRUE(!graph.HasCycle());
     }
 
     /**
@@ -97,7 +97,7 @@ TEST(GraphTest, HasCycle_DagAndCyclicVariants) {
         graph.AddEdge(d, f);
         graph.AddEdge(a, f);
 
-        ASSERT_TRUE(graph.hasCycle());
+        ASSERT_TRUE(graph.HasCycle());
     }
 }
 
@@ -108,13 +108,13 @@ TEST(GraphTest, ToEdgeListBfs_DisconnectedGraphFromDifferentRoots) {
     graph.AddEdge(c, d);
 
     // 从 'a' 开始BFS，应该只能找到 'a -> b'
-    auto edgeListFromA = graph.toEdgeListBFS(a); // 假设 toEdgeListBFS 接受起点
+    auto edgeListFromA = graph.ToEdgeListBfs(a); // 假设 toEdgeListBFS 接受起点
     ASSERT_EQ(edgeListFromA.size(), 1);
     ASSERT_EQ(edgeListFromA[0].srcNodePtr.lock(), a);
     ASSERT_EQ(edgeListFromA[0].dstNodePtr.lock(), b);
 
     // 从 'c' 开始BFS，应该只能找到 'c -> d'
-    auto edgeListFromC = graph.toEdgeListBFS(c); // 假设 toEdgeListBFS 接受起点
+    auto edgeListFromC = graph.ToEdgeListBfs(c); // 假设 toEdgeListBFS 接受起点
     ASSERT_EQ(edgeListFromC.size(), 1);
     ASSERT_EQ(edgeListFromC[0].srcNodePtr.lock(), c);
     ASSERT_EQ(edgeListFromC[0].dstNodePtr.lock(), d);
@@ -125,7 +125,7 @@ TEST(GraphTest, AddEdge_EdgeCases) {
     {
         Graph graph;
         graph.AddEdge(a, a);
-        ASSERT_TRUE(graph.hasCycle());
+        ASSERT_TRUE(graph.HasCycle());
     }
 
     // Case 2: 重复添加同一条边
@@ -135,15 +135,29 @@ TEST(GraphTest, AddEdge_EdgeCases) {
         graph.AddEdge(a, b); // 添加第二次
 
         // 验证 hasCycle 不受影响
-        ASSERT_FALSE(graph.hasCycle());
+        ASSERT_FALSE(graph.HasCycle());
 
         // 验证 toEdgeListBFS 的结果。取决于实现，可能会有一条或两条边。
         // 一个好的实现应该只包含一条边。
-        auto edgeList = graph.toEdgeListBFS(a); // 假设 toEdgeListBFS 接受起点
+        auto edgeList = graph.ToEdgeListBfs(a); // 假设 toEdgeListBFS 接受起点
         ASSERT_EQ(edgeList.size(), 1);
         ASSERT_EQ(edgeList[0].srcNodePtr.lock(), a);
         ASSERT_EQ(edgeList[0].dstNodePtr.lock(), b);
     }
+}
+
+TEST(GraphTest, ToEdgeListBfs_PreservesParallelEdgesWithDifferentPorts) {
+    Graph graph;
+
+    graph.AddEdge(a, b, "out_main", "in_primary");
+    graph.AddEdge(a, b, "out_aux", "in_secondary");
+
+    auto edgeList = graph.ToEdgeListBfs(a);
+    ASSERT_EQ(edgeList.size(), 2);
+    ASSERT_EQ(edgeList[0].srcPort, "out_main");
+    ASSERT_EQ(edgeList[0].dstPort, "in_primary");
+    ASSERT_EQ(edgeList[1].srcPort, "out_aux");
+    ASSERT_EQ(edgeList[1].dstPort, "in_secondary");
 }
 
 TEST(GraphTest, IsEmpty_DependsOnGraphNameAndEdges) {
@@ -183,10 +197,10 @@ TEST(GraphTest, ToEdgeListBfs_MatchesExpectedTraversalOrder) {
     graph.AddEdge(d, f);
     graph.AddEdge(e, f);
 
-    std::cout << graph.toString() << std::endl;
+    std::cout << graph.ToString() << std::endl;
 
     // Display graph by edge list.
-    auto edgeList = graph.toEdgeListBFS();
+    auto edgeList = graph.ToEdgeListBfs();
     std::cout << "BFS Result, [Graph]: " << graph.GetName() << std::endl;
 
     std::vector<Edge> expectedEdges{{a, b}, {a, c}, {b, d}, {b, e}, {c, e}, {d, f}, {e, f}};
@@ -214,7 +228,7 @@ TEST(GraphTest, ToString_IncludesGraphAndNodeNames) {
     graph.AddEdge(a, b);
     graph.AddEdge(b, c);
 
-    std::string repr = graph.toString();
+    std::string repr = graph.ToString();
 
     // 检查输出是否包含了图的名字和所有节点的名字
     ASSERT_NE(repr.find("MyAwesomeGraph"), std::string::npos);

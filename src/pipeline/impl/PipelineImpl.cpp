@@ -24,6 +24,25 @@ std::size_t ResolveExecutorThreadCount(std::size_t configuredThreadCount, std::s
     return std::max<std::size_t>(hardwareThreads, 1);
 }
 
+std::shared_ptr<Module> CreateModuleForGraphNode(const std::shared_ptr<Node>& node) {
+    if (!node) {
+        throw std::runtime_error("Cannot create a module from a null graph node.");
+    }
+
+    switch (node->GetKind()) {
+        case NodeKind::ModuleInstance: return static_cast<ModuleInstanceNode&>(*node).modulePtr;
+        case NodeKind::ModuleClass: {
+            auto& moduleNode = static_cast<ModuleClassNode&>(*node);
+            auto& moduleFactory = ModuleFactory::GetInstance();
+            return moduleFactory.CreateModule(moduleNode.moduleClassName, moduleNode.name, moduleNode.config);
+        }
+        case NodeKind::Generic:
+        default:
+            throw std::runtime_error("Graph node '" + node->name +
+                                     "' only describes topology and cannot materialize a Module.");
+    }
+}
+
 } // namespace
 
 std::shared_ptr<ActorNode> Pipeline::Impl::GetOrCreateActorNode(const std::shared_ptr<Node>& node) {
@@ -38,16 +57,7 @@ std::shared_ptr<ActorNode> Pipeline::Impl::GetOrCreateActorNode(const std::share
 
     // 不存在，则创建新的 ActiveNode
     // 1. 获取或创建 Module
-    // TODO: 使用Any优化一下?
-    std::shared_ptr<Module> module;
-    if (auto* nodeIns = dynamic_cast<NodeWithModulePtr*>(node.get())) {
-        module = nodeIns->modulePtr;
-    } else if (auto* nodIns = dynamic_cast<NodeWithModuleClassName*>(node.get())) {
-        auto& moduleFactory = ModuleFactory::GetInstance();
-        module = moduleFactory.CreateModule(nodIns->moduleClassName, nodIns->name, nodIns->config);
-    } else {
-        throw std::runtime_error("");
-    }
+    auto module = CreateModuleForGraphNode(node);
 
     // 2. 创建 ActiveNode 并存入 map
     auto actorNode = std::make_shared<ActorNode>(module, this->config, pipelineContext, executor);
@@ -59,7 +69,7 @@ std::shared_ptr<ActorNode> Pipeline::Impl::GetOrCreateActorNode(const std::share
 ErrorCode Pipeline::Impl::Init() {
     LOG_TRACE("Try init pipeline with graph, [graphName={}]", graph->GetName());
 
-    auto edgeList = graph->toEdgeListBFS();
+    auto edgeList = graph->ToEdgeListBfs();
     LOG_TRACE("edgeList size: {}", edgeList.size());
 
     for (const auto& edge : edgeList) {
@@ -107,7 +117,7 @@ ErrorCode Pipeline::Impl::Init() {
 void Pipeline::Impl::ApplyTopologyPolicies() {
     if (!graph) return;
 
-    auto convergeNodes = graph->FindConvergeNodes();
+    auto convergeNodes = graph->GetConvergeNodes();
     LOG_DEBUG("Topology analysis: found {} converge nodes", convergeNodes.size());
     (void)convergeNodes;
 }

@@ -7,49 +7,127 @@
 #include <unordered_map>
 #include <unordered_set>
 
+namespace {
+
+bool EdgeMatches(const Edge& edge, const std::shared_ptr<Node>& srcNodePtr, const std::shared_ptr<Node>& dstNodePtr,
+                 const std::string& srcPort, const std::string& dstPort) {
+    return edge.srcNodePtr.lock() == srcNodePtr && edge.dstNodePtr.lock() == dstNodePtr && edge.srcPort == srcPort &&
+           edge.dstPort == dstPort;
+}
+
+std::unordered_set<std::shared_ptr<Node>> CollectReachableNodes(
+    const Graph::AdjacencyList& adjList, const std::vector<Edge>& edges, const std::shared_ptr<Node>& rootNodePtr) {
+    std::unordered_set<std::shared_ptr<Node>> reachableNodes;
+    if (!rootNodePtr) {
+        return reachableNodes;
+    }
+
+    std::queue<std::shared_ptr<Node>> nodeQueue;
+    nodeQueue.push(rootNodePtr);
+    reachableNodes.insert(rootNodePtr);
+
+    while (!nodeQueue.empty()) {
+        auto node = nodeQueue.front();
+        nodeQueue.pop();
+
+        auto it = adjList.find(node);
+        if (it == adjList.end()) {
+            continue;
+        }
+
+        for (auto edgeIndex : it->second) {
+            const auto& edge = edges.at(edgeIndex);
+            auto dstNodePtr = edge.dstNodePtr.lock();
+            if (!dstNodePtr) {
+                continue;
+            }
+            if (reachableNodes.insert(dstNodePtr).second) {
+                nodeQueue.push(dstNodePtr);
+            }
+        }
+    }
+
+    return reachableNodes;
+}
+
+} // namespace
+
+void Graph::AddNode(const std::shared_ptr<Node>& nodePtr) {
+    if (nodePtr == nullptr) return;
+
+    auto inserted = m_nodeMap.emplace(nodePtr->name, nodePtr);
+    assert((inserted.second || inserted.first->second == nodePtr) &&
+           "Graph node names must point to the same shared node instance");
+
+    m_adjList.emplace(nodePtr, std::vector<std::size_t>{});
+}
+
 void Graph::AddEdge(const std::shared_ptr<Node>& srcNodePtr, const std::shared_ptr<Node>& dstNodePtr, std::string srcPort,
                     std::string dstPort) {
     if (srcNodePtr == nullptr || dstNodePtr == nullptr) return;
 
-    m_nodeMap[srcNodePtr->name] = srcNodePtr;
-    m_nodeMap[dstNodePtr->name] = dstNodePtr;
+    AddNode(srcNodePtr);
+    AddNode(dstNodePtr);
 
-    m_adjList[srcNodePtr].emplace_back(dstNodePtr);
+    const auto& outgoingEdges = m_adjList[srcNodePtr];
+    auto duplicateIt = std::find_if(outgoingEdges.begin(), outgoingEdges.end(), [&](std::size_t edgeIndex) {
+        return EdgeMatches(m_edges.at(edgeIndex), srcNodePtr, dstNodePtr, srcPort, dstPort);
+    });
+    if (duplicateIt != outgoingEdges.end()) {
+        return;
+    }
+
     m_edges.push_back(Edge{srcNodePtr, dstNodePtr, std::move(srcPort), std::move(dstPort)});
+    m_adjList[srcNodePtr].push_back(m_edges.size() - 1);
 }
 
-bool Graph::hasCycle() const { return checkCycleAndConvertToEdgeList(nullptr).first; }
+bool Graph::HasCycle() const { return CheckCycleAndConvertToEdgeList(nullptr).first; }
 
-std::vector<Edge> Graph::toEdgeListBFS(const std::shared_ptr<Node>& inputNodePtr) const {
+std::vector<Edge> Graph::ToEdgeListBfs(const std::shared_ptr<Node>& inputNodePtr) const {
     if (inputNodePtr == nullptr) {
         return m_edges;
     }
-    return checkCycleAndConvertToEdgeList(inputNodePtr).second;
+    return CheckCycleAndConvertToEdgeList(inputNodePtr).second;
 }
 
-std::pair<bool, std::vector<Edge>> Graph::checkCycleAndConvertToEdgeList(const std::shared_ptr<Node>& inputNodePtr) const {
+std::pair<bool, std::vector<Edge>> Graph::CheckCycleAndConvertToEdgeList(const std::shared_ptr<Node>& inputNodePtr) const {
     std::vector<Edge> edgeList;
-    std::unordered_map<std::shared_ptr<Node>, int> inDegree;
-    std::unordered_set<std::shared_ptr<Node>> allNodes;
+    std::unordered_set<std::shared_ptr<Node>> traversalNodes;
 
-    for (const auto& entry : m_adjList) {
-        allNodes.insert(entry.first);
-        if (inDegree.find(entry.first) == inDegree.end()) {
-            inDegree[entry.first] = 0;
-        }
-        for (const auto& neighbor : entry.second) {
-            allNodes.insert(neighbor);
-            inDegree[neighbor]++;
+    if (inputNodePtr != nullptr) {
+        traversalNodes = CollectReachableNodes(m_adjList, m_edges, inputNodePtr);
+    } else {
+        for (const auto& nodeEntry : m_nodeMap) {
+            traversalNodes.insert(nodeEntry.second);
         }
     }
 
-    // 如果指定inputNodePtr, 则根从这个节点为根节点开始搜索.
+    std::unordered_map<std::shared_ptr<Node>, int> inDegree;
+    for (const auto& node : traversalNodes) {
+        inDegree[node] = 0;
+    }
+
+    for (const auto& node : traversalNodes) {
+        auto adjIt = m_adjList.find(node);
+        if (adjIt == m_adjList.end()) {
+            continue;
+        }
+        for (auto edgeIndex : adjIt->second) {
+            const auto& edge = m_edges.at(edgeIndex);
+            auto dstNodePtr = edge.dstNodePtr.lock();
+            if (!dstNodePtr || traversalNodes.find(dstNodePtr) == traversalNodes.end()) {
+                continue;
+            }
+            ++inDegree[dstNodePtr];
+        }
+    }
+
     std::queue<std::shared_ptr<Node>> nodeQueue;
     if (inputNodePtr != nullptr) {
         nodeQueue.push(inputNodePtr);
         inDegree[inputNodePtr] = 0;
     } else {
-        for (const auto& node : allNodes) {
+        for (const auto& node : traversalNodes) {
             if (inDegree[node] == 0) {
                 nodeQueue.push(node);
             }
@@ -64,34 +142,25 @@ std::pair<bool, std::vector<Edge>> Graph::checkCycleAndConvertToEdgeList(const s
 
         auto iter = m_adjList.find(node);
         if (iter != m_adjList.end()) {
-            std::unordered_set<std::shared_ptr<Node>> processedNeighbors;
-
-            for (const auto& neighbor : iter->second) {
-                if (--inDegree[neighbor] == 0) {
-                    nodeQueue.push(neighbor);
-                }
-
-                if (processedNeighbors.find(neighbor) != processedNeighbors.end()) {
+            for (auto edgeIndex : iter->second) {
+                const auto& edge = m_edges.at(edgeIndex);
+                auto neighbor = edge.dstNodePtr.lock();
+                if (!neighbor || traversalNodes.find(neighbor) == traversalNodes.end()) {
                     continue;
                 }
-                processedNeighbors.insert(neighbor);
 
-                auto edgeIt = std::find_if(m_edges.begin(), m_edges.end(), [&](const Edge& edge) {
-                    return edge.srcNodePtr.lock() == node && edge.dstNodePtr.lock() == neighbor;
-                });
-                if (edgeIt != m_edges.end()) {
-                    edgeList.push_back(*edgeIt);
-                } else {
-                    edgeList.push_back(Edge{node, neighbor, "", ""});
+                edgeList.push_back(edge);
+                if (--inDegree[neighbor] == 0) {
+                    nodeQueue.push(neighbor);
                 }
             }
         }
     }
 
-    return {visitedCount != allNodes.size(), std::move(edgeList)};
+    return {visitedCount != static_cast<int>(traversalNodes.size()), std::move(edgeList)};
 }
 
-std::vector<std::shared_ptr<Node>> Graph::FindConvergeNodes() const {
+std::vector<std::shared_ptr<Node>> Graph::GetConvergeNodes() const {
     std::vector<std::shared_ptr<Node>> convergeNodes;
 
     for (const auto& nodeEntry : m_nodeMap) {
@@ -126,8 +195,8 @@ bool Graph::IsConvergeNode(const std::shared_ptr<Node>& node) const {
     return incomingCount >= 2;
 }
 
-std::string Graph::toString() const {
-    auto edgeList = toEdgeListBFS();
+std::string Graph::ToString() const {
+    auto edgeList = ToEdgeListBfs();
 
     std::ostringstream oss;
     oss << "[" + m_name + "]: name=" + m_name + ", graph: \n";
