@@ -38,75 +38,8 @@ constexpr std::size_t kMaxSourceStepsPerTask = 1;
 
 } // namespace
 
-Executor::PortRuntimeStatsState::PortRuntimeStatsState(std::string srcModuleNameValue, std::string srcPortNameValue,
-                                                       std::string dstModuleNameValue, std::string dstPortNameValue)
-    : srcModuleName(std::move(srcModuleNameValue)),
-      srcPortName(std::move(srcPortNameValue)),
-      dstModuleName(std::move(dstModuleNameValue)),
-      dstPortName(std::move(dstPortNameValue)) {}
-
-void Executor::PortRuntimeStatsState::RecordPushAttempt(bool blocking) {
-    pushAttempts.fetch_add(1, std::memory_order_relaxed);
-    if (blocking) {
-        blockingPushAttempts.fetch_add(1, std::memory_order_relaxed);
-    } else {
-        nonBlockingPushAttempts.fetch_add(1, std::memory_order_relaxed);
-    }
-}
-
-void Executor::PortRuntimeStatsState::RecordPushAccepted(std::size_t enqueuedCount, std::size_t droppedToMakeRoom) {
-    enqueueCount.fetch_add(1, std::memory_order_relaxed);
-    if (droppedToMakeRoom > 0) {
-        dropCount.fetch_add(static_cast<std::uint64_t>(droppedToMakeRoom), std::memory_order_relaxed);
-        depthSubtractions.fetch_add(static_cast<std::uint64_t>(droppedToMakeRoom), std::memory_order_relaxed);
-    }
-
-    const auto additionsAfter =
-        depthAdditions.fetch_add(static_cast<std::uint64_t>(enqueuedCount), std::memory_order_relaxed) +
-        static_cast<std::uint64_t>(enqueuedCount);
-    const auto subtractionsNow = depthSubtractions.load(std::memory_order_relaxed);
-    const auto depthAfter = additionsAfter > subtractionsNow ? additionsAfter - subtractionsNow : 0;
-
-    auto previousPeak = peakDepth.load(std::memory_order_relaxed);
-    while (depthAfter > previousPeak &&
-           !peakDepth.compare_exchange_weak(previousPeak, depthAfter, std::memory_order_relaxed)) {
-    }
-}
-
-void Executor::PortRuntimeStatsState::RecordPushDropped(std::size_t dropCountValue) {
-    dropCount.fetch_add(static_cast<std::uint64_t>(dropCountValue), std::memory_order_relaxed);
-}
-
-void Executor::PortRuntimeStatsState::RecordPushRejected() {
-    rejectCount.fetch_add(1, std::memory_order_relaxed);
-}
-
-void Executor::PortRuntimeStatsState::RecordDequeue() {
-    dequeueCount.fetch_add(1, std::memory_order_relaxed);
-    depthSubtractions.fetch_add(1, std::memory_order_relaxed);
-}
-
-PortRuntimeStats Executor::PortRuntimeStatsState::Snapshot() const {
-    PortRuntimeStats snapshot;
-    snapshot.srcModuleName = srcModuleName;
-    snapshot.srcPortName = srcPortName;
-    snapshot.dstModuleName = dstModuleName;
-    snapshot.dstPortName = dstPortName;
-    snapshot.pushAttempts = pushAttempts.load(std::memory_order_relaxed);
-    snapshot.blockingPushAttempts = blockingPushAttempts.load(std::memory_order_relaxed);
-    snapshot.nonBlockingPushAttempts = nonBlockingPushAttempts.load(std::memory_order_relaxed);
-    snapshot.enqueueCount = enqueueCount.load(std::memory_order_relaxed);
-    snapshot.dropCount = dropCount.load(std::memory_order_relaxed);
-    snapshot.rejectCount = rejectCount.load(std::memory_order_relaxed);
-    snapshot.dequeueCount = dequeueCount.load(std::memory_order_relaxed);
-    const auto additions = depthAdditions.load(std::memory_order_relaxed);
-    const auto subtractions = depthSubtractions.load(std::memory_order_relaxed);
-    snapshot.currentDepth = additions > subtractions ? additions - subtractions : 0;
-    snapshot.peakDepth = peakDepth.load(std::memory_order_relaxed);
-    return snapshot;
-}
-
-Executor::Executor(const std::shared_ptr<PipelineContext>& pipelineContext) : m_pipelineContext(pipelineContext) {}
+Executor::Executor(const std::shared_ptr<PipelineContext>& pipelineContext)
+    : m_statsCollector(pipelineContext == nullptr || pipelineContext->IsStatisticsEnabled()), m_pipelineContext(pipelineContext) {}
 
 Executor::~Executor() { Stop(); }
 
@@ -123,7 +56,14 @@ void Executor::RegisterActor(const std::string& actorName, const std::shared_ptr
     state->actorName = actorName;
     state->module = module;
     state->runtimeConfig = runtimeConfig;
+    auto actorState = state;
     m_actorStates.emplace(actorName, std::move(state));
+    m_statsCollector.RegisterActor(
+        actorName, actorState->runtimeStats,
+        [state = std::move(actorState)]() -> std::uint64_t {
+            std::lock_guard<std::mutex> pendingLock(state->pendingJoinGroupsMutex);
+            return static_cast<std::uint64_t>(state->pendingJoinGroups.size());
+        });
 }
 
 void Executor::AddInputQueue(const std::string& actorName, const std::string& inputPortName, ViewPtr<MessageQueue> queue,
@@ -156,66 +96,17 @@ void Executor::AddOutputQueue(const std::string& actorName, const std::string& o
     OutputSubscriber subscriber{dstActorName, dstInputPortName, queue, portStats, dstIt->second};
     m_broadcastSubscribers[actorName].push_back(subscriber);
     m_outputSubscribers[MakeOutputKey(actorName, outputPortName)].push_back(std::move(subscriber));
-    if (portStats != nullptr) {
-        auto duplicateIt = std::find_if(m_portStats.begin(), m_portStats.end(),
-                                        [&portStats](const PortRuntimeStatsStatePtr& existing) {
-                                            return existing.get() == portStats.get();
-                                        });
-        if (duplicateIt == m_portStats.end()) {
-            m_portStats.push_back(std::move(portStats));
-        }
-    }
+    m_statsCollector.RegisterPortStats(portStats);
 }
 
 void Executor::SetThreadCount(std::size_t threadCount) { m_threadCount = threadCount; }
 
 std::vector<PortRuntimeStats> Executor::GetPortStats() const {
-    if (!StatisticsEnabled()) {
-        return {};
-    }
-
-    std::lock_guard<std::mutex> lock(m_mutex);
-
-    std::vector<PortRuntimeStats> snapshots;
-    snapshots.reserve(m_portStats.size());
-    for (const auto& stats : m_portStats) {
-        if (stats != nullptr) {
-            snapshots.push_back(stats->Snapshot());
-        }
-    }
-    return snapshots;
+    return m_statsCollector.SnapshotPorts();
 }
 
 std::vector<ActorRuntimeStats> Executor::GetActorStats() const {
-    if (!StatisticsEnabled()) {
-        return {};
-    }
-
-    std::lock_guard<std::mutex> lock(m_mutex);
-
-    std::vector<ActorRuntimeStats> snapshots;
-    snapshots.reserve(m_actorStates.size());
-    for (const auto& item : m_actorStates) {
-        const auto& state = item.second;
-        if (!state) {
-            continue;
-        }
-
-        ActorRuntimeStats snapshot;
-        snapshot.actorName = state->actorName;
-        snapshot.processCount = state->runtimeStats.processCount.load(std::memory_order_relaxed);
-        snapshot.inputMessageCount = state->runtimeStats.inputMessageCount.load(std::memory_order_relaxed);
-        snapshot.emittedBroadcastCount = state->runtimeStats.emittedBroadcastCount.load(std::memory_order_relaxed);
-        snapshot.emittedRouteCount = state->runtimeStats.emittedRouteCount.load(std::memory_order_relaxed);
-        snapshot.joinTimeoutDropCount = state->runtimeStats.joinTimeoutDropCount.load(std::memory_order_relaxed);
-        snapshot.joinOverflowDropCount = state->runtimeStats.joinOverflowDropCount.load(std::memory_order_relaxed);
-        {
-            std::lock_guard<std::mutex> pendingLock(state->pendingJoinGroupsMutex);
-            snapshot.pendingJoinGroupCount = state->pendingJoinGroups.size();
-        }
-        snapshots.push_back(std::move(snapshot));
-    }
-    return snapshots;
+    return m_statsCollector.SnapshotActors();
 }
 
 void Executor::Start() {
@@ -383,8 +274,8 @@ bool Executor::RunSourceStep(const std::shared_ptr<ActorState>& state) {
     PortInputsView inputView(inputs);
     PortOutputs outputs;
     state->module->Process(inputView, outputs);
-    if (StatisticsEnabled()) {
-        state->runtimeStats.processCount.fetch_add(1, std::memory_order_relaxed);
+    if (StatisticsEnabled() && state->runtimeStats != nullptr) {
+        state->runtimeStats->processCount.fetch_add(1, std::memory_order_relaxed);
     }
     DispatchOutputs(state->actorName, outputs);
 
@@ -406,8 +297,8 @@ bool Executor::RunOnAnyInputStep(const std::shared_ptr<ActorState>& state) {
     PortInputsView inputView(inputs);
     PortOutputs outputs;
     state->module->Process(inputView, outputs);
-    if (StatisticsEnabled()) {
-        state->runtimeStats.processCount.fetch_add(1, std::memory_order_relaxed);
+    if (StatisticsEnabled() && state->runtimeStats != nullptr) {
+        state->runtimeStats->processCount.fetch_add(1, std::memory_order_relaxed);
     }
     DispatchOutputs(state->actorName, outputs);
     return true;
@@ -427,8 +318,8 @@ bool Executor::RunOnAllInputsStep(const std::shared_ptr<ActorState>& state) {
         if (statisticsEnabled && inputQueue.stats != nullptr) {
             inputQueue.stats->RecordDequeue();
         }
-        if (statisticsEnabled) {
-            state->runtimeStats.inputMessageCount.fetch_add(1, std::memory_order_relaxed);
+        if (statisticsEnabled && state->runtimeStats != nullptr) {
+            state->runtimeStats->inputMessageCount.fetch_add(1, std::memory_order_relaxed);
         }
 
         const auto messageId = ResolveJoinKey(*state, message);
@@ -459,8 +350,8 @@ bool Executor::RunOnAllInputsStep(const std::shared_ptr<ActorState>& state) {
     PortInputsView inputView(inputs);
     PortOutputs outputs;
     state->module->Process(inputView, outputs);
-    if (statisticsEnabled) {
-        state->runtimeStats.processCount.fetch_add(1, std::memory_order_relaxed);
+    if (statisticsEnabled && state->runtimeStats != nullptr) {
+        state->runtimeStats->processCount.fetch_add(1, std::memory_order_relaxed);
     }
     DispatchOutputs(state->actorName, outputs);
     return true;
@@ -483,8 +374,8 @@ bool Executor::TryPopAnyInput(const std::shared_ptr<ActorState>& state, PortMess
             if (statisticsEnabled && inputQueue.stats != nullptr) {
                 inputQueue.stats->RecordDequeue();
             }
-            if (statisticsEnabled) {
-                state->runtimeStats.inputMessageCount.fetch_add(1, std::memory_order_relaxed);
+            if (statisticsEnabled && state->runtimeStats != nullptr) {
+                state->runtimeStats->inputMessageCount.fetch_add(1, std::memory_order_relaxed);
             }
             portMessage.port = inputQueue.inputPortName;
             portMessage.message = std::move(message);
@@ -532,8 +423,8 @@ void Executor::CleanupExpiredJoinGroups(const std::shared_ptr<ActorState>& state
     for (auto groupIt = state->pendingJoinGroups.begin(); groupIt != state->pendingJoinGroups.end();) {
         const auto oldestTimestampMs = groupIt->second.oldestTimestampMs;
         if (oldestTimestampMs + state->runtimeConfig.fusionTimeoutMs < currentTimeMs) {
-            if (StatisticsEnabled()) {
-                state->runtimeStats.joinTimeoutDropCount.fetch_add(1, std::memory_order_relaxed);
+            if (StatisticsEnabled() && state->runtimeStats != nullptr) {
+                state->runtimeStats->joinTimeoutDropCount.fetch_add(1, std::memory_order_relaxed);
             }
             groupIt = state->pendingJoinGroups.erase(groupIt);
         } else {
@@ -561,8 +452,8 @@ void Executor::EnforcePendingJoinGroupLimit(const std::shared_ptr<ActorState>& s
         if (oldestIt == state->pendingJoinGroups.end()) {
             break;
         }
-        if (StatisticsEnabled()) {
-            state->runtimeStats.joinOverflowDropCount.fetch_add(1, std::memory_order_relaxed);
+        if (StatisticsEnabled() && state->runtimeStats != nullptr) {
+            state->runtimeStats->joinOverflowDropCount.fetch_add(1, std::memory_order_relaxed);
         }
         state->pendingJoinGroups.erase(oldestIt);
     }
@@ -571,11 +462,11 @@ void Executor::EnforcePendingJoinGroupLimit(const std::shared_ptr<ActorState>& s
 void Executor::DispatchOutputs(const std::string& actorName, PortOutputs& outputs) {
     if (StatisticsEnabled()) {
         auto actorIt = m_actorStates.find(actorName);
-        if (actorIt != m_actorStates.end()) {
-            actorIt->second->runtimeStats.emittedBroadcastCount.fetch_add(static_cast<std::uint64_t>(outputs.m_broadcasts.size()),
-                                                                          std::memory_order_relaxed);
-            actorIt->second->runtimeStats.emittedRouteCount.fetch_add(static_cast<std::uint64_t>(outputs.m_routes.size()),
-                                                                      std::memory_order_relaxed);
+        if (actorIt != m_actorStates.end() && actorIt->second->runtimeStats != nullptr) {
+            actorIt->second->runtimeStats->emittedBroadcastCount.fetch_add(
+                static_cast<std::uint64_t>(outputs.m_broadcasts.size()), std::memory_order_relaxed);
+            actorIt->second->runtimeStats->emittedRouteCount.fetch_add(static_cast<std::uint64_t>(outputs.m_routes.size()),
+                                                                       std::memory_order_relaxed);
         }
     }
 

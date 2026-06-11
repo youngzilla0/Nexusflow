@@ -1,6 +1,7 @@
 #ifndef NEXUSFLOW_EXECUTOR_HPP
 #define NEXUSFLOW_EXECUTOR_HPP
 
+#include "RuntimeStatsCollector.hpp"
 #include "ThreadPool.hpp"
 #include "base/Define.hpp"
 #include "common/ViewPtr.hpp"
@@ -23,44 +24,10 @@ namespace nexusflow { namespace executor {
 
 class Executor {
 public:
-    struct PortRuntimeStatsState {
-        PortRuntimeStatsState(std::string srcModuleName, std::string srcPortName,
-                              std::string dstModuleName, std::string dstPortName);
-
-        void RecordPushAttempt(bool blocking);
-        void RecordPushAccepted(std::size_t enqueuedCount, std::size_t droppedToMakeRoom);
-        void RecordPushDropped(std::size_t dropCount);
-        void RecordPushRejected();
-        void RecordDequeue();
-
-        PortRuntimeStats Snapshot() const;
-
-        std::string srcModuleName;
-        std::string srcPortName;
-        std::string dstModuleName;
-        std::string dstPortName;
-        std::atomic<std::uint64_t> pushAttempts{0};
-        std::atomic<std::uint64_t> blockingPushAttempts{0};
-        std::atomic<std::uint64_t> nonBlockingPushAttempts{0};
-        std::atomic<std::uint64_t> enqueueCount{0};
-        std::atomic<std::uint64_t> dropCount{0};
-        std::atomic<std::uint64_t> rejectCount{0};
-        std::atomic<std::uint64_t> dequeueCount{0};
-        std::atomic<std::uint64_t> depthAdditions{0};
-        std::atomic<std::uint64_t> depthSubtractions{0};
-        std::atomic<std::uint64_t> peakDepth{0};
-    };
-
-    using PortRuntimeStatsStatePtr = std::shared_ptr<PortRuntimeStatsState>;
-
-    struct ActorRuntimeStatsState {
-        std::atomic<std::uint64_t> processCount{0};
-        std::atomic<std::uint64_t> inputMessageCount{0};
-        std::atomic<std::uint64_t> emittedBroadcastCount{0};
-        std::atomic<std::uint64_t> emittedRouteCount{0};
-        std::atomic<std::uint64_t> joinTimeoutDropCount{0};
-        std::atomic<std::uint64_t> joinOverflowDropCount{0};
-    };
+    using PortRuntimeStatsState = RuntimeStatsCollector::PortRuntimeStatsState;
+    using PortRuntimeStatsStatePtr = RuntimeStatsCollector::PortRuntimeStatsStatePtr;
+    using ActorRuntimeStatsState = RuntimeStatsCollector::ActorRuntimeStatsState;
+    using ActorRuntimeStatsStatePtr = RuntimeStatsCollector::ActorRuntimeStatsStatePtr;
 
     explicit Executor(const std::shared_ptr<PipelineContext>& pipelineContext);
     ~Executor();
@@ -107,7 +74,7 @@ private:
         std::unordered_map<std::uint64_t, PendingJoinGroup> pendingJoinGroups;
         std::atomic<bool> taskScheduled{false};
         std::atomic<std::uint64_t> pendingRunSignals{0};
-        ActorRuntimeStatsState runtimeStats;
+        ActorRuntimeStatsStatePtr runtimeStats = std::make_shared<ActorRuntimeStatsState>();
     };
 
     struct OutputSubscriber {
@@ -141,7 +108,7 @@ private:
     std::unordered_map<std::string, std::shared_ptr<ActorState>> m_actorStates;
     std::unordered_map<std::string, std::vector<OutputSubscriber>> m_broadcastSubscribers;
     std::unordered_map<std::string, std::vector<OutputSubscriber>> m_outputSubscribers;
-    std::vector<PortRuntimeStatsStatePtr> m_portStats;
+    RuntimeStatsCollector m_statsCollector;
     std::shared_ptr<PipelineContext> m_pipelineContext;
     std::unique_ptr<ThreadPool> m_threadPool;
     std::size_t m_threadCount = 0;

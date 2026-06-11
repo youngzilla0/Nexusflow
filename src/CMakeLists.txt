@@ -1,4 +1,4 @@
-file(GLOB_RECURSE NEXUSFLOW_ALL_FILES "**.cpp")
+file(GLOB_RECURSE NEXUSFLOW_ALL_FILES CONFIGURE_DEPENDS "*.cpp")
 
 # Split source files and test files. 
 separate_files_by_suffix("Test.cpp" "${NEXUSFLOW_ALL_FILES}" NEXUSFLOW_SRC_FILES NEXUSFLOW_TEST_FILES)
@@ -23,6 +23,4 @@ target_link_libraries(nexusflow PUBLIC
     spdlog::spdlog
     yaml-cpp::yaml-cpp
 )
-
-
 
