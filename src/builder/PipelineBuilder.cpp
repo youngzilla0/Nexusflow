@@ -1,11 +1,10 @@
-#include "base/Graph.hpp" // Required to create the Graph object
+#include "base/GraphUtils.hpp"
 #include "utils/logging.hpp"
 
 #include <nexusflow/Pipeline.hpp>
 #include <nexusflow/PipelineBuilder.hpp>
 
 #include <memory>
-#include <unordered_map>
 #include <string>
 #include <unordered_set>
 #include <utility>
@@ -80,13 +79,8 @@ std::unique_ptr<Pipeline> PipelineBuilder::Build() {
         return nullptr; // Builder has been consumed
     }
 
-    // --- Step 1: Create a Graph object ---
-    auto graph = std::make_unique<Graph>();
-    graph->SetName(m_pImpl->pipelineName);
-
-    // --- Step 2: Create all Node objects and populate a lookup map ---
-    // This map allows us to quickly find a Node shared_ptr by its name.
-    std::unordered_map<std::string, std::shared_ptr<Node>> nodeLookupMap;
+    graphutils::GraphSpec spec;
+    spec.graphName = m_pImpl->pipelineName;
     std::unordered_set<std::string> seenModuleNames;
 
     for (const auto& module_ptr : m_pImpl->modules) {
@@ -102,74 +96,19 @@ std::unique_ptr<Pipeline> PipelineBuilder::Build() {
             return nullptr;
         }
 
-        // Assign the pre-created module instance
-        auto node = std::make_shared<NodeWithModulePtr>(moduleName, module_ptr);
-
-        nodeLookupMap[moduleName] = node;
+        spec.nodes.push_back(graphutils::GraphNodeSpec{moduleName, "", {}, module_ptr});
     }
-
-    // --- Step 3: Add edges to the graph based on connections ---
-    if (m_pImpl->connections.empty() && m_pImpl->modules.size() > 1) {
-        // Error: modules provided but no connections defined.
-        LOG_ERROR("PipelineBuilder: multiple modules were added, but no connections were defined.");
-        return nullptr;
-    }
-
-    // Keep track of which nodes have incoming edges.
-    std::unordered_set<std::string> nodesWithIncomingEdges;
 
     for (const auto& conn : m_pImpl->connections) {
-        const std::string& fromName = conn.srcModuleName;
-        const std::string& toName = conn.dstModuleName;
-
-        auto fromIt = nodeLookupMap.find(fromName);
-        auto toIt = nodeLookupMap.find(toName);
-
-        if (fromIt == nodeLookupMap.end() || toIt == nodeLookupMap.end()) {
-            // Error: Connection references a module that was not added.
-            LOG_ERROR("PipelineBuilder: connection '{}:{} -> {}:{}' references a missing module.", fromName, conn.srcPort,
-                      toName, conn.dstPort);
-            return nullptr;
-        }
-
-        graph->AddEdge(fromIt->second, toIt->second, conn.srcPort, conn.dstPort);
-        nodesWithIncomingEdges.insert(toName);
+        spec.connections.push_back(
+            graphutils::GraphConnectionSpec{conn.srcModuleName, conn.srcPort, conn.dstModuleName, conn.dstPort});
     }
 
-    // --- Step 4: Heuristically determine the main input and output nodes ---
-    // A simple heuristic:
-    // - The main input node is one of the nodes that has no incoming edges.
-    // - The main output node is one of the nodes that has no outgoing edges.
-    // This logic might need to be more robust for complex graphs.
-
-    std::shared_ptr<Node> sourceNode = nullptr;
-    for (const auto& pair : nodeLookupMap) {
-        if (nodesWithIncomingEdges.find(pair.first) == nodesWithIncomingEdges.end()) {
-            // This node has no incoming edges, so it's a potential source.
-            sourceNode = pair.second;
-            break; // Pick the first one we find.
-        }
-    }
-
-    // For simplicity, we'll assume the last node in the last connection is the sink.
-    // A better way would be to check for nodes with an out-degree of 0.
-    std::shared_ptr<Node> sinkNode = nullptr;
-    if (!m_pImpl->connections.empty()) {
-        sinkNode = nodeLookupMap.at(m_pImpl->connections.back().dstModuleName);
-    } else if (m_pImpl->modules.size() == 1) {
-        // Handle single-node graph
-        sourceNode = nodeLookupMap.at(m_pImpl->modules[0]->GetModuleName());
-        sinkNode = sourceNode;
-    }
-
-    // --- Step 5: Check for cycles ---
-    if (graph->hasCycle()) {
-        // Error: The defined graph has a cycle.
-        LOG_ERROR("PipelineBuilder: the constructed graph '{}' contains a cycle.", graph->GetName());
+    auto graph = graphutils::CreateGraphFromSpec(spec);
+    if (!graph) {
         return nullptr;
     }
 
-    // --- Step 6: Create the Pipeline from the fully constructed Graph ---
     auto pipeline = std::unique_ptr<Pipeline>(new Pipeline());
     pipeline->InitWithGraph(std::move(graph), m_pImpl->config);
 

@@ -17,6 +17,8 @@
 
 namespace graphutils {
 
+nexusflow::Any convertYamlNodeToAny(const YAML::Node& node);
+
 namespace detail {
 
 // 判断字符串是否是整数
@@ -60,6 +62,60 @@ inline nexusflow::JoinKeyPolicy parseJoinKeyPolicy(const std::string& value) {
     if (value == "MessageId") return nexusflow::JoinKeyPolicy::MessageId;
     if (value == "Timestamp") return nexusflow::JoinKeyPolicy::Timestamp;
     throw std::runtime_error("Unsupported JoinKeyPolicy: " + value);
+}
+
+GraphSpec LoadGraphSpecFromYaml(const std::string& configPath) {
+    YAML::Node root = YAML::LoadFile(configPath);
+
+    const YAML::Node& graphYaml = root["graph"];
+    if (!graphYaml) {
+        throw std::runtime_error("YAML configuration must contain a 'graph' root node.");
+    }
+
+    GraphSpec spec;
+    if (!graphYaml["name"]) {
+        throw std::runtime_error("Graph configuration must have a 'name' under the 'graph' section.");
+    }
+    spec.graphName = graphYaml["name"].as<std::string>();
+
+    const YAML::Node& modulesYaml = graphYaml["modules"];
+    if (!modulesYaml || !modulesYaml.IsSequence()) {
+        throw std::runtime_error("'modules' section is missing or not a sequence.");
+    }
+
+    for (const auto& moduleItem : modulesYaml) {
+        GraphNodeSpec nodeSpec;
+        nodeSpec.nodeName = moduleItem["name"].as<std::string>();
+        nodeSpec.moduleClassName = moduleItem["class"].as<std::string>();
+
+        const YAML::Node& configsNode = moduleItem["config"];
+        if (configsNode && configsNode.IsMap()) {
+            for (const auto& kv : configsNode) {
+                std::string key = kv.first.as<std::string>();
+                nodeSpec.config.Add(key, convertYamlNodeToAny(kv.second));
+            }
+        }
+
+        spec.nodes.push_back(std::move(nodeSpec));
+    }
+
+    const YAML::Node& connectionsYaml = graphYaml["connections"];
+    if (connectionsYaml && connectionsYaml.IsSequence()) {
+        for (const auto& connectionItem : connectionsYaml) {
+            GraphConnectionSpec connectionSpec;
+            connectionSpec.srcModuleName = connectionItem["from"].as<std::string>();
+            connectionSpec.dstModuleName = connectionItem["to"].as<std::string>();
+            connectionSpec.srcPort = connectionItem["fromPort"]
+                                         ? connectionItem["fromPort"].as<std::string>()
+                                         : std::string(nexusflow::kDefaultOutputPort);
+            connectionSpec.dstPort = connectionItem["toPort"]
+                                         ? connectionItem["toPort"].as<std::string>()
+                                         : std::string(nexusflow::kDefaultInputPort);
+            spec.connections.push_back(std::move(connectionSpec));
+        }
+    }
+
+    return spec;
 }
 
 } // namespace detail
@@ -111,136 +167,88 @@ nexusflow::Any convertYamlNodeToAny(const YAML::Node& node) {
     }
 }
 
+std::unique_ptr<Graph> CreateGraphFromSpec(const GraphSpec& spec) {
+    if (spec.graphName.empty()) {
+        LOG_ERROR("Graph specification must have a non-empty name.");
+        return nullptr;
+    }
+
+    auto graph = std::make_unique<Graph>();
+    graph->SetName(spec.graphName);
+
+    std::unordered_map<std::string, std::shared_ptr<Node>> tempNodeMap;
+    tempNodeMap.reserve(spec.nodes.size());
+
+    for (const auto& nodeSpec : spec.nodes) {
+        if (nodeSpec.nodeName.empty()) {
+            LOG_ERROR("Graph '{}' contains a node with an empty name.", spec.graphName);
+            return nullptr;
+        }
+
+        std::shared_ptr<Node> node;
+        if (nodeSpec.moduleInstance) {
+            node = std::make_shared<ModuleInstanceNode>(nodeSpec.nodeName, nodeSpec.moduleInstance);
+        } else if (!nodeSpec.moduleClassName.empty()) {
+            node = std::make_shared<ModuleClassNode>(nodeSpec.nodeName, nodeSpec.moduleClassName, nodeSpec.config);
+        } else {
+            LOG_ERROR("Graph '{}' node '{}' must provide either a module class or a module instance.", spec.graphName,
+                      nodeSpec.nodeName);
+            return nullptr;
+        }
+
+        auto item = tempNodeMap.emplace(nodeSpec.nodeName, node);
+        if (!item.second) {
+            LOG_ERROR("Duplicate module name found: {} in graph '{}'", nodeSpec.nodeName, spec.graphName);
+            return nullptr;
+        }
+        graph->AddNode(node);
+    }
+
+    LOG_INFO("Created {} nodes for graph '{}'.", tempNodeMap.size(), graph->GetName());
+
+    if (spec.connections.empty() && spec.nodes.size() > 1) {
+        LOG_ERROR("Graph '{}' contains {} nodes but no connections.", spec.graphName, spec.nodes.size());
+        return nullptr;
+    }
+
+    for (const auto& connectionSpec : spec.connections) {
+        auto srcIt = tempNodeMap.find(connectionSpec.srcModuleName);
+        auto dstIt = tempNodeMap.find(connectionSpec.dstModuleName);
+        if (srcIt == tempNodeMap.end() || dstIt == tempNodeMap.end()) {
+            LOG_ERROR("Connection '{}:{} -> {}:{}' refers to a non-existent module in graph '{}'.",
+                      connectionSpec.srcModuleName, connectionSpec.srcPort, connectionSpec.dstModuleName,
+                      connectionSpec.dstPort, spec.graphName);
+            return nullptr;
+        }
+
+        graph->AddEdge(srcIt->second, dstIt->second, connectionSpec.srcPort, connectionSpec.dstPort);
+    }
+
+    LOG_INFO("Created {} connections for graph '{}'.", spec.connections.size(), graph->GetName());
+
+    if (graph->HasCycle()) {
+        LOG_ERROR("The constructed graph '{}' has a cycle.", graph->GetName());
+        return nullptr;
+    }
+    if (graph->IsEmpty()) {
+        LOG_ERROR("The constructed graph '{}' is empty or incomplete.", graph->GetName());
+        return nullptr;
+    }
+
+    LOG_INFO("Successfully created and validated graph '{}'.", graph->GetName());
+    return graph;
+}
+
 std::unique_ptr<Graph> CreateGraphFromYaml(const std::string& configPath) {
     try {
-        YAML::Node root = YAML::LoadFile(configPath);
-
-        const YAML::Node& graph_yaml = root["graph"];
-        if (!graph_yaml) {
-            LOG_ERROR("YAML configuration must contain a 'graph' root node in '{}'", configPath);
-            return nullptr;
-        }
-
-        auto graph = std::make_unique<Graph>();
-
-        // 1. 设置图的名称
-        if (!graph_yaml["name"]) {
-            LOG_ERROR("Graph configuration must have a 'name' under 'graph' section in '{}'", configPath);
-            return nullptr;
-        }
-        graph->SetName(graph_yaml["name"].as<std::string>());
-        LOG_INFO("Start creating graph '{}' from config: {}", graph->GetName(), configPath);
-
-        // 2. 创建所有节点
-        std::unordered_map<std::string, std::shared_ptr<Node>> tempNodeMap;
-        const YAML::Node& modules_yaml = graph_yaml["modules"];
-        if (!modules_yaml || !modules_yaml.IsSequence()) {
-            LOG_ERROR("'modules' section is missing or not a sequence in '{}'", configPath);
-            return nullptr;
-        }
-
-        for (const auto& module_item : modules_yaml) {
-            std::string nodeName = module_item["name"].as<std::string>();
-            std::string moduleClassName = module_item["class"].as<std::string>();
-
-            // parse custom config.
-            nexusflow::Config config;
-            const YAML::Node& configsNode = module_item["config"];
-            if (configsNode && configsNode.IsMap()) {
-                for (const auto& kv : configsNode) {
-                    std::string key = kv.first.as<std::string>();
-                    config.Add(key, convertYamlNodeToAny(kv.second));
-                }
-            }
-
-            auto node = std::make_shared<ModuleClassNode>(nodeName, moduleClassName, std::move(config));
-
-            auto item = tempNodeMap.emplace(nodeName, node);
-            if (!item.second) {
-                LOG_ERROR("Duplicate module name found: {} in '{}'", nodeName, configPath);
-                return nullptr;
-            }
-        }
-        LOG_INFO("Created {} nodes from 'modules' section.", tempNodeMap.size());
-
-        // 3. 创建边，并计算度
-        std::unordered_map<std::string, int> inDegree;
-        std::unordered_map<std::string, int> outDegree;
-        for (const auto& pair : tempNodeMap) {
-            inDegree[pair.first] = 0;
-            outDegree[pair.first] = 0;
-        }
-
-        const YAML::Node& connections_yaml = graph_yaml["connections"];
-        if (connections_yaml && connections_yaml.IsSequence()) {
-            for (const auto& connection_item : connections_yaml) {
-                std::string fromName = connection_item["from"].as<std::string>();
-                std::string toName = connection_item["to"].as<std::string>();
-                std::string fromPort = connection_item["fromPort"]
-                                           ? connection_item["fromPort"].as<std::string>()
-                                           : std::string(nexusflow::kDefaultOutputPort);
-                std::string toPort =
-                    connection_item["toPort"] ? connection_item["toPort"].as<std::string>()
-                                               : std::string(nexusflow::kDefaultInputPort);
-
-                auto srcIt = tempNodeMap.find(fromName);
-                auto dstIt = tempNodeMap.find(toName);
-                if (srcIt == tempNodeMap.end() || dstIt == tempNodeMap.end()) {
-                    LOG_ERROR("Connection '{} -> {}' refers to a non-existent module.", fromName, toName);
-                    return nullptr;
-                }
-
-                graph->AddEdge(srcIt->second, dstIt->second, std::move(fromPort), std::move(toPort));
-                outDegree[fromName]++;
-                inDegree[toName]++;
-            }
-            LOG_INFO("Created {} connections.", connections_yaml.size());
-        }
-
-        // TODO:
-        // // 4. 验证图的拓扑结构 (这是关键步骤！)
-        // // 尽管 Graph 不再存储输入/输出节点，但我们必须验证它们是否存在且唯一
-        // std::vector<std::shared_ptr<Node>> sourceNodes;
-        // for (const auto& pair : tempNodeMap) {
-        //     if (inDegree.at(pair.first) == 0) {
-        //         sourceNodes.push_back(pair.second);
-        //     }
-        // }
-
-        // if (sourceNodes.size() != 1) {
-        //     LOG_ERROR("Graph must have exactly one source node (in-degree 0). Found {}.", sourceNodes.size());
-        //     return nullptr;
-        // }
-        // LOG_INFO("Graph validation passed: Found a single source node '{}'.", sourceNodes[0]->name);
-
-        // // 可选：同样可以验证汇节点（输出）
-        // // std::vector<std::shared_ptr<Node>> sinkNodes;
-        // // for (const auto& pair : tempNodeMap) {
-        // //     if (outDegree.at(pair.first) == 0) {
-        // //         sinkNodes.push_back(pair.second);
-        // //     }
-        // // }
-        // // if (sinkNodes.size() != 1) {
-        // //     LOG_ERROR("Graph must have exactly one sink node (out-degree 0). Found {}.", sinkNodes.size());
-        // //     return nullptr;
-        // // }
-        // // LOG_INFO("Graph validation passed: Found a single sink node '{}'.", sinkNodes[0]->name);
-
-        // 5. 最终校验
-        if (graph->HasCycle()) {
-            LOG_ERROR("The constructed graph '{}' has a cycle.", graph->GetName());
-            return nullptr;
-        }
-        if (graph->IsEmpty()) {
-            LOG_ERROR("The constructed graph '{}' is empty or incomplete.", graph->GetName());
-            return nullptr;
-        }
-
-        LOG_INFO("Successfully created and validated graph '{}'.", graph->GetName());
-        return graph;
-
+        auto spec = detail::LoadGraphSpecFromYaml(configPath);
+        LOG_INFO("Start creating graph '{}' from config: {}", spec.graphName, configPath);
+        return CreateGraphFromSpec(spec);
     } catch (const YAML::Exception& e) {
         LOG_ERROR("Failed to process YAML file '{}' due to a parsing error: {}", configPath, e.what());
+        return nullptr;
+    } catch (const std::exception& e) {
+        LOG_ERROR("Failed to process YAML file '{}' due to an error: {}", configPath, e.what());
         return nullptr;
     }
 }

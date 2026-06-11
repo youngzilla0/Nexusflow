@@ -219,6 +219,7 @@ Implemented so far:
 - timestamp-based join correlation is covered by tests
 - `Pipeline::CreateFromYaml()` now loads the optional top-level `runtime:` block
 - YAML runtime config coverage now includes executor threads, queue size, and statistics disablement
+- `PipelineBuilder` and YAML graph creation now share one internal graph assembly and validation helper
 
 ## 5. v1.0 Expand Runtime Semantics
 

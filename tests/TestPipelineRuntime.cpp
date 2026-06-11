@@ -588,6 +588,14 @@ TEST(PipelineRuntimeTest, PipelineBuilder_RejectsConnectionsToMissingModules) {
     EXPECT_EQ(pipeline, nullptr);
 }
 
+TEST(PipelineRuntimeTest, PipelineBuilder_RejectsMultipleModulesWithoutConnections) {
+    auto source = std::make_shared<ManualSourceModule>("Source");
+    auto sink = std::make_shared<CollectSinkModule>("Sink");
+
+    auto pipeline = PipelineBuilder().WithName("DisconnectedGraph").AddModule(source).AddModule(sink).Build();
+    EXPECT_EQ(pipeline, nullptr);
+}
+
 TEST(PipelineRuntimeTest, CreateFromYaml_LoadsRuntimeConfig) {
     NEXUSFLOW_REGISTER_MODULE(YamlSourceModule);
     NEXUSFLOW_REGISTER_MODULE(YamlSinkModule);
