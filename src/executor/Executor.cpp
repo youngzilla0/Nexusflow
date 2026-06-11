@@ -32,9 +32,6 @@ std::size_t ResolveThreadCount(std::size_t configuredThreadCount, std::size_t ac
     return std::max<std::size_t>(hardwareThreads, 1);
 }
 
-constexpr std::size_t kMaxInputStepsPerTask = 64;
-constexpr std::size_t kMaxSourceStepsPerTask = 1;
-
 } // namespace
 
 Executor::Executor(const std::shared_ptr<PipelineContext>& pipelineContext)
@@ -129,6 +126,10 @@ void Executor::Start() {
         m_pipelineContext->SetExecutorThreadCount(resolvedThreadCount);
     }
 
+    // 根据线程数选择内部调度策略：
+    // - 单 worker 更强调公平性，避免一个 actor 长时间霸占唯一线程
+    // - 多 worker 更强调吞吐，允许单次多跑几步减少反复入队
+    m_schedulingPolicy = CreateSchedulingPolicy(resolvedThreadCount);
     m_threadPool = std::make_unique<ThreadPool>(resolvedThreadCount);
     m_threadPool->Start();
     PrimeActorsOnStart();
@@ -146,6 +147,7 @@ void Executor::Stop() {
         m_threadPool->Stop();
         m_threadPool.reset();
     }
+    m_schedulingPolicy.reset();
 }
 
 void Executor::PrimeActorsOnStart() {
@@ -226,21 +228,29 @@ void Executor::RunActorTask(const std::shared_ptr<ActorState>& state) {
         return;
     }
 
+    // 这个计数表示“本轮执行开始前已经收到多少次 ready 信号”。
+    // 先清零，后续若执行过程中又来了新信号，ShouldReschedule 会把它们捞起来。
     state->pendingRunSignals.store(0, std::memory_order_release);
 
-    if (state->inputQueues.empty()) {
-        for (std::size_t step = 0; step < kMaxSourceStepsPerTask && !m_stopFlag.load(std::memory_order_acquire); ++step) {
+    SchedulingContext schedulingContext;
+    schedulingContext.isSourceActor = state->inputQueues.empty();
+    schedulingContext.sourcePolicy = state->module->GetSourcePolicy();
+    schedulingContext.triggerPolicy = state->module->GetTriggerPolicy();
+
+    const auto maxStepsPerTask =
+        m_schedulingPolicy ? m_schedulingPolicy->MaxStepsPerTask(schedulingContext) : std::size_t{1};
+
+    if (schedulingContext.isSourceActor) {
+        for (std::size_t step = 0; step < maxStepsPerTask && !m_stopFlag.load(std::memory_order_acquire); ++step) {
             if (!RunSourceStep(state)) {
                 break;
             }
         }
     } else {
-        auto triggerPolicy = state->module->GetTriggerPolicy();
-        if (triggerPolicy == Module::TriggerPolicy::Auto) {
-            triggerPolicy = Module::TriggerPolicy::OnAnyInput;
-        }
+        auto triggerPolicy = m_schedulingPolicy ? m_schedulingPolicy->ResolveTriggerPolicy(schedulingContext)
+                                                : Module::TriggerPolicy::OnAnyInput;
 
-        for (std::size_t step = 0; step < kMaxInputStepsPerTask && !m_stopFlag.load(std::memory_order_acquire); ++step) {
+        for (std::size_t step = 0; step < maxStepsPerTask && !m_stopFlag.load(std::memory_order_acquire); ++step) {
             bool didWork =
                 triggerPolicy == Module::TriggerPolicy::OnAllInputs ? RunOnAllInputsStep(state) : RunOnAnyInputStep(state);
             if (!didWork) {
@@ -254,20 +264,17 @@ void Executor::RunActorTask(const std::shared_ptr<ActorState>& state) {
         return;
     }
 
-    bool needsReschedule =
-        state->inputQueues.empty() && state->module->GetSourcePolicy() == Module::SourcePolicy::Polling;
-    if (!needsReschedule && state->pendingRunSignals.load(std::memory_order_acquire) > 0) {
-        needsReschedule = true;
-    }
-    if (!needsReschedule && HasPendingWork(state)) {
-        needsReschedule = true;
-    }
+    schedulingContext.hasPendingSignals = state->pendingRunSignals.load(std::memory_order_acquire) > 0;
+    schedulingContext.hasPendingWork = HasPendingWork(state);
+    const bool needsReschedule = m_schedulingPolicy ? m_schedulingPolicy->ShouldReschedule(schedulingContext)
+                                                    : schedulingContext.hasPendingSignals || schedulingContext.hasPendingWork;
     if (needsReschedule) {
         SubmitActorTask(state);
     }
 }
 
 bool Executor::RunSourceStep(const std::shared_ptr<ActorState>& state) {
+    // Source actor 没有输入，只是周期性调用 Module::Process，让模块自己决定这轮要不要产出数据。
     std::vector<PortMessage> inputs;
     PortInputsView inputView(inputs);
     PortOutputs outputs;
@@ -284,6 +291,7 @@ bool Executor::RunSourceStep(const std::shared_ptr<ActorState>& state) {
 }
 
 bool Executor::RunOnAnyInputStep(const std::shared_ptr<ActorState>& state) {
+    // OnAnyInput：从任一非空输入端口取一条消息，立刻执行一次 module。
     PortMessage portMessage;
     if (!TryPopAnyInput(state, portMessage)) {
         return false;
@@ -303,6 +311,8 @@ bool Executor::RunOnAnyInputStep(const std::shared_ptr<ActorState>& state) {
 }
 
 bool Executor::RunOnAllInputsStep(const std::shared_ptr<ActorState>& state) {
+    // OnAllInputs：先尽量把各输入端口的消息放进 join store，
+    // 再尝试取出一组“所有端口都到齐”的 inputs 执行一次 module。
     bool receivedInput = false;
     const bool statisticsEnabled = StatisticsEnabled();
 
@@ -361,6 +371,7 @@ bool Executor::TryPopAnyInput(const std::shared_ptr<ActorState>& state, PortMess
 
     const std::size_t queueCount = state->inputQueues.size();
     const bool statisticsEnabled = StatisticsEnabled();
+    // 轮转扫描输入端口，避免一直优先消费第一个端口造成偏斜。
     for (std::size_t offset = 0; offset < queueCount; ++offset) {
         auto index = (state->nextInputIndex + offset) % queueCount;
         auto& inputQueue = state->inputQueues[index];
@@ -384,6 +395,7 @@ bool Executor::TryPopAnyInput(const std::shared_ptr<ActorState>& state, PortMess
 }
 
 void Executor::DispatchOutputs(const std::string& actorName, PortOutputs& outputs) {
+    // 先记统计，再真正把 outputs 分发到下游。
     if (StatisticsEnabled()) {
         auto actorIt = m_actorStates.find(actorName);
         if (actorIt != m_actorStates.end() && actorIt->second->runtimeStats != nullptr) {
@@ -432,6 +444,7 @@ void Executor::DispatchToSubscriber(const OutputSubscriber& subscriber, const Me
     }
 
     if (blocking) {
+        // blocking 模式下直接等队列接受或关闭。
         auto status = subscriber.queue->PushWithStatus(message);
         if (status == MessageQueue::PushStatus::Success) {
             if (statisticsEnabled && subscriber.stats != nullptr) {
@@ -450,6 +463,7 @@ void Executor::DispatchToSubscriber(const OutputSubscriber& subscriber, const Me
     }
 
     if (queueFullPolicy == QueueFullPolicy::DropHead) {
+        // DropHead：队列满时丢最老的，尽量保留最新数据。
         auto result = subscriber.queue->TryPushDropHead(message);
         if (result.status == MessageQueue::PushStatus::Success) {
             if (statisticsEnabled && subscriber.stats != nullptr) {
@@ -466,6 +480,7 @@ void Executor::DispatchToSubscriber(const OutputSubscriber& subscriber, const Me
         return;
     }
 
+    // 默认 DropTail：队列满时丢当前这条新消息，保留队列中的旧数据。
     auto status = subscriber.queue->TryPushWithStatus(message);
     if (status == MessageQueue::PushStatus::Success) {
         if (statisticsEnabled && subscriber.stats != nullptr) {

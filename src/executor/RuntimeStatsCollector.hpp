@@ -14,6 +14,8 @@
 
 namespace nexusflow { namespace executor {
 
+// RuntimeStatsCollector 只做一件事：聚合运行时统计。
+// Executor/queue 在热路径上只负责“记事件”，真正对外暴露快照时再由这里统一组装。
 class RuntimeStatsCollector {
 public:
     struct PortRuntimeStatsState {

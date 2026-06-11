@@ -3,6 +3,7 @@
 
 #include "JoinStateStore.hpp"
 #include "RuntimeStatsCollector.hpp"
+#include "SchedulingPolicy.hpp"
 #include "ThreadPool.hpp"
 #include "base/Define.hpp"
 #include "common/ViewPtr.hpp"
@@ -23,6 +24,11 @@
 
 namespace nexusflow { namespace executor {
 
+// Executor 是当前运行时的核心协调器：
+// - 管 actor/module 注册关系
+// - 管输入输出队列绑定
+// - 把 actor 提交给线程池执行
+// - 在执行过程中调用 join/store 与 stats collector
 class Executor {
 public:
     using PortRuntimeStatsState = RuntimeStatsCollector::PortRuntimeStatsState;
@@ -54,6 +60,7 @@ public:
     void Stop();
 
 private:
+    // 一个输入端口和底层队列的绑定关系。
     struct InputQueueBinding {
         std::string inputPortName;
         ViewPtr<MessageQueue> queue;
@@ -65,13 +72,14 @@ private:
         std::shared_ptr<Module> module;
         PipelineConfig runtimeConfig;
         std::vector<InputQueueBinding> inputQueues;
-        std::size_t nextInputIndex = 0;
-        JoinStateStore joinState;
-        std::atomic<bool> taskScheduled{false};
-        std::atomic<std::uint64_t> pendingRunSignals{0};
+        std::size_t nextInputIndex = 0; // OnAnyInput 下用于轮转扫描输入队列，避免总是偏向第一个端口。
+        JoinStateStore joinState;       // 只在 OnAllInputs 下使用，缓存待拼齐的 join group。
+        std::atomic<bool> taskScheduled{false}; // 当前 actor 是否已经在池中排队或执行，避免重复提交。
+        std::atomic<std::uint64_t> pendingRunSignals{0}; // 记录执行期间新增的“需要再跑一次”信号。
         ActorRuntimeStatsStatePtr runtimeStats = std::make_shared<ActorRuntimeStatsState>();
     };
 
+    // 一个输出订阅者对应一条边：srcActor:out -> dstActor:in。
     struct OutputSubscriber {
         std::string dstActorName;
         std::string dstInputPortName;
@@ -103,6 +111,7 @@ private:
     RuntimeStatsCollector m_statsCollector;
     std::shared_ptr<PipelineContext> m_pipelineContext;
     std::unique_ptr<ThreadPool> m_threadPool;
+    std::unique_ptr<SchedulingPolicy> m_schedulingPolicy;
     std::size_t m_threadCount = 0;
     std::atomic<bool> m_started{false};
     std::atomic<bool> m_stopFlag{false};

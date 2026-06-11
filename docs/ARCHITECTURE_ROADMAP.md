@@ -222,6 +222,7 @@ Implemented so far:
 - `PipelineBuilder` and YAML graph creation now share one internal graph assembly and validation helper
 - runtime statistics state/snapshot logic now lives in a dedicated `RuntimeStatsCollector`
 - pending `OnAllInputs` join state now lives in a dedicated `JoinStateStore`
+- actor reschedule rules and per-task step budgets now flow through an internal `SchedulingPolicy`
 
 ## 5. v1.0 Expand Runtime Semantics
 
