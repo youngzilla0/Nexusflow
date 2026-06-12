@@ -4,6 +4,7 @@
 #include "base/Graph.hpp"
 
 #include <nexusflow/Module.hpp>
+#include <nexusflow/PipelineConfig.hpp>
 
 #include <cstddef>
 #include <memory>
@@ -29,14 +30,31 @@ struct ExecutionPlan {
     using NodeIndex = std::size_t;
 
     /**
+     * @brief 节点级运行时语义快照。
+     *
+     * 这里保存的是计划生成阶段就已经确定下来的节点运行信息，
+     * 后续运行时物化和调度层都应优先消费这份快照，而不是重新回到图层推导。
+     */
+    struct PlannedNodeRuntimeProfile {
+        PipelineConfig runtimeConfig = PipelineConfig::Default();
+        bool isSourceNode = false;
+        bool statisticsEnabled = false;
+        Module::TriggerPolicy triggerPolicy = Module::TriggerPolicy::Auto;
+        Module::SourcePolicy sourcePolicy = Module::SourcePolicy::Polling;
+        JoinKeyPolicy joinKeyPolicy = JoinKeyPolicy::MessageId;
+        std::size_t idleWaitUs = 0;
+        std::size_t fusionTimeoutMs = 0;
+        std::size_t maxPendingJoinGroups = 0;
+    };
+
+    /**
      * @brief 一条待物化的运行时节点定义。
      */
     struct PlannedModuleNode {
         std::string nodeName;
         std::shared_ptr<GraphNode> graphNode;
         std::shared_ptr<Module> module;
-        Module::TriggerPolicy triggerPolicy = Module::TriggerPolicy::Auto;
-        Module::SourcePolicy sourcePolicy = Module::SourcePolicy::Polling;
+        PlannedNodeRuntimeProfile runtimeProfile;
     };
 
     /**
@@ -57,7 +75,9 @@ struct ExecutionPlan {
      * @param module 节点对应的模块实例。
      * @return 节点在计划中的稳定索引。
      */
-    NodeIndex EnsureNode(const std::shared_ptr<GraphNode>& graphNode, const std::shared_ptr<Module>& module) {
+    NodeIndex EnsureNode(const std::shared_ptr<GraphNode>& graphNode,
+                         const std::shared_ptr<Module>& module,
+                         PlannedNodeRuntimeProfile runtimeProfile) {
         if (!graphNode) {
             throw std::invalid_argument("ExecutionPlan cannot register a null graph node.");
         }
@@ -71,8 +91,7 @@ struct ExecutionPlan {
         }
 
         const auto nodeIndex = moduleNodes.size();
-        moduleNodes.push_back(
-            PlannedModuleNode{graphNode->name, graphNode, module, module->GetTriggerPolicy(), module->GetSourcePolicy()});
+        moduleNodes.push_back(PlannedModuleNode{graphNode->name, graphNode, module, std::move(runtimeProfile)});
         nodeIndexByName.emplace(graphNode->name, nodeIndex);
         return nodeIndex;
     }

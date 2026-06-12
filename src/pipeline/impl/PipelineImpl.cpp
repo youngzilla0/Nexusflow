@@ -47,6 +47,27 @@ std::shared_ptr<Module> CreateModuleForGraphNode(const std::shared_ptr<GraphNode
     }
 }
 
+ExecutionPlan::PlannedNodeRuntimeProfile BuildNodeRuntimeProfile(const std::shared_ptr<Module>& module,
+                                                                 const PipelineConfig& runtimeConfig,
+                                                                 bool statisticsEnabled,
+                                                                 bool isSourceNode) {
+    if (!module) {
+        throw std::runtime_error("Cannot build a runtime profile for a null module.");
+    }
+
+    ExecutionPlan::PlannedNodeRuntimeProfile profile;
+    profile.runtimeConfig = runtimeConfig;
+    profile.statisticsEnabled = statisticsEnabled;
+    profile.triggerPolicy = module->GetTriggerPolicy();
+    profile.sourcePolicy = module->GetSourcePolicy();
+    profile.isSourceNode = isSourceNode;
+    profile.joinKeyPolicy = runtimeConfig.joinKeyPolicy;
+    profile.idleWaitUs = runtimeConfig.idleWaitUs;
+    profile.fusionTimeoutMs = runtimeConfig.fusionTimeoutMs;
+    profile.maxPendingJoinGroups = runtimeConfig.maxPendingJoinGroups;
+    return profile;
+}
+
 } // namespace
 
 ErrorCode Pipeline::Impl::ValidateGraph() const {
@@ -77,6 +98,20 @@ ExecutionPlan Pipeline::Impl::BuildExecutionPlan() const {
     ExecutionPlan plan;
     auto edgeList = graph->ToEdgeListBfs();
     LOG_TRACE("edgeList size: {}", edgeList.size());
+    const bool statisticsEnabled = pipelineContext != nullptr && pipelineContext->IsStatisticsEnabled();
+    std::unordered_map<std::string, std::size_t> incomingEdgeCountByNode;
+
+    for (const auto& edge : edgeList) {
+        auto srcNode = edge.srcNodePtr.lock();
+        auto dstNode = edge.dstNodePtr.lock();
+        if (!srcNode || !dstNode) {
+            throw std::runtime_error("Expired node pointer in graph edge.");
+        }
+        if (incomingEdgeCountByNode.find(srcNode->name) == incomingEdgeCountByNode.end()) {
+            incomingEdgeCountByNode.emplace(srcNode->name, 0);
+        }
+        incomingEdgeCountByNode[dstNode->name] += 1;
+    }
 
     for (const auto& edge : edgeList) {
         auto srcNode = edge.srcNodePtr.lock();
@@ -87,17 +122,25 @@ ExecutionPlan Pipeline::Impl::BuildExecutionPlan() const {
         }
 
         const auto* existingSrcNodeIndex = plan.FindNodeIndex(srcNode->name);
-        const auto srcNodeIndex = existingSrcNodeIndex != nullptr ? *existingSrcNodeIndex
-                                                                  : plan.EnsureNode(srcNode, CreateModuleForGraphNode(srcNode));
+        const auto srcNodeIndex = existingSrcNodeIndex != nullptr ? *existingSrcNodeIndex : [&]() {
+            auto module = CreateModuleForGraphNode(srcNode);
+            const bool isSourceNode = incomingEdgeCountByNode[srcNode->name] == 0;
+            auto runtimeProfile = BuildNodeRuntimeProfile(module, config, statisticsEnabled, isSourceNode);
+            return plan.EnsureNode(srcNode, module, std::move(runtimeProfile));
+        }();
         const auto* existingDstNodeIndex = plan.FindNodeIndex(dstNode->name);
-        const auto dstNodeIndex = existingDstNodeIndex != nullptr ? *existingDstNodeIndex
-                                                                  : plan.EnsureNode(dstNode, CreateModuleForGraphNode(dstNode));
+        const auto dstNodeIndex = existingDstNodeIndex != nullptr ? *existingDstNodeIndex : [&]() {
+            auto module = CreateModuleForGraphNode(dstNode);
+            const bool isSourceNode = incomingEdgeCountByNode[dstNode->name] == 0;
+            auto runtimeProfile = BuildNodeRuntimeProfile(module, config, statisticsEnabled, isSourceNode);
+            return plan.EnsureNode(dstNode, module, std::move(runtimeProfile));
+        }();
         plan.AddQueueBinding(srcNodeIndex,
                              dstNodeIndex,
                              edge.srcPort,
                              edge.dstPort,
                              config.queueSize,
-                             pipelineContext != nullptr && pipelineContext->IsStatisticsEnabled());
+                             statisticsEnabled);
     }
 
     return plan;
@@ -108,7 +151,8 @@ ErrorCode Pipeline::Impl::MaterializeRuntime(const ExecutionPlan& plan) {
     moduleNodes.reserve(plan.moduleNodes.size());
 
     for (const auto& plannedNode : plan.moduleNodes) {
-        moduleNodes.push_back(std::make_shared<ModuleNode>(plannedNode.module, this->config, pipelineContext, executor));
+        moduleNodes.push_back(
+            std::make_shared<ModuleNode>(plannedNode.module, plannedNode.runtimeProfile.runtimeConfig, pipelineContext, executor));
     }
 
     for (const auto& queueBinding : plan.queueBindings) {
