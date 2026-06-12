@@ -3,6 +3,7 @@
 #include <nexusflow/Nexusflow.hpp>
 
 #include <chrono>
+#include <cstddef>
 #include <cstdint>
 #include <iostream>
 #include <string>
@@ -14,8 +15,22 @@ using namespace std::chrono_literals;
 
 namespace {
 
-Message MakeIntMessage(int value, const std::string& sourceName, std::uint64_t messageId) {
-    Message message(value);
+static constexpr std::size_t kDefaultPayloadBytes = 1024 * 1024;
+
+struct SamplePayload {
+    int sequence = 0;
+    std::vector<char> bytes;
+};
+
+Message MakePayloadMessage(int value,
+                           const std::string& sourceName,
+                           std::uint64_t messageId,
+                           std::size_t payloadBytes = kDefaultPayloadBytes) {
+    SamplePayload payload;
+    payload.sequence = value;
+    payload.bytes.resize(payloadBytes, static_cast<char>('A' + (value % 26)));
+
+    Message message(std::move(payload));
     message.MetaData().sourceName = sourceName;
     message.MetaData().messageId = messageId;
     message.MetaData().timestamp = static_cast<std::uint64_t>(
@@ -33,7 +48,7 @@ public:
 
     void SendValue(int value, bool blocking) {
         const auto messageId = ++m_nextMessageId;
-        Broadcast(MakeIntMessage(value, GetModuleName(), messageId), blocking);
+        Broadcast(MakePayloadMessage(value, GetModuleName(), messageId), blocking);
     }
 
 private:
@@ -64,8 +79,8 @@ public:
     }
 
     void Process(const PortInputsView& inputs, PortOutputs&) override {
-        if (const auto* value = inputs.OnlyAs<int>()) {
-            m_values.push_back(*value);
+        if (const auto* payload = inputs.OnlyAs<SamplePayload>()) {
+            m_values.push_back(payload->sequence);
         }
     }
 

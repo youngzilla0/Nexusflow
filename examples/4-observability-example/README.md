@@ -12,6 +12,7 @@ Source -> SlowPass -> Sink
 ```
 
 - `Source` 是手动输入模块，会快速非阻塞发送 8 条消息。
+- 每条消息默认携带一个 `1 MiB` 的 `char` 数组 payload。
 - `SlowPass` 每处理一条消息都会额外 sleep 40ms，用来制造明显的队列堆积。
 - `Sink` 负责收集最终成功处理的消息。
 
@@ -54,3 +55,5 @@ Source:out -> SlowPass:in enqueue=2 drop=6 dequeue=2 peak=2
 - 源模块总共尝试发送了 8 条消息
 - 其中只有 2 条真正进入队列
 - 6 条因为队列已满被直接丢弃
+
+如果你想观察更大的负载，只需要调整 [main.cpp](/Users/yang/Code/Nexusflow/examples/4-observability-example/main.cpp) 里的 `kDefaultPayloadBytes` 即可。
