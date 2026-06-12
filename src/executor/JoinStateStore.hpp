@@ -11,21 +11,54 @@
 
 namespace nexusflow { namespace executor {
 
-// JoinStateStore 负责 OnAllInputs 的临时拼接状态。
-// 它不关心调度，也不关心统计；只负责：
-// - 按 join key 缓存不同输入端口的消息
-// - 淘汰超时 group
-// - 在超过上限时淘汰最老 group
-// - 当一组输入齐全时取出一份可执行输入
+/**
+ * @brief 管理 OnAllInputs 模式下的待拼接输入状态。
+ *
+ * 该类仅负责 join group 的缓存、淘汰与提取，不参与调度或统计逻辑。
+ */
 class JoinStateStore {
 public:
+    /**
+     * @brief 向指定 join group 插入一条输入消息。
+     * @param joinKey 当前消息所属的 join key。
+     * @param inputPortName 当前消息到达的输入端口名。
+     * @param message 要缓存的消息对象。
+     */
     void Insert(std::uint64_t joinKey, const std::string& inputPortName, Message message);
+
+    /**
+     * @brief 淘汰已超时的 pending join group。
+     * @param currentTimeMs 当前时间戳，单位毫秒。
+     * @param fusionTimeoutMs join group 允许保留的最大时长，单位毫秒。
+     * @return 被淘汰的 group 数量。
+     */
     std::size_t EvictExpired(std::uint64_t currentTimeMs, std::uint64_t fusionTimeoutMs);
+
+    /**
+     * @brief 将 pending join group 数量限制在给定上限内。
+     * @param maxPendingJoinGroups 允许保留的最大 group 数量。
+     * @return 因超过上限而被淘汰的 group 数量。
+     */
     std::size_t EnforceLimit(std::size_t maxPendingJoinGroups);
+
+    /**
+     * @brief 尝试提取一组完整的 join 输入。
+     * @param expectedInputPorts 当前模块要求到齐的全部输入端口。
+     * @param inputs 输出参数，用于接收可执行的一组输入。
+     * @return 当存在完整 join group 时返回 true，否则返回 false。
+     */
     bool TakeCompleteInputs(const std::vector<std::string>& expectedInputPorts, std::vector<PortMessage>& inputs);
+
+    /**
+     * @brief 返回当前仍处于 pending 状态的 join group 数量。
+     * @return pending join group 数量。
+     */
     std::uint64_t PendingGroupCount() const;
 
 private:
+    /**
+     * @brief 单个 pending join group 的缓存状态。
+     */
     struct PendingJoinGroup {
         std::unordered_map<std::string, Message> messages;
         std::uint64_t oldestTimestampMs = 0;

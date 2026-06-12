@@ -14,11 +14,23 @@ namespace nexusflow {
 // Forward declarations
 class Pipeline;
 
-// An internal struct to group all runtime components related to a single module.
+/**
+ * @brief Pipeline 内部使用的模块运行时节点名称。
+ */
 using ActorName = std::string;
+
+/**
+ * @brief Pipeline 生命周期列表中使用的模块运行时包装节点类型。
+ *
+ * 这里的 ActorNode 实际上是 ModuleActor 的别名，
+ * 表示“Pipeline 视角下的运行时模块节点”。
+ */
 using ActorNode = ModuleActor;
 
 struct PipelineBuildPlan {
+    /**
+     * @brief 一条待物化的运行时边定义。
+     */
     struct PlannedEdge {
         std::shared_ptr<Node> srcNode;
         std::shared_ptr<Node> dstNode;
@@ -30,7 +42,9 @@ struct PipelineBuildPlan {
     std::vector<PlannedEdge> edges;
 };
 
-// --- Pipeline's Private Implementation (m_pImpl) ---
+/**
+ * @brief Pipeline 的私有实现。
+ */
 class Pipeline::Impl {
 public:
     std::unique_ptr<Graph> graph;

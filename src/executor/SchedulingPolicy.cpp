@@ -1,6 +1,6 @@
 #include "executor/SchedulingPolicy.hpp"
 
-#include <algorithm>
+#include <chrono>
 #include <memory>
 
 namespace nexusflow { namespace executor {
@@ -15,21 +15,53 @@ class DeterministicSingleWorkerPolicy final : public SchedulingPolicy {
 public:
     const char* Name() const override { return "DeterministicSingleWorker"; }
 
-    std::size_t MaxStepsPerTask(const SchedulingContext& context) const override {
-        // 单 worker 时优先保证公平性，避免一个 actor 长时间占住唯一线程。
-        return context.isSourceActor ? kSourceStepsPerTask : kSingleWorkerInputStepsPerTask;
+    TaskExecutionPlan Plan(const SchedulingContext& context) const override {
+        TaskExecutionPlan plan;
+        plan.executionMode = ResolveExecutionMode(context);
+        // 单 worker 场景优先保证公平性，限制单次连续执行步数。
+        plan.maxStepsPerTask = context.isSourceActor ? kSourceStepsPerTask : kSingleWorkerInputStepsPerTask;
+        return plan;
     }
 
-    Module::TriggerPolicy ResolveTriggerPolicy(const SchedulingContext& context) const override {
-        return context.triggerPolicy == Module::TriggerPolicy::Auto ? Module::TriggerPolicy::OnAnyInput : context.triggerPolicy;
+    bool ShouldPrimeActorOnStart(const SchedulingContext& context, bool hasPendingWork) const override {
+        // Polling source 在启动后需要主动进入调度循环。
+        if (context.isSourceActor) {
+            return context.sourcePolicy == Module::SourcePolicy::Polling;
+        }
+        // 普通 actor 仅在存在待处理工作时需要启动即入队。
+        return hasPendingWork;
     }
 
-    bool ShouldReschedule(const SchedulingContext& context) const override {
-        // 单 worker 策略下，只要还有信号或队列里还有活，就尽快回到线程池尾部排队。
+    std::chrono::microseconds IdleBackoff(const SchedulingContext& context,
+                                          const SchedulingFeedback& feedback) const override {
+        if (!context.isSourceActor || context.sourcePolicy != Module::SourcePolicy::Polling) {
+            return std::chrono::microseconds(0);
+        }
+        // 仅在本轮未产生输出时执行退避，以降低空转开销。
+        if (feedback.emittedOutputs || context.idleWaitUs == 0) {
+            return std::chrono::microseconds(0);
+        }
+        return std::chrono::microseconds(context.idleWaitUs);
+    }
+
+    bool ShouldReschedule(const SchedulingContext& context, const SchedulingFeedback& feedback) const override {
+        // 单 worker 策略下，source 保持轮询，其余 actor 按信号或待处理工作续调度。
         if (context.isSourceActor && context.sourcePolicy == Module::SourcePolicy::Polling) {
             return true;
         }
-        return context.hasPendingSignals || context.hasPendingWork;
+        return feedback.hasPendingSignals || feedback.hasPendingWork;
+    }
+
+private:
+    TaskExecutionMode ResolveExecutionMode(const SchedulingContext& context) const {
+        if (context.isSourceActor) {
+            return TaskExecutionMode::Source;
+        }
+        // Auto 当前内部统一映射为 OnAnyInput。
+        const auto triggerPolicy =
+            context.triggerPolicy == Module::TriggerPolicy::Auto ? Module::TriggerPolicy::OnAnyInput : context.triggerPolicy;
+        return triggerPolicy == Module::TriggerPolicy::OnAllInputs ? TaskExecutionMode::OnAllInputs
+                                                                   : TaskExecutionMode::OnAnyInput;
     }
 };
 
@@ -37,20 +69,49 @@ class ThroughputOrientedPolicy final : public SchedulingPolicy {
 public:
     const char* Name() const override { return "ThroughputOriented"; }
 
-    std::size_t MaxStepsPerTask(const SchedulingContext& context) const override {
-        // 多 worker 时允许单次多跑几步，减少频繁入队带来的线程池调度开销。
-        return context.isSourceActor ? kSourceStepsPerTask : kParallelInputStepsPerTask;
+    TaskExecutionPlan Plan(const SchedulingContext& context) const override {
+        TaskExecutionPlan plan;
+        plan.executionMode = ResolveExecutionMode(context);
+        // 多 worker 场景允许更大的步数预算，以降低重复入队开销。
+        plan.maxStepsPerTask = context.isSourceActor ? kSourceStepsPerTask : kParallelInputStepsPerTask;
+        return plan;
     }
 
-    Module::TriggerPolicy ResolveTriggerPolicy(const SchedulingContext& context) const override {
-        return context.triggerPolicy == Module::TriggerPolicy::Auto ? Module::TriggerPolicy::OnAnyInput : context.triggerPolicy;
+    bool ShouldPrimeActorOnStart(const SchedulingContext& context, bool hasPendingWork) const override {
+        if (context.isSourceActor) {
+            return context.sourcePolicy == Module::SourcePolicy::Polling;
+        }
+        return hasPendingWork;
     }
 
-    bool ShouldReschedule(const SchedulingContext& context) const override {
+    std::chrono::microseconds IdleBackoff(const SchedulingContext& context,
+                                          const SchedulingFeedback& feedback) const override {
+        if (!context.isSourceActor || context.sourcePolicy != Module::SourcePolicy::Polling) {
+            return std::chrono::microseconds(0);
+        }
+        if (feedback.emittedOutputs || context.idleWaitUs == 0) {
+            return std::chrono::microseconds(0);
+        }
+        return std::chrono::microseconds(context.idleWaitUs);
+    }
+
+    bool ShouldReschedule(const SchedulingContext& context, const SchedulingFeedback& feedback) const override {
+        // 吞吐优先策略下，source 仍保持持续轮询。
         if (context.isSourceActor && context.sourcePolicy == Module::SourcePolicy::Polling) {
             return true;
         }
-        return context.hasPendingSignals || context.hasPendingWork;
+        return feedback.hasPendingSignals || feedback.hasPendingWork;
+    }
+
+private:
+    TaskExecutionMode ResolveExecutionMode(const SchedulingContext& context) const {
+        if (context.isSourceActor) {
+            return TaskExecutionMode::Source;
+        }
+        const auto triggerPolicy =
+            context.triggerPolicy == Module::TriggerPolicy::Auto ? Module::TriggerPolicy::OnAnyInput : context.triggerPolicy;
+        return triggerPolicy == Module::TriggerPolicy::OnAllInputs ? TaskExecutionMode::OnAllInputs
+                                                                   : TaskExecutionMode::OnAnyInput;
     }
 };
 

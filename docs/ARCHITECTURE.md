@@ -1,5 +1,7 @@
 # NexusFlow Architecture
 
+For a Chinese walkthrough focused on quickly re-familiarizing yourself with the codebase, see [ARCHITECTURE_ZH.md](ARCHITECTURE_ZH.md).
+
 ## 1. Runtime Shape
 
 The current runtime is pipeline-scoped:

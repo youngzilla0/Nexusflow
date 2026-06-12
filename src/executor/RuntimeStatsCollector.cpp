@@ -5,6 +5,13 @@
 
 namespace nexusflow { namespace executor {
 
+/**
+ * @brief 构造一份边级统计状态。
+ * @param srcModuleNameValue 源模块名称。
+ * @param srcPortNameValue 源输出端口名称。
+ * @param dstModuleNameValue 目标模块名称。
+ * @param dstPortNameValue 目标输入端口名称。
+ */
 RuntimeStatsCollector::PortRuntimeStatsState::PortRuntimeStatsState(std::string srcModuleNameValue, std::string srcPortNameValue,
                                                                     std::string dstModuleNameValue, std::string dstPortNameValue)
     : srcModuleName(std::move(srcModuleNameValue)),
@@ -12,6 +19,7 @@ RuntimeStatsCollector::PortRuntimeStatsState::PortRuntimeStatsState(std::string 
       dstModuleName(std::move(dstModuleNameValue)),
       dstPortName(std::move(dstPortNameValue)) {}
 
+/** @brief 记录一次 push 尝试。 */
 void RuntimeStatsCollector::PortRuntimeStatsState::RecordPushAttempt(bool blocking) {
     pushAttempts.fetch_add(1, std::memory_order_relaxed);
     if (blocking) {
@@ -21,6 +29,11 @@ void RuntimeStatsCollector::PortRuntimeStatsState::RecordPushAttempt(bool blocki
     }
 }
 
+/**
+ * @brief 记录一次成功 push，并更新队列深度统计。
+ * @param enqueuedCount 本次成功入队的消息数量。
+ * @param droppedToMakeRoom 为腾出空间而被丢弃的旧消息数量。
+ */
 void RuntimeStatsCollector::PortRuntimeStatsState::RecordPushAccepted(std::size_t enqueuedCount, std::size_t droppedToMakeRoom) {
     enqueueCount.fetch_add(1, std::memory_order_relaxed);
     if (droppedToMakeRoom > 0) {
@@ -40,19 +53,29 @@ void RuntimeStatsCollector::PortRuntimeStatsState::RecordPushAccepted(std::size_
     }
 }
 
+/**
+ * @brief 记录一次主动丢弃。
+ * @param dropCountValue 本次丢弃的消息数量。
+ */
 void RuntimeStatsCollector::PortRuntimeStatsState::RecordPushDropped(std::size_t dropCountValue) {
     dropCount.fetch_add(static_cast<std::uint64_t>(dropCountValue), std::memory_order_relaxed);
 }
 
+/** @brief 记录一次 push 拒绝。 */
 void RuntimeStatsCollector::PortRuntimeStatsState::RecordPushRejected() {
     rejectCount.fetch_add(1, std::memory_order_relaxed);
 }
 
+/** @brief 记录一次 dequeue。 */
 void RuntimeStatsCollector::PortRuntimeStatsState::RecordDequeue() {
     dequeueCount.fetch_add(1, std::memory_order_relaxed);
     depthSubtractions.fetch_add(1, std::memory_order_relaxed);
 }
 
+/**
+ * @brief 生成当前边级统计快照。
+ * @return 当前边级统计快照。
+ */
 PortRuntimeStats RuntimeStatsCollector::PortRuntimeStatsState::Snapshot() const {
     PortRuntimeStats snapshot;
     snapshot.srcModuleName = srcModuleName;
@@ -73,8 +96,16 @@ PortRuntimeStats RuntimeStatsCollector::PortRuntimeStatsState::Snapshot() const 
     return snapshot;
 }
 
+/**
+ * @brief 构造统计聚合器。
+ * @param enabled 是否启用统计。
+ */
 RuntimeStatsCollector::RuntimeStatsCollector(bool enabled) : m_enabled(enabled) {}
 
+/**
+ * @brief 注册一条边的统计状态。
+ * @param stats 边级统计状态对象。
+ */
 void RuntimeStatsCollector::RegisterPortStats(const PortRuntimeStatsStatePtr& stats) {
     if (!m_enabled || stats == nullptr) {
         return;
@@ -90,6 +121,12 @@ void RuntimeStatsCollector::RegisterPortStats(const PortRuntimeStatsStatePtr& st
     }
 }
 
+/**
+ * @brief 注册一个 actor 的统计状态。
+ * @param actorName actor 名称。
+ * @param stats actor 统计状态对象。
+ * @param pendingJoinGroupCountFn 用于查询 pending join group 数量的回调。
+ */
 void RuntimeStatsCollector::RegisterActor(std::string actorName, const ActorRuntimeStatsStatePtr& stats,
                                           PendingJoinGroupCountFn pendingJoinGroupCountFn) {
     if (!m_enabled || stats == nullptr) {
@@ -100,6 +137,10 @@ void RuntimeStatsCollector::RegisterActor(std::string actorName, const ActorRunt
     m_actorRegistrations.push_back(ActorRegistration{std::move(actorName), stats, std::move(pendingJoinGroupCountFn)});
 }
 
+/**
+ * @brief 生成全部边级统计快照。
+ * @return 当前全部边级统计快照列表。
+ */
 std::vector<PortRuntimeStats> RuntimeStatsCollector::SnapshotPorts() const {
     if (!m_enabled) {
         return {};
@@ -117,6 +158,10 @@ std::vector<PortRuntimeStats> RuntimeStatsCollector::SnapshotPorts() const {
     return snapshots;
 }
 
+/**
+ * @brief 生成全部 actor 级统计快照。
+ * @return 当前全部 actor 级统计快照列表。
+ */
 std::vector<ActorRuntimeStats> RuntimeStatsCollector::SnapshotActors() const {
     if (!m_enabled) {
         return {};

@@ -5,6 +5,12 @@
 
 namespace nexusflow { namespace executor {
 
+/**
+ * @brief 向 join 缓存中插入一条输入消息。
+ * @param joinKey 当前消息所属的 join key。
+ * @param inputPortName 当前消息到达的输入端口名称。
+ * @param message 待缓存消息。
+ */
 void JoinStateStore::Insert(std::uint64_t joinKey, const std::string& inputPortName, Message message) {
     std::lock_guard<std::mutex> lock(m_mutex);
 
@@ -21,6 +27,12 @@ void JoinStateStore::Insert(std::uint64_t joinKey, const std::string& inputPortN
     group.messages[inputPortName] = std::move(message);
 }
 
+/**
+ * @brief 淘汰超时的 pending join group。
+ * @param currentTimeMs 当前时间戳，单位毫秒。
+ * @param fusionTimeoutMs 允许保留的最大时长，单位毫秒。
+ * @return 被淘汰的 group 数量。
+ */
 std::size_t JoinStateStore::EvictExpired(std::uint64_t currentTimeMs, std::uint64_t fusionTimeoutMs) {
     std::lock_guard<std::mutex> lock(m_mutex);
 
@@ -37,6 +49,11 @@ std::size_t JoinStateStore::EvictExpired(std::uint64_t currentTimeMs, std::uint6
     return evictedCount;
 }
 
+/**
+ * @brief 将 pending join group 数量限制在给定上限内。
+ * @param maxPendingJoinGroups 允许保留的最大 group 数量。
+ * @return 因超出上限而被淘汰的 group 数量。
+ */
 std::size_t JoinStateStore::EnforceLimit(std::size_t maxPendingJoinGroups) {
     if (maxPendingJoinGroups == 0) {
         return 0;
@@ -64,6 +81,12 @@ std::size_t JoinStateStore::EnforceLimit(std::size_t maxPendingJoinGroups) {
     return evictedCount;
 }
 
+/**
+ * @brief 提取一组完整的 join 输入。
+ * @param expectedInputPorts 当前模块要求到齐的全部输入端口。
+ * @param inputs 输出参数，用于接收可执行的一组输入。
+ * @return 成功提取完整输入组时返回 true。
+ */
 bool JoinStateStore::TakeCompleteInputs(const std::vector<std::string>& expectedInputPorts, std::vector<PortMessage>& inputs) {
     if (expectedInputPorts.empty()) {
         return false;
@@ -92,6 +115,10 @@ bool JoinStateStore::TakeCompleteInputs(const std::vector<std::string>& expected
     return false;
 }
 
+/**
+ * @brief 返回当前 pending join group 数量。
+ * @return 当前 pending group 数量。
+ */
 std::uint64_t JoinStateStore::PendingGroupCount() const {
     std::lock_guard<std::mutex> lock(m_mutex);
     return static_cast<std::uint64_t>(m_pendingJoinGroups.size());

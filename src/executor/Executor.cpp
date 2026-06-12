@@ -12,15 +12,31 @@ namespace nexusflow { namespace executor {
 
 namespace {
 
+/**
+ * @brief 生成输出端口订阅表使用的复合键。
+ * @param actorName 源 actor 名称。
+ * @param outputPortName 源输出端口名称。
+ * @return 由 actor 与输出端口组合而成的唯一字符串键。
+ */
 std::string MakeOutputKey(const std::string& actorName, const std::string& outputPortName) {
     return actorName + "\n" + outputPortName;
 }
 
+/**
+ * @brief 返回当前系统时间戳，单位毫秒。
+ * @return 当前系统时间戳。
+ */
 uint64_t GetCurrentSystemTimeMs() {
     auto now = std::chrono::system_clock::now();
     return std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()).count();
 }
 
+/**
+ * @brief 解析 Executor 实际使用的线程数。
+ * @param configuredThreadCount 用户配置的线程数，0 表示自动推导。
+ * @param actorCount 当前 Pipeline 中的 actor 数量。
+ * @return 最终使用的线程数。
+ */
 std::size_t ResolveThreadCount(std::size_t configuredThreadCount, std::size_t actorCount) {
     (void)actorCount;
     if (configuredThreadCount > 0) {
@@ -32,13 +48,47 @@ std::size_t ResolveThreadCount(std::size_t configuredThreadCount, std::size_t ac
     return std::max<std::size_t>(hardwareThreads, 1);
 }
 
+/**
+ * @brief 在未配置调度策略时构造默认执行计划。
+ * @param context 当前 actor 的调度上下文。
+ * @return 最基础的单轮执行计划。
+ */
+TaskExecutionPlan MakeFallbackExecutionPlan(const SchedulingContext& context) {
+    TaskExecutionPlan plan;
+    if (context.isSourceActor) {
+        plan.executionMode = TaskExecutionMode::Source;
+        plan.maxStepsPerTask = 1;
+        return plan;
+    }
+
+    const auto triggerPolicy =
+        context.triggerPolicy == Module::TriggerPolicy::Auto ? Module::TriggerPolicy::OnAnyInput : context.triggerPolicy;
+    plan.executionMode =
+        triggerPolicy == Module::TriggerPolicy::OnAllInputs ? TaskExecutionMode::OnAllInputs : TaskExecutionMode::OnAnyInput;
+    plan.maxStepsPerTask = 1;
+    return plan;
+}
+
 } // namespace
 
+/**
+ * @brief 构造 Executor。
+ * @param pipelineContext 所属 Pipeline 的共享上下文。
+ */
 Executor::Executor(const std::shared_ptr<PipelineContext>& pipelineContext)
     : m_statsCollector(pipelineContext == nullptr || pipelineContext->IsStatisticsEnabled()), m_pipelineContext(pipelineContext) {}
 
+/**
+ * @brief 析构 Executor。
+ */
 Executor::~Executor() { Stop(); }
 
+/**
+ * @brief 注册一个可调度模块。
+ * @param actorName actor 名称。
+ * @param module 对应的模块实例。
+ * @param runtimeConfig actor 对应的运行时配置。
+ */
 void Executor::RegisterActor(const std::string& actorName, const std::shared_ptr<Module>& module,
                              const PipelineConfig& runtimeConfig) {
     std::lock_guard<std::mutex> lock(m_mutex);
@@ -48,7 +98,7 @@ void Executor::RegisterActor(const std::string& actorName, const std::shared_ptr
         throw std::invalid_argument("Actor with name " + actorName + " already exists");
     }
 
-    auto state = std::make_shared<ActorState>();
+    auto state = std::make_shared<ScheduledActorState>();
     state->actorName = actorName;
     state->module = module;
     state->runtimeConfig = runtimeConfig;
@@ -61,6 +111,13 @@ void Executor::RegisterActor(const std::string& actorName, const std::shared_ptr
         });
 }
 
+/**
+ * @brief 为 actor 注册一个输入队列绑定。
+ * @param actorName 目标 actor 名称。
+ * @param inputPortName 目标输入端口名称。
+ * @param queue 输入消息队列。
+ * @param stats 对应边的统计状态。
+ */
 void Executor::AddInputQueue(const std::string& actorName, const std::string& inputPortName, ViewPtr<MessageQueue> queue,
                              const PortRuntimeStatsStatePtr& stats) {
     std::lock_guard<std::mutex> lock(m_mutex);
@@ -73,6 +130,15 @@ void Executor::AddInputQueue(const std::string& actorName, const std::string& in
     it->second->inputQueues.push_back(InputQueueBinding{inputPortName, queue, stats});
 }
 
+/**
+ * @brief 为 actor 注册一个输出订阅边。
+ * @param actorName 源 actor 名称。
+ * @param outputPortName 源输出端口名称。
+ * @param dstActorName 目标 actor 名称。
+ * @param dstInputPortName 目标输入端口名称。
+ * @param queue 源到目标之间的消息队列。
+ * @param stats 对应边的统计状态。
+ */
 void Executor::AddOutputQueue(const std::string& actorName, const std::string& outputPortName, const std::string& dstActorName,
                               const std::string& dstInputPortName, ViewPtr<MessageQueue> queue,
                               const PortRuntimeStatsStatePtr& stats) {
@@ -94,16 +160,24 @@ void Executor::AddOutputQueue(const std::string& actorName, const std::string& o
     m_statsCollector.RegisterPortStats(portStats);
 }
 
+/** @brief 设置 Executor 的线程数配置。 */
 void Executor::SetThreadCount(std::size_t threadCount) { m_threadCount = threadCount; }
 
+/** @brief 生成全部边级统计快照。 */
 std::vector<PortRuntimeStats> Executor::GetPortStats() const {
     return m_statsCollector.SnapshotPorts();
 }
 
+/** @brief 生成全部 actor 级统计快照。 */
 std::vector<ActorRuntimeStats> Executor::GetActorStats() const {
     return m_statsCollector.SnapshotActors();
 }
 
+/**
+ * @brief 启动 Executor。
+ *
+ * 该函数负责解析线程数、创建线程池、选择调度策略，并提交初始可运行 actor。
+ */
 void Executor::Start() {
     bool expected = false;
     if (!m_started.compare_exchange_strong(expected, true)) {
@@ -112,7 +186,7 @@ void Executor::Start() {
 
     m_stopFlag.store(false, std::memory_order_release);
 
-    std::vector<std::pair<std::string, std::shared_ptr<ActorState>>> actorEntries;
+    std::vector<std::pair<std::string, std::shared_ptr<ScheduledActorState>>> actorEntries;
     {
         std::lock_guard<std::mutex> lock(m_mutex);
         actorEntries.reserve(m_actorStates.size());
@@ -126,15 +200,15 @@ void Executor::Start() {
         m_pipelineContext->SetExecutorThreadCount(resolvedThreadCount);
     }
 
-    // 根据线程数选择内部调度策略：
-    // - 单 worker 更强调公平性，避免一个 actor 长时间霸占唯一线程
-    // - 多 worker 更强调吞吐，允许单次多跑几步减少反复入队
     m_schedulingPolicy = CreateSchedulingPolicy(resolvedThreadCount);
     m_threadPool = std::make_unique<ThreadPool>(resolvedThreadCount);
     m_threadPool->Start();
     PrimeActorsOnStart();
 }
 
+/**
+ * @brief 停止 Executor。
+ */
 void Executor::Stop() {
     bool expected = true;
     if (!m_started.compare_exchange_strong(expected, false)) {
@@ -150,8 +224,11 @@ void Executor::Stop() {
     m_schedulingPolicy.reset();
 }
 
+/**
+ * @brief 在启动阶段提交所有应立即执行的 actor。
+ */
 void Executor::PrimeActorsOnStart() {
-    std::vector<std::shared_ptr<ActorState>> actorStates;
+    std::vector<std::shared_ptr<ScheduledActorState>> actorStates;
     {
         std::lock_guard<std::mutex> lock(m_mutex);
         actorStates.reserve(m_actorStates.size());
@@ -166,13 +243,22 @@ void Executor::PrimeActorsOnStart() {
         }
         state->taskScheduled.store(false, std::memory_order_release);
         state->pendingRunSignals.store(0, std::memory_order_release);
-        if (HasPendingWork(state)) {
+        const auto schedulingContext = BuildSchedulingContext(*state);
+        const bool hasPendingWork = HasPendingWork(state);
+        const bool shouldPrime =
+            m_schedulingPolicy ? m_schedulingPolicy->ShouldPrimeActorOnStart(schedulingContext, hasPendingWork)
+                               : hasPendingWork;
+        if (shouldPrime) {
             NotifyActorReady(state);
         }
     }
 }
 
-void Executor::SubmitActorTask(const std::shared_ptr<ActorState>& state) {
+/**
+ * @brief 将 actor 提交给线程池执行。
+ * @param state 目标 actor 的调度状态。
+ */
+void Executor::SubmitActorTask(const std::shared_ptr<ScheduledActorState>& state) {
     if (!state || !m_threadPool || !m_started.load(std::memory_order_acquire) ||
         m_stopFlag.load(std::memory_order_acquire)) {
         return;
@@ -186,7 +272,11 @@ void Executor::SubmitActorTask(const std::shared_ptr<ActorState>& state) {
     m_threadPool->Submit([this, state]() { RunActorTask(state); });
 }
 
-void Executor::NotifyActorReady(const std::shared_ptr<ActorState>& state) {
+/**
+ * @brief 标记 actor 就绪，并在必要时触发任务提交。
+ * @param state 目标 actor 的调度状态。
+ */
+void Executor::NotifyActorReady(const std::shared_ptr<ScheduledActorState>& state) {
     if (!state) {
         return;
     }
@@ -194,11 +284,32 @@ void Executor::NotifyActorReady(const std::shared_ptr<ActorState>& state) {
     SubmitActorTask(state);
 }
 
+/** @brief 返回统计是否启用。 */
 bool Executor::StatisticsEnabled() const {
     return m_pipelineContext == nullptr || m_pipelineContext->IsStatisticsEnabled();
 }
 
-std::uint64_t Executor::ResolveJoinKey(const ActorState& state, const Message& message) const {
+/**
+ * @brief 构造调度策略使用的上下文对象。
+ * @param state 当前 actor 的调度状态。
+ * @return 当前 actor 的调度上下文。
+ */
+SchedulingContext Executor::BuildSchedulingContext(const ScheduledActorState& state) const {
+    SchedulingContext context;
+    context.isSourceActor = state.inputQueues.empty();
+    context.sourcePolicy = state.module != nullptr ? state.module->GetSourcePolicy() : Module::SourcePolicy::Polling;
+    context.triggerPolicy = state.module != nullptr ? state.module->GetTriggerPolicy() : Module::TriggerPolicy::Auto;
+    context.idleWaitUs = state.runtimeConfig.idleWaitUs;
+    return context;
+}
+
+/**
+ * @brief 根据 actor 配置解析消息 join key。
+ * @param state 当前 actor 的调度状态。
+ * @param message 待解析消息。
+ * @return 当前消息对应的 join key。
+ */
+std::uint64_t Executor::ResolveJoinKey(const ScheduledActorState& state, const Message& message) const {
     switch (state.runtimeConfig.joinKeyPolicy) {
         case JoinKeyPolicy::Timestamp: return message.GetMetaData().timestamp;
         case JoinKeyPolicy::MessageId:
@@ -206,7 +317,12 @@ std::uint64_t Executor::ResolveJoinKey(const ActorState& state, const Message& m
     }
 }
 
-bool Executor::HasPendingWork(const std::shared_ptr<ActorState>& state) const {
+/**
+ * @brief 判断当前 actor 是否仍有待处理工作。
+ * @param state 当前 actor 的调度状态。
+ * @return 若仍有工作可继续处理，则返回 true。
+ */
+bool Executor::HasPendingWork(const std::shared_ptr<ScheduledActorState>& state) const {
     if (!state) {
         return false;
     }
@@ -222,40 +338,54 @@ bool Executor::HasPendingWork(const std::shared_ptr<ActorState>& state) const {
     return false;
 }
 
-void Executor::RunActorTask(const std::shared_ptr<ActorState>& state) {
+/**
+ * @brief 执行 actor 的一轮任务。
+ * @param state 当前 actor 的调度状态。
+ *
+ * 该函数负责：
+ * - 生成单轮执行计划
+ * - 按步数预算执行 source / OnAnyInput / OnAllInputs 逻辑
+ * - 汇总执行反馈
+ * - 依据调度策略决定是否续调度
+ */
+void Executor::RunActorTask(const std::shared_ptr<ScheduledActorState>& state) {
     if (!state || !state->module) {
         LOG_ERROR("Invalid actor state for '{}'", state ? state->actorName : std::string("<null>"));
         return;
     }
 
-    // 这个计数表示“本轮执行开始前已经收到多少次 ready 信号”。
-    // 先清零，后续若执行过程中又来了新信号，ShouldReschedule 会把它们捞起来。
     state->pendingRunSignals.store(0, std::memory_order_release);
 
-    SchedulingContext schedulingContext;
-    schedulingContext.isSourceActor = state->inputQueues.empty();
-    schedulingContext.sourcePolicy = state->module->GetSourcePolicy();
-    schedulingContext.triggerPolicy = state->module->GetTriggerPolicy();
+    const auto schedulingContext = BuildSchedulingContext(*state);
+    const auto executionPlan =
+        m_schedulingPolicy ? m_schedulingPolicy->Plan(schedulingContext) : MakeFallbackExecutionPlan(schedulingContext);
 
-    const auto maxStepsPerTask =
-        m_schedulingPolicy ? m_schedulingPolicy->MaxStepsPerTask(schedulingContext) : std::size_t{1};
+    SchedulingFeedback feedback;
 
-    if (schedulingContext.isSourceActor) {
-        for (std::size_t step = 0; step < maxStepsPerTask && !m_stopFlag.load(std::memory_order_acquire); ++step) {
-            if (!RunSourceStep(state)) {
-                break;
-            }
+    for (std::size_t step = 0; step < executionPlan.maxStepsPerTask && !m_stopFlag.load(std::memory_order_acquire); ++step) {
+        StepResult stepResult;
+        switch (executionPlan.executionMode) {
+            case TaskExecutionMode::Source: stepResult = RunSourceStep(state); break;
+            case TaskExecutionMode::OnAllInputs: stepResult = RunOnAllInputsStep(state); break;
+            case TaskExecutionMode::OnAnyInput:
+            default: stepResult = RunOnAnyInputStep(state); break;
         }
-    } else {
-        auto triggerPolicy = m_schedulingPolicy ? m_schedulingPolicy->ResolveTriggerPolicy(schedulingContext)
-                                                : Module::TriggerPolicy::OnAnyInput;
 
-        for (std::size_t step = 0; step < maxStepsPerTask && !m_stopFlag.load(std::memory_order_acquire); ++step) {
-            bool didWork =
-                triggerPolicy == Module::TriggerPolicy::OnAllInputs ? RunOnAllInputsStep(state) : RunOnAnyInputStep(state);
-            if (!didWork) {
-                break;
-            }
+        if (!stepResult.madeProgress) {
+            feedback.stoppedByNoWork = true;
+            break;
+        }
+
+        feedback.completedSteps += 1;
+        feedback.madeProgress = true;
+        feedback.emittedOutputs = feedback.emittedOutputs || stepResult.emittedOutputs;
+    }
+
+    if (!m_stopFlag.load(std::memory_order_acquire)) {
+        const auto idleBackoff = m_schedulingPolicy ? m_schedulingPolicy->IdleBackoff(schedulingContext, feedback)
+                                                    : std::chrono::microseconds(schedulingContext.idleWaitUs);
+        if (idleBackoff.count() > 0) {
+            std::this_thread::sleep_for(idleBackoff);
         }
     }
 
@@ -264,37 +394,42 @@ void Executor::RunActorTask(const std::shared_ptr<ActorState>& state) {
         return;
     }
 
-    schedulingContext.hasPendingSignals = state->pendingRunSignals.load(std::memory_order_acquire) > 0;
-    schedulingContext.hasPendingWork = HasPendingWork(state);
-    const bool needsReschedule = m_schedulingPolicy ? m_schedulingPolicy->ShouldReschedule(schedulingContext)
-                                                    : schedulingContext.hasPendingSignals || schedulingContext.hasPendingWork;
+    feedback.hasPendingSignals = state->pendingRunSignals.load(std::memory_order_acquire) > 0;
+    feedback.hasPendingWork = HasPendingWork(state);
+    const bool needsReschedule = m_schedulingPolicy ? m_schedulingPolicy->ShouldReschedule(schedulingContext, feedback)
+                                                    : feedback.hasPendingSignals || feedback.hasPendingWork;
     if (needsReschedule) {
         SubmitActorTask(state);
     }
 }
 
-bool Executor::RunSourceStep(const std::shared_ptr<ActorState>& state) {
-    // Source actor 没有输入，只是周期性调用 Module::Process，让模块自己决定这轮要不要产出数据。
+/**
+ * @brief 执行 source actor 的单个 step。
+ * @param state 当前 actor 的调度状态。
+ * @return 当前 step 的执行结果。
+ */
+Executor::StepResult Executor::RunSourceStep(const std::shared_ptr<ScheduledActorState>& state) {
     std::vector<PortMessage> inputs;
     PortInputsView inputView(inputs);
     PortOutputs outputs;
     state->module->Process(inputView, outputs);
+    const bool emittedOutputs = !outputs.Empty();
     if (StatisticsEnabled() && state->runtimeStats != nullptr) {
         state->runtimeStats->processCount.fetch_add(1, std::memory_order_relaxed);
     }
     DispatchOutputs(state->actorName, outputs);
-
-    if (outputs.Empty() && state->runtimeConfig.idleWaitUs > 0) {
-        std::this_thread::sleep_for(std::chrono::microseconds(state->runtimeConfig.idleWaitUs));
-    }
-    return true;
+    return StepResult{true, emittedOutputs};
 }
 
-bool Executor::RunOnAnyInputStep(const std::shared_ptr<ActorState>& state) {
-    // OnAnyInput：从任一非空输入端口取一条消息，立刻执行一次 module。
+/**
+ * @brief 执行 OnAnyInput actor 的单个 step。
+ * @param state 当前 actor 的调度状态。
+ * @return 当前 step 的执行结果。
+ */
+Executor::StepResult Executor::RunOnAnyInputStep(const std::shared_ptr<ScheduledActorState>& state) {
     PortMessage portMessage;
     if (!TryPopAnyInput(state, portMessage)) {
-        return false;
+        return StepResult{};
     }
 
     std::vector<PortMessage> inputs;
@@ -303,16 +438,20 @@ bool Executor::RunOnAnyInputStep(const std::shared_ptr<ActorState>& state) {
     PortInputsView inputView(inputs);
     PortOutputs outputs;
     state->module->Process(inputView, outputs);
+    const bool emittedOutputs = !outputs.Empty();
     if (StatisticsEnabled() && state->runtimeStats != nullptr) {
         state->runtimeStats->processCount.fetch_add(1, std::memory_order_relaxed);
     }
     DispatchOutputs(state->actorName, outputs);
-    return true;
+    return StepResult{true, emittedOutputs};
 }
 
-bool Executor::RunOnAllInputsStep(const std::shared_ptr<ActorState>& state) {
-    // OnAllInputs：先尽量把各输入端口的消息放进 join store，
-    // 再尝试取出一组“所有端口都到齐”的 inputs 执行一次 module。
+/**
+ * @brief 执行 OnAllInputs actor 的单个 step。
+ * @param state 当前 actor 的调度状态。
+ * @return 当前 step 的执行结果。
+ */
+Executor::StepResult Executor::RunOnAllInputsStep(const std::shared_ptr<ScheduledActorState>& state) {
     bool receivedInput = false;
     const bool statisticsEnabled = StatisticsEnabled();
 
@@ -351,27 +490,33 @@ bool Executor::RunOnAllInputsStep(const std::shared_ptr<ActorState>& state) {
         expectedInputPorts.push_back(inputQueue.inputPortName);
     }
     if (!state->joinState.TakeCompleteInputs(expectedInputPorts, inputs)) {
-        return receivedInput;
+        return StepResult{receivedInput, false};
     }
 
     PortInputsView inputView(inputs);
     PortOutputs outputs;
     state->module->Process(inputView, outputs);
+    const bool emittedOutputs = !outputs.Empty();
     if (statisticsEnabled && state->runtimeStats != nullptr) {
         state->runtimeStats->processCount.fetch_add(1, std::memory_order_relaxed);
     }
     DispatchOutputs(state->actorName, outputs);
-    return true;
+    return StepResult{true, emittedOutputs};
 }
 
-bool Executor::TryPopAnyInput(const std::shared_ptr<ActorState>& state, PortMessage& portMessage) {
+/**
+ * @brief 从任一输入端口提取一条消息。
+ * @param state 当前 actor 的调度状态。
+ * @param portMessage 输出参数，用于接收提取到的端口消息。
+ * @return 成功提取一条消息时返回 true。
+ */
+bool Executor::TryPopAnyInput(const std::shared_ptr<ScheduledActorState>& state, PortMessage& portMessage) {
     if (state->inputQueues.empty()) {
         return false;
     }
 
     const std::size_t queueCount = state->inputQueues.size();
     const bool statisticsEnabled = StatisticsEnabled();
-    // 轮转扫描输入端口，避免一直优先消费第一个端口造成偏斜。
     for (std::size_t offset = 0; offset < queueCount; ++offset) {
         auto index = (state->nextInputIndex + offset) % queueCount;
         auto& inputQueue = state->inputQueues[index];
@@ -394,8 +539,12 @@ bool Executor::TryPopAnyInput(const std::shared_ptr<ActorState>& state, PortMess
     return false;
 }
 
+/**
+ * @brief 分发模块本轮产生的全部输出。
+ * @param actorName 源 actor 名称。
+ * @param outputs 模块产生的输出集合。
+ */
 void Executor::DispatchOutputs(const std::string& actorName, PortOutputs& outputs) {
-    // 先记统计，再真正把 outputs 分发到下游。
     if (StatisticsEnabled()) {
         auto actorIt = m_actorStates.find(actorName);
         if (actorIt != m_actorStates.end() && actorIt->second->runtimeStats != nullptr) {
@@ -415,6 +564,12 @@ void Executor::DispatchOutputs(const std::string& actorName, PortOutputs& output
     }
 }
 
+/**
+ * @brief 将一条广播消息分发给全部下游订阅者。
+ * @param actorName 源 actor 名称。
+ * @param message 待分发消息。
+ * @param blocking 是否采用阻塞推送。
+ */
 void Executor::Emit(const std::string& actorName, const Message& message, bool blocking) {
     auto it = m_broadcastSubscribers.find(actorName);
     if (it == m_broadcastSubscribers.end()) {
@@ -426,6 +581,13 @@ void Executor::Emit(const std::string& actorName, const Message& message, bool b
     }
 }
 
+/**
+ * @brief 将一条路由消息分发给指定输出端口的全部订阅者。
+ * @param actorName 源 actor 名称。
+ * @param outputPortName 源输出端口名称。
+ * @param message 待分发消息。
+ * @param blocking 是否采用阻塞推送。
+ */
 void Executor::Route(const std::string& actorName, const std::string& outputPortName, const Message& message, bool blocking) {
     auto it = m_outputSubscribers.find(MakeOutputKey(actorName, outputPortName));
     if (it == m_outputSubscribers.end()) {
@@ -437,6 +599,12 @@ void Executor::Route(const std::string& actorName, const std::string& outputPort
     }
 }
 
+/**
+ * @brief 将一条消息投递给单个下游订阅者。
+ * @param subscriber 目标订阅边。
+ * @param message 待投递消息。
+ * @param blocking 是否采用阻塞推送。
+ */
 void Executor::DispatchToSubscriber(const OutputSubscriber& subscriber, const Message& message, bool blocking) {
     const bool statisticsEnabled = StatisticsEnabled();
     if (statisticsEnabled && subscriber.stats != nullptr) {
@@ -444,7 +612,6 @@ void Executor::DispatchToSubscriber(const OutputSubscriber& subscriber, const Me
     }
 
     if (blocking) {
-        // blocking 模式下直接等队列接受或关闭。
         auto status = subscriber.queue->PushWithStatus(message);
         if (status == MessageQueue::PushStatus::Success) {
             if (statisticsEnabled && subscriber.stats != nullptr) {
@@ -463,7 +630,6 @@ void Executor::DispatchToSubscriber(const OutputSubscriber& subscriber, const Me
     }
 
     if (queueFullPolicy == QueueFullPolicy::DropHead) {
-        // DropHead：队列满时丢最老的，尽量保留最新数据。
         auto result = subscriber.queue->TryPushDropHead(message);
         if (result.status == MessageQueue::PushStatus::Success) {
             if (statisticsEnabled && subscriber.stats != nullptr) {
@@ -480,7 +646,6 @@ void Executor::DispatchToSubscriber(const OutputSubscriber& subscriber, const Me
         return;
     }
 
-    // 默认 DropTail：队列满时丢当前这条新消息，保留队列中的旧数据。
     auto status = subscriber.queue->TryPushWithStatus(message);
     if (status == MessageQueue::PushStatus::Success) {
         if (statisticsEnabled && subscriber.stats != nullptr) {

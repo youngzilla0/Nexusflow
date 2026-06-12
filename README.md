@@ -9,6 +9,10 @@ The current runtime model is:
 - data flows through bounded `MessageQueue`s
 - module business code uses ports, not raw queues
 
+## Architecture Docs
+
+- 中文架构说明: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
+
 ## What Changed
 
 The project now uses a port-oriented processing API instead of `Process(Message&)` plus implicit join behavior.
