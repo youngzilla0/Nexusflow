@@ -76,15 +76,7 @@ Executor::Executor(const std::shared_ptr<PipelineContext>& pipelineContext)
               return QueueFullPolicy::DropTail;
           },
           [this](const std::string& nodeName) {
-              std::shared_ptr<ScheduledActorState> state;
-              {
-                  std::lock_guard<std::mutex> lock(m_mutex);
-                  auto it = m_actorStates.find(nodeName);
-                  if (it != m_actorStates.end()) {
-                      state = it->second;
-                  }
-              }
-              NotifyActorReady(state);
+              NotifyNodeReady(m_nodeRegistry.Find(nodeName));
           }),
       m_pipelineContext(pipelineContext) {}
 
@@ -101,24 +93,7 @@ Executor::~Executor() { Stop(); }
  */
 void Executor::RegisterNode(const std::string& actorName, const std::shared_ptr<Module>& module,
                              const PipelineConfig& runtimeConfig) {
-    std::lock_guard<std::mutex> lock(m_mutex);
-
-    if (m_actorStates.find(actorName) != m_actorStates.end()) {
-        LOG_ERROR("Actor with name '{}' already exists", actorName);
-        throw std::invalid_argument("Actor with name " + actorName + " already exists");
-    }
-
-    auto state = std::make_shared<ScheduledActorState>();
-    state->nodeName = actorName;
-    state->module = module;
-    state->runtimeConfig = runtimeConfig;
-    auto actorState = state;
-    m_actorStates.emplace(actorName, std::move(state));
-    m_statsCollector.RegisterNode(
-        actorName, actorState->stats,
-        [state = std::move(actorState)]() -> std::uint64_t {
-            return state->joinState.PendingGroupCount();
-        });
+    m_nodeRegistry.RegisterNode(actorName, module, runtimeConfig, m_statsCollector);
 }
 
 /**
@@ -130,14 +105,7 @@ void Executor::RegisterNode(const std::string& actorName, const std::shared_ptr<
  */
 void Executor::AddInputQueue(const std::string& actorName, const std::string& inputPortName, ViewPtr<MessageQueue> queue,
                              const PortStatsStatePtr& stats) {
-    std::lock_guard<std::mutex> lock(m_mutex);
-
-    auto it = m_actorStates.find(actorName);
-    if (it == m_actorStates.end()) {
-        throw std::invalid_argument("Unknown actor " + actorName);
-    }
-
-    it->second->inputQueues.push_back(InputQueueBinding{inputPortName, queue, stats});
+    m_nodeRegistry.AddInputQueue(actorName, inputPortName, queue, stats);
 }
 
 /**
@@ -152,15 +120,12 @@ void Executor::AddInputQueue(const std::string& actorName, const std::string& in
 void Executor::AddOutputQueue(const std::string& actorName, const std::string& outputPortName, const std::string& dstActorName,
                               const std::string& dstInputPortName, ViewPtr<MessageQueue> queue,
                               const PortStatsStatePtr& stats) {
-    std::lock_guard<std::mutex> lock(m_mutex);
-
     auto portStats = StatisticsEnabled() ? stats : nullptr;
     if (StatisticsEnabled() && portStats == nullptr) {
         portStats = std::make_shared<PortStatsState>(actorName, outputPortName, dstActorName, dstInputPortName);
     }
 
-    auto dstIt = m_actorStates.find(dstActorName);
-    if (dstIt == m_actorStates.end()) {
+    if (m_nodeRegistry.Find(dstActorName) == nullptr) {
         throw std::invalid_argument("Unknown actor " + dstActorName);
     }
 
@@ -194,16 +159,7 @@ void Executor::Start() {
 
     m_stopFlag.store(false, std::memory_order_release);
 
-    std::vector<std::pair<std::string, std::shared_ptr<ScheduledActorState>>> actorEntries;
-    {
-        std::lock_guard<std::mutex> lock(m_mutex);
-        actorEntries.reserve(m_actorStates.size());
-        for (const auto& pair : m_actorStates) {
-            actorEntries.push_back(pair);
-        }
-    }
-
-    auto resolvedThreadCount = ResolveThreadCount(m_threadCount, actorEntries.size());
+    auto resolvedThreadCount = ResolveThreadCount(m_threadCount, m_nodeRegistry.Size());
     if (m_pipelineContext != nullptr) {
         m_pipelineContext->SetExecutorThreadCount(resolvedThreadCount);
     }
@@ -211,7 +167,7 @@ void Executor::Start() {
     m_schedulingPolicy = CreateSchedulingPolicy(resolvedThreadCount);
     m_threadPool = std::make_unique<ThreadPool>(resolvedThreadCount);
     m_threadPool->Start();
-    PrimeActorsOnStart();
+    PrimeNodesOnStart();
 }
 
 /**
@@ -235,17 +191,10 @@ void Executor::Stop() {
 /**
  * @brief 在启动阶段提交所有应立即执行的 actor。
  */
-void Executor::PrimeActorsOnStart() {
-    std::vector<std::shared_ptr<ScheduledActorState>> actorStates;
-    {
-        std::lock_guard<std::mutex> lock(m_mutex);
-        actorStates.reserve(m_actorStates.size());
-        for (const auto& item : m_actorStates) {
-            actorStates.push_back(item.second);
-        }
-    }
+void Executor::PrimeNodesOnStart() {
+    auto nodeStates = m_nodeRegistry.SnapshotStates();
 
-    for (const auto& state : actorStates) {
+    for (const auto& state : nodeStates) {
         if (!state) {
             continue;
         }
@@ -257,7 +206,7 @@ void Executor::PrimeActorsOnStart() {
             m_schedulingPolicy ? m_schedulingPolicy->ShouldPrimeActorOnStart(schedulingContext, hasPendingWork)
                                : hasPendingWork;
         if (shouldPrime) {
-            NotifyActorReady(state);
+            NotifyNodeReady(state);
         }
     }
 }
@@ -266,7 +215,7 @@ void Executor::PrimeActorsOnStart() {
  * @brief 将 actor 提交给线程池执行。
  * @param state 目标 actor 的调度状态。
  */
-void Executor::SubmitActorTask(const std::shared_ptr<ScheduledActorState>& state) {
+void Executor::SubmitNodeTask(const NodeRegistry::NodeStatePtr& state) {
     if (!state || !m_threadPool || !m_started.load(std::memory_order_acquire) ||
         m_stopFlag.load(std::memory_order_acquire)) {
         return;
@@ -277,19 +226,19 @@ void Executor::SubmitActorTask(const std::shared_ptr<ScheduledActorState>& state
         return;
     }
 
-    m_threadPool->Submit([this, state]() { RunActorTask(state); });
+    m_threadPool->Submit([this, state]() { RunNodeTask(state); });
 }
 
 /**
  * @brief 标记 actor 就绪，并在必要时触发任务提交。
  * @param state 目标 actor 的调度状态。
  */
-void Executor::NotifyActorReady(const std::shared_ptr<ScheduledActorState>& state) {
+void Executor::NotifyNodeReady(const NodeRegistry::NodeStatePtr& state) {
     if (!state) {
         return;
     }
     state->pendingRunSignals.fetch_add(1, std::memory_order_relaxed);
-    SubmitActorTask(state);
+    SubmitNodeTask(state);
 }
 
 /** @brief 返回统计是否启用。 */
@@ -302,7 +251,7 @@ bool Executor::StatisticsEnabled() const {
  * @param state 当前 actor 的调度状态。
  * @return 当前 actor 的调度上下文。
  */
-SchedulingContext Executor::BuildSchedulingContext(const ScheduledActorState& state) const {
+SchedulingContext Executor::BuildSchedulingContext(const NodeRegistry::NodeState& state) const {
     SchedulingContext context;
     context.isSourceActor = state.inputQueues.empty();
     context.sourcePolicy = state.module != nullptr ? state.module->GetSourcePolicy() : Module::SourcePolicy::Polling;
@@ -317,7 +266,7 @@ SchedulingContext Executor::BuildSchedulingContext(const ScheduledActorState& st
  * @param message 待解析消息。
  * @return 当前消息对应的 join key。
  */
-std::uint64_t Executor::ResolveJoinKey(const ScheduledActorState& state, const Message& message) const {
+std::uint64_t Executor::ResolveJoinKey(const NodeRegistry::NodeState& state, const Message& message) const {
     switch (state.runtimeConfig.joinKeyPolicy) {
         case JoinKeyPolicy::Timestamp: return message.GetMetaData().timestamp;
         case JoinKeyPolicy::MessageId:
@@ -330,7 +279,7 @@ std::uint64_t Executor::ResolveJoinKey(const ScheduledActorState& state, const M
  * @param state 当前 actor 的调度状态。
  * @return 若仍有工作可继续处理，则返回 true。
  */
-bool Executor::HasPendingWork(const std::shared_ptr<ScheduledActorState>& state) const {
+bool Executor::HasPendingWork(const NodeRegistry::NodeStatePtr& state) const {
     if (!state) {
         return false;
     }
@@ -356,9 +305,9 @@ bool Executor::HasPendingWork(const std::shared_ptr<ScheduledActorState>& state)
  * - 汇总执行反馈
  * - 依据调度策略决定是否续调度
  */
-void Executor::RunActorTask(const std::shared_ptr<ScheduledActorState>& state) {
+void Executor::RunNodeTask(const NodeRegistry::NodeStatePtr& state) {
     if (!state || !state->module) {
-        LOG_ERROR("Invalid actor state for '{}'", state ? state->nodeName : std::string("<null>"));
+        LOG_ERROR("Invalid node state for '{}'", state ? state->nodeName : std::string("<null>"));
         return;
     }
 
@@ -407,7 +356,7 @@ void Executor::RunActorTask(const std::shared_ptr<ScheduledActorState>& state) {
     const bool needsReschedule = m_schedulingPolicy ? m_schedulingPolicy->ShouldReschedule(schedulingContext, feedback)
                                                     : feedback.hasPendingSignals || feedback.hasPendingWork;
     if (needsReschedule) {
-        SubmitActorTask(state);
+        SubmitNodeTask(state);
     }
 }
 
@@ -416,7 +365,7 @@ void Executor::RunActorTask(const std::shared_ptr<ScheduledActorState>& state) {
  * @param state 当前 actor 的调度状态。
  * @return 当前 step 的执行结果。
  */
-Executor::StepResult Executor::RunSourceStep(const std::shared_ptr<ScheduledActorState>& state) {
+Executor::StepResult Executor::RunSourceStep(const NodeRegistry::NodeStatePtr& state) {
     std::vector<PortMessage> inputs;
     PortInputsView inputView(inputs);
     PortOutputs outputs;
@@ -434,7 +383,7 @@ Executor::StepResult Executor::RunSourceStep(const std::shared_ptr<ScheduledActo
  * @param state 当前 actor 的调度状态。
  * @return 当前 step 的执行结果。
  */
-Executor::StepResult Executor::RunOnAnyInputStep(const std::shared_ptr<ScheduledActorState>& state) {
+Executor::StepResult Executor::RunOnAnyInputStep(const NodeRegistry::NodeStatePtr& state) {
     PortMessage portMessage;
     if (!TryPopAnyInput(state, portMessage)) {
         return StepResult{};
@@ -459,7 +408,7 @@ Executor::StepResult Executor::RunOnAnyInputStep(const std::shared_ptr<Scheduled
  * @param state 当前 actor 的调度状态。
  * @return 当前 step 的执行结果。
  */
-Executor::StepResult Executor::RunOnAllInputsStep(const std::shared_ptr<ScheduledActorState>& state) {
+Executor::StepResult Executor::RunOnAllInputsStep(const NodeRegistry::NodeStatePtr& state) {
     bool receivedInput = false;
     const bool statisticsEnabled = StatisticsEnabled();
 
@@ -518,7 +467,7 @@ Executor::StepResult Executor::RunOnAllInputsStep(const std::shared_ptr<Schedule
  * @param portMessage 输出参数，用于接收提取到的端口消息。
  * @return 成功提取一条消息时返回 true。
  */
-bool Executor::TryPopAnyInput(const std::shared_ptr<ScheduledActorState>& state, PortMessage& portMessage) {
+bool Executor::TryPopAnyInput(const NodeRegistry::NodeStatePtr& state, PortMessage& portMessage) {
     if (state->inputQueues.empty()) {
         return false;
     }
@@ -554,12 +503,12 @@ bool Executor::TryPopAnyInput(const std::shared_ptr<ScheduledActorState>& state,
  */
 void Executor::DispatchOutputs(const std::string& actorName, PortOutputs& outputs) {
     if (StatisticsEnabled()) {
-        auto actorIt = m_actorStates.find(actorName);
-        if (actorIt != m_actorStates.end() && actorIt->second->stats != nullptr) {
-            actorIt->second->stats->emittedBroadcastCount.fetch_add(
+        auto nodeState = m_nodeRegistry.Find(actorName);
+        if (nodeState != nullptr && nodeState->stats != nullptr) {
+            nodeState->stats->emittedBroadcastCount.fetch_add(
                 static_cast<std::uint64_t>(outputs.m_broadcasts.size()), std::memory_order_relaxed);
-            actorIt->second->stats->emittedRouteCount.fetch_add(static_cast<std::uint64_t>(outputs.m_routes.size()),
-                                                                       std::memory_order_relaxed);
+            nodeState->stats->emittedRouteCount.fetch_add(static_cast<std::uint64_t>(outputs.m_routes.size()),
+                                                          std::memory_order_relaxed);
         }
     }
 

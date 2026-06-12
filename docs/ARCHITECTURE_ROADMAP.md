@@ -139,7 +139,7 @@ Implemented so far:
 
 ## 4. v0.5 Decouple Runtime Components
 
-Status: partially implemented on branch/tag `v0.5-runtime-semantics`
+Status: implemented on branch/tag `v0.5-runtime-semantics`
 
 ### 4.1 Goal
 
@@ -223,6 +223,9 @@ Implemented so far:
 - runtime statistics state/snapshot logic now lives in a dedicated `Statistics`
 - pending `OnAllInputs` join state now lives in a dedicated `JoinStateStore`
 - actor reschedule rules and per-task step budgets now flow through an internal `SchedulingPolicy`
+- output subscriber tables and edge dispatch logic now live in a dedicated `PortRouter`
+- node runtime registration, input bindings, and state lookup now live in a dedicated `NodeRegistry`
+- `Executor` now primarily acts as a scheduling facade over `NodeRegistry`, `PortRouter`, `JoinStateStore`, `SchedulingPolicy`, and `Statistics`
 
 ## 5. v1.0 Expand Runtime Semantics
 

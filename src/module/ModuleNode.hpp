@@ -16,7 +16,7 @@ namespace nexusflow {
  * - 作为 Pipeline 生命周期中的模块节点包装对象存在
  *
  * 当前代码中它更接近“运行时模块句柄”，而不是独立调度状态本体。
- * 真正由 Executor 调度的内部状态位于 Executor::ScheduledActorState。
+ * 真正由 Executor 调度的内部状态位于 NodeRegistry::NodeState。
  */
 class ModuleNode {
 public:
