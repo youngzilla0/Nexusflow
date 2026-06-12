@@ -78,7 +78,6 @@ ExecutionPlan Pipeline::Impl::BuildExecutionPlan() const {
     auto edgeList = graph->ToEdgeListBfs();
     LOG_TRACE("edgeList size: {}", edgeList.size());
 
-    std::unordered_map<std::string, std::shared_ptr<GraphNode>> orderedNodes;
     for (const auto& edge : edgeList) {
         auto srcNode = edge.srcNodePtr.lock();
         auto dstNode = edge.dstNodePtr.lock();
@@ -87,96 +86,56 @@ ExecutionPlan Pipeline::Impl::BuildExecutionPlan() const {
             throw std::runtime_error("Expired node pointer in graph edge.");
         }
 
-        if (orderedNodes.find(srcNode->name) == orderedNodes.end()) {
-            orderedNodes.emplace(srcNode->name, srcNode);
-            auto module = CreateModuleForGraphNode(srcNode);
-            plan.moduleNodes.push_back(
-                ExecutionPlan::PlannedModuleNode{srcNode, module, module->GetTriggerPolicy(), module->GetSourcePolicy()});
-        }
-        if (orderedNodes.find(dstNode->name) == orderedNodes.end()) {
-            orderedNodes.emplace(dstNode->name, dstNode);
-            auto module = CreateModuleForGraphNode(dstNode);
-            plan.moduleNodes.push_back(
-                ExecutionPlan::PlannedModuleNode{dstNode, module, module->GetTriggerPolicy(), module->GetSourcePolicy()});
-        }
-
-        plan.edges.push_back(
-            ExecutionPlan::PlannedEdge{srcNode,
-                                       dstNode,
-                                       edge.srcPort,
-                                       edge.dstPort,
-                                       config.queueSize,
-                                       pipelineContext != nullptr && pipelineContext->IsStatisticsEnabled()});
+        const auto* existingSrcNodeIndex = plan.FindNodeIndex(srcNode->name);
+        const auto srcNodeIndex = existingSrcNodeIndex != nullptr ? *existingSrcNodeIndex
+                                                                  : plan.EnsureNode(srcNode, CreateModuleForGraphNode(srcNode));
+        const auto* existingDstNodeIndex = plan.FindNodeIndex(dstNode->name);
+        const auto dstNodeIndex = existingDstNodeIndex != nullptr ? *existingDstNodeIndex
+                                                                  : plan.EnsureNode(dstNode, CreateModuleForGraphNode(dstNode));
+        plan.AddQueueBinding(srcNodeIndex,
+                             dstNodeIndex,
+                             edge.srcPort,
+                             edge.dstPort,
+                             config.queueSize,
+                             pipelineContext != nullptr && pipelineContext->IsStatisticsEnabled());
     }
 
     return plan;
 }
 
 ErrorCode Pipeline::Impl::MaterializeRuntime(const ExecutionPlan& plan) {
+    moduleNodes.clear();
+    moduleNodes.reserve(plan.moduleNodes.size());
+
     for (const auto& plannedNode : plan.moduleNodes) {
-        GetOrCreateNode(plannedNode);
+        moduleNodes.push_back(std::make_shared<ModuleNode>(plannedNode.module, this->config, pipelineContext, executor));
     }
 
-    for (const auto& plannedEdge : plan.edges) {
-        auto srcIt = std::find_if(plan.moduleNodes.begin(), plan.moduleNodes.end(),
-                                  [&](const ExecutionPlan::PlannedModuleNode& plannedNode) {
-                                      return plannedNode.graphNode == plannedEdge.srcNode;
-                                  });
-        auto dstIt = std::find_if(plan.moduleNodes.begin(), plan.moduleNodes.end(),
-                                  [&](const ExecutionPlan::PlannedModuleNode& plannedNode) {
-                                      return plannedNode.graphNode == plannedEdge.dstNode;
-                                  });
-        if (srcIt == plan.moduleNodes.end() || dstIt == plan.moduleNodes.end()) {
-            throw std::runtime_error("Execution plan references an unknown module node.");
+    for (const auto& queueBinding : plan.queueBindings) {
+        if (queueBinding.srcNodeIndex >= moduleNodes.size() || queueBinding.dstNodeIndex >= moduleNodes.size()) {
+            throw std::runtime_error("Execution plan contains an invalid node index in queue bindings.");
         }
 
-        auto srcModuleNode = GetOrCreateNode(*srcIt);
-        auto dstModuleNode = GetOrCreateNode(*dstIt);
+        const auto& srcPlannedNode = plan.GetNode(queueBinding.srcNodeIndex);
+        const auto& dstPlannedNode = plan.GetNode(queueBinding.dstNodeIndex);
+        auto& srcModuleNode = moduleNodes[queueBinding.srcNodeIndex];
+        auto& dstModuleNode = moduleNodes[queueBinding.dstNodeIndex];
 
-        auto queue = std::make_unique<MessageQueue>(plannedEdge.queueSize);
+        auto queue = std::make_unique<MessageQueue>(queueBinding.queueSize);
         auto queueView = makeViewPtr(queue.get());
         executor::Executor::PortStatsStatePtr portStats;
-        if (plannedEdge.statisticsEnabled) {
+        if (queueBinding.statisticsEnabled) {
             portStats = std::make_shared<executor::Executor::PortStatsState>(
-                plannedEdge.srcNode->name, plannedEdge.srcPort, plannedEdge.dstNode->name, plannedEdge.dstPort);
+                srcPlannedNode.nodeName, queueBinding.srcPort, dstPlannedNode.nodeName, queueBinding.dstPort);
         }
 
-        srcModuleNode->AddOutputQueue(plannedEdge.srcPort, plannedEdge.dstNode->name, plannedEdge.dstPort, queueView, portStats);
-        dstModuleNode->AddInputQueue(plannedEdge.dstPort, queueView, portStats);
+        srcModuleNode->AddOutputQueue(queueBinding.srcPort, dstPlannedNode.nodeName, queueBinding.dstPort, queueView, portStats);
+        dstModuleNode->AddInputQueue(queueBinding.dstPort, queueView, portStats);
 
         queues.push_back(std::move(queue));
     }
 
-    moduleNodes.clear();
-    moduleNodes.reserve(plan.moduleNodes.size());
-    for (const auto& plannedNode : plan.moduleNodes) {
-        auto it = moduleNodeMap.find(plannedNode.graphNode->name);
-        if (it != moduleNodeMap.end()) {
-            moduleNodes.push_back(it->second);
-        }
-    }
-
-    CHECK(moduleNodeMap.size() == moduleNodes.size(), "moduleNodeMap size != moduleNodes size, [{} != {}]", moduleNodeMap.size(),
-          moduleNodes.size());
-
     return ErrorCode::SUCCESS;
-}
-
-std::shared_ptr<ModuleNode> Pipeline::Impl::GetOrCreateNode(const ExecutionPlan::PlannedModuleNode& plannedNode) {
-    // 此处 graph node name == module name
-    const auto& nodeName = plannedNode.graphNode->name;
-
-    // 检查缓存中是否已存在
-    auto it = moduleNodeMap.find(nodeName);
-    if (it != moduleNodeMap.end()) {
-        return it->second; // 已存在，直接返回
-    }
-
-    // 不存在，则创建新的运行时包装节点
-    auto moduleNode = std::make_shared<ModuleNode>(plannedNode.module, this->config, pipelineContext, executor);
-    moduleNodeMap.emplace(nodeName, moduleNode);
-
-    return moduleNode;
 }
 
 ErrorCode Pipeline::Impl::Init() {

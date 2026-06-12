@@ -311,6 +311,7 @@ Implemented so far:
 
 - module materialization can now flow through `ModuleBuildContext`
 - the legacy `CreateModule(className, moduleName, config)` path remains as a compatibility wrapper
+- `ExecutionPlan` now carries stable node ordering plus explicit queue-binding metadata, so runtime materialization no longer re-derives node relationships from graph edges
 
 ## 5.5 Current In-Progress Slice
 

@@ -3,6 +3,7 @@
 
 #include "JoinStateStore.hpp"
 #include "Statistics.hpp"
+#include "base/Define.hpp"
 #include "common/ViewPtr.hpp"
 
 #include <nexusflow/Module.hpp>
