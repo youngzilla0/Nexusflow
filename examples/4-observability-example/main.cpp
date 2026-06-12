@@ -3,9 +3,11 @@
 #include <nexusflow/Nexusflow.hpp>
 
 #include <chrono>
+#include <condition_variable>
 #include <cstddef>
 #include <cstdint>
 #include <iostream>
+#include <mutex>
 #include <string>
 #include <thread>
 #include <vector>
@@ -80,13 +82,27 @@ public:
 
     void Process(const PortInputsView& inputs, PortOutputs&) override {
         if (const auto* payload = inputs.OnlyAs<SamplePayload>()) {
-            m_values.push_back(payload->sequence);
+            {
+                std::lock_guard<std::mutex> lock(m_mutex);
+                m_values.push_back(payload->sequence);
+            }
+            m_cond.notify_all();
         }
     }
 
-    const std::vector<int>& Values() const { return m_values; }
+    bool WaitForCount(std::size_t expectedCount, std::chrono::milliseconds timeout) {
+        std::unique_lock<std::mutex> lock(m_mutex);
+        return m_cond.wait_for(lock, timeout, [this, expectedCount]() { return m_values.size() >= expectedCount; });
+    }
+
+    std::vector<int> Values() const {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        return m_values;
+    }
 
 private:
+    mutable std::mutex m_mutex;
+    std::condition_variable m_cond;
     std::vector<int> m_values;
 };
 
@@ -124,7 +140,7 @@ int main() {
 
     try {
         PipelineConfig config;
-        config.executorThreadCount = 1;
+        config.executorThreadCount = 2;
         config.queueSize = 2;
         config.idleWaitUs = 10;
         config.nonBlockingQueueFullPolicy = QueueFullPolicy::DropTail;
@@ -160,12 +176,14 @@ int main() {
             source->SendValue(value, false);
         }
 
-        std::this_thread::sleep_for(400ms);
+        sink->WaitForCount(2, 2s);
+        std::this_thread::sleep_for(50ms);
+        pipeline->Stop();
 
-        PipelineObserver observer(*pipeline);
+        PipelineStatisticsCollector observer(*pipeline);
         const auto observation = observer.Snapshot();
 
-        std::cout << "PipelineObserver::Describe()\n";
+        std::cout << "PipelineStatisticsCollector::Describe()\n";
         std::cout << observer.Describe() << "\n";
 
         PrintSnapshot(observation);
@@ -176,7 +194,6 @@ int main() {
         }
         std::cout << "\n";
 
-        pipeline->Stop();
         pipeline->DeInit();
     } catch (const std::exception& e) {
         LOG_ERROR("Observability example failed: {}", e.what());

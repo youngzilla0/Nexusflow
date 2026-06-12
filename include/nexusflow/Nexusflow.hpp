@@ -9,6 +9,7 @@
 #include <nexusflow/PipelineContext.hpp>
 #include <nexusflow/Pipeline.hpp>
 #include <nexusflow/PipelineBuilder.hpp>
+#include <nexusflow/PipelineStatistics.hpp>
 #include <nexusflow/PipelineObserver.hpp>
 #include <nexusflow/Ports.hpp>
 #include <nexusflow/StatisticsTypes.hpp>

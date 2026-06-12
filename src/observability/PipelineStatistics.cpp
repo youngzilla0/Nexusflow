@@ -1,4 +1,4 @@
-#include <nexusflow/PipelineObserver.hpp>
+#include <nexusflow/PipelineStatistics.hpp>
 
 #include <nexusflow/Pipeline.hpp>
 
@@ -8,23 +8,23 @@
 
 namespace nexusflow {
 
-PipelineObserver::PipelineObserver(const Pipeline& pipeline) : m_pipeline(pipeline) {}
+PipelineStatisticsCollector::PipelineStatisticsCollector(const Pipeline& pipeline) : m_pipeline(pipeline) {}
 
-PipelineObservation PipelineObserver::Snapshot() const {
-    PipelineObservation observation;
-    observation.nodes = m_pipeline.GetNodeStats();
-    observation.ports = m_pipeline.GetPortStats();
+PipelineStatisticsSnapshot PipelineStatisticsCollector::Snapshot() const {
+    PipelineStatisticsSnapshot snapshot;
+    snapshot.nodes = m_pipeline.GetNodeStats();
+    snapshot.ports = m_pipeline.GetPortStats();
 
     std::unordered_map<std::string, std::size_t> nodeIndex;
-    nodeIndex.reserve(observation.nodes.size());
-    for (std::size_t index = 0; index < observation.nodes.size(); ++index) {
-        nodeIndex.emplace(observation.nodes[index].nodeName, index);
+    nodeIndex.reserve(snapshot.nodes.size());
+    for (std::size_t index = 0; index < snapshot.nodes.size(); ++index) {
+        nodeIndex.emplace(snapshot.nodes[index].nodeName, index);
     }
 
-    for (const auto& port : observation.ports) {
+    for (const auto& port : snapshot.ports) {
         auto srcIt = nodeIndex.find(port.srcModuleName);
         if (srcIt != nodeIndex.end()) {
-            auto& node = observation.nodes[srcIt->second];
+            auto& node = snapshot.nodes[srcIt->second];
             node.outgoingEnqueueCount += port.enqueueCount;
             node.outgoingDropCount += port.dropCount;
             node.outgoingRejectCount += port.rejectCount;
@@ -32,13 +32,13 @@ PipelineObservation PipelineObserver::Snapshot() const {
 
         auto dstIt = nodeIndex.find(port.dstModuleName);
         if (dstIt != nodeIndex.end()) {
-            observation.nodes[dstIt->second].incomingDequeueCount += port.dequeueCount;
+            snapshot.nodes[dstIt->second].incomingDequeueCount += port.dequeueCount;
         }
     }
 
-    std::sort(observation.nodes.begin(), observation.nodes.end(),
+    std::sort(snapshot.nodes.begin(), snapshot.nodes.end(),
               [](const NodeStats& lhs, const NodeStats& rhs) { return lhs.nodeName < rhs.nodeName; });
-    std::sort(observation.ports.begin(), observation.ports.end(),
+    std::sort(snapshot.ports.begin(), snapshot.ports.end(),
               [](const PortStats& lhs, const PortStats& rhs) {
                   if (lhs.srcModuleName != rhs.srcModuleName) return lhs.srcModuleName < rhs.srcModuleName;
                   if (lhs.srcPortName != rhs.srcPortName) return lhs.srcPortName < rhs.srcPortName;
@@ -46,15 +46,15 @@ PipelineObservation PipelineObserver::Snapshot() const {
                   return lhs.dstPortName < rhs.dstPortName;
               });
 
-    return observation;
+    return snapshot;
 }
 
-std::string PipelineObserver::Describe() const {
-    const auto observation = Snapshot();
+std::string PipelineStatisticsCollector::Describe() const {
+    const auto snapshot = Snapshot();
     std::ostringstream oss;
 
     oss << "Nodes\n";
-    for (const auto& node : observation.nodes) {
+    for (const auto& node : snapshot.nodes) {
         oss << "  " << node.nodeName << ":"
             << " process=" << node.processCount
             << " input=" << node.inputMessageCount
@@ -70,7 +70,7 @@ std::string PipelineObserver::Describe() const {
     }
 
     oss << "Ports\n";
-    for (const auto& port : observation.ports) {
+    for (const auto& port : snapshot.ports) {
         oss << "  " << port.srcModuleName << ":" << port.srcPortName << " -> " << port.dstModuleName << ":" << port.dstPortName
             << " enqueue=" << port.enqueueCount
             << " drop=" << port.dropCount
