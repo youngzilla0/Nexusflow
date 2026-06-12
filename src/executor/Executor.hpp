@@ -2,6 +2,7 @@
 #define NEXUSFLOW_EXECUTOR_HPP
 
 #include "JoinStateStore.hpp"
+#include "PortRouter.hpp"
 #include "Statistics.hpp"
 #include "SchedulingPolicy.hpp"
 #include "ThreadPool.hpp"
@@ -155,17 +156,6 @@ private:
     };
 
     /**
-     * @brief 单个输出订阅边的运行时绑定信息。
-     */
-    struct OutputSubscriber {
-        std::string dstActorName;
-        std::string dstInputPortName;
-        ViewPtr<MessageQueue> queue;
-        PortStatsStatePtr stats;
-        std::shared_ptr<ScheduledActorState> dstActorState;
-    };
-
-    /**
      * @brief 单个 step 的执行结果。
      *
      * StepResult 描述单步执行的局部结果；
@@ -266,20 +256,11 @@ private:
      */
     void DispatchOutputs(const std::string& nodeName, PortOutputs& outputs);
 
-    /**
-     * @brief 将一条消息分发给单个下游订阅者。
-     * @param subscriber 目标订阅边。
-     * @param message 待分发消息。
-     * @param blocking 是否采用阻塞推送。
-     */
-    void DispatchToSubscriber(const OutputSubscriber& subscriber, const Message& message, bool blocking);
-
 private:
     mutable std::mutex m_mutex;
     std::unordered_map<std::string, std::shared_ptr<ScheduledActorState>> m_actorStates;
-    std::unordered_map<std::string, std::vector<OutputSubscriber>> m_broadcastSubscribers;
-    std::unordered_map<std::string, std::vector<OutputSubscriber>> m_outputSubscribers;
     Statistics m_statsCollector;
+    PortRouter m_portRouter;
     std::shared_ptr<PipelineContext> m_pipelineContext;
     std::unique_ptr<ThreadPool> m_threadPool;
     std::unique_ptr<SchedulingPolicy> m_schedulingPolicy;

@@ -13,16 +13,6 @@ namespace nexusflow { namespace executor {
 namespace {
 
 /**
- * @brief 生成输出端口订阅表使用的复合键。
- * @param actorName 源 actor 名称。
- * @param outputPortName 源输出端口名称。
- * @return 由 actor 与输出端口组合而成的唯一字符串键。
- */
-std::string MakeOutputKey(const std::string& actorName, const std::string& outputPortName) {
-    return actorName + "\n" + outputPortName;
-}
-
-/**
  * @brief 返回当前系统时间戳，单位毫秒。
  * @return 当前系统时间戳。
  */
@@ -76,7 +66,27 @@ TaskExecutionPlan MakeFallbackExecutionPlan(const SchedulingContext& context) {
  * @param pipelineContext 所属 Pipeline 的共享上下文。
  */
 Executor::Executor(const std::shared_ptr<PipelineContext>& pipelineContext)
-    : m_statsCollector(pipelineContext == nullptr || pipelineContext->IsStatisticsEnabled()), m_pipelineContext(pipelineContext) {}
+    : m_statsCollector(pipelineContext == nullptr || pipelineContext->IsStatisticsEnabled()),
+      m_portRouter(
+          pipelineContext == nullptr || pipelineContext->IsStatisticsEnabled(),
+          [this]() {
+              if (m_pipelineContext != nullptr) {
+                  return m_pipelineContext->GetConfig().nonBlockingQueueFullPolicy;
+              }
+              return QueueFullPolicy::DropTail;
+          },
+          [this](const std::string& nodeName) {
+              std::shared_ptr<ScheduledActorState> state;
+              {
+                  std::lock_guard<std::mutex> lock(m_mutex);
+                  auto it = m_actorStates.find(nodeName);
+                  if (it != m_actorStates.end()) {
+                      state = it->second;
+                  }
+              }
+              NotifyActorReady(state);
+          }),
+      m_pipelineContext(pipelineContext) {}
 
 /**
  * @brief 析构 Executor。
@@ -154,9 +164,7 @@ void Executor::AddOutputQueue(const std::string& actorName, const std::string& o
         throw std::invalid_argument("Unknown actor " + dstActorName);
     }
 
-    OutputSubscriber subscriber{dstActorName, dstInputPortName, queue, portStats, dstIt->second};
-    m_broadcastSubscribers[actorName].push_back(subscriber);
-    m_outputSubscribers[MakeOutputKey(actorName, outputPortName)].push_back(std::move(subscriber));
+    m_portRouter.AddOutputQueue(actorName, outputPortName, dstActorName, dstInputPortName, queue, portStats);
     m_statsCollector.RegisterPortStats(portStats);
 }
 
@@ -571,14 +579,7 @@ void Executor::DispatchOutputs(const std::string& actorName, PortOutputs& output
  * @param blocking 是否采用阻塞推送。
  */
 void Executor::Emit(const std::string& actorName, const Message& message, bool blocking) {
-    auto it = m_broadcastSubscribers.find(actorName);
-    if (it == m_broadcastSubscribers.end()) {
-        return;
-    }
-
-    for (const auto& subscriber : it->second) {
-        DispatchToSubscriber(subscriber, message, blocking);
-    }
+    m_portRouter.Emit(actorName, message, blocking);
 }
 
 /**
@@ -589,76 +590,7 @@ void Executor::Emit(const std::string& actorName, const Message& message, bool b
  * @param blocking 是否采用阻塞推送。
  */
 void Executor::Route(const std::string& actorName, const std::string& outputPortName, const Message& message, bool blocking) {
-    auto it = m_outputSubscribers.find(MakeOutputKey(actorName, outputPortName));
-    if (it == m_outputSubscribers.end()) {
-        return;
-    }
-
-    for (const auto& subscriber : it->second) {
-        DispatchToSubscriber(subscriber, message, blocking);
-    }
-}
-
-/**
- * @brief 将一条消息投递给单个下游订阅者。
- * @param subscriber 目标订阅边。
- * @param message 待投递消息。
- * @param blocking 是否采用阻塞推送。
- */
-void Executor::DispatchToSubscriber(const OutputSubscriber& subscriber, const Message& message, bool blocking) {
-    const bool statisticsEnabled = StatisticsEnabled();
-    if (statisticsEnabled && subscriber.stats != nullptr) {
-        subscriber.stats->RecordPushAttempt(blocking);
-    }
-
-    if (blocking) {
-        auto status = subscriber.queue->PushWithStatus(message);
-        if (status == MessageQueue::PushStatus::Success) {
-            if (statisticsEnabled && subscriber.stats != nullptr) {
-                subscriber.stats->RecordPushAccepted(1, 0);
-            }
-            NotifyActorReady(subscriber.dstActorState);
-        } else if (statisticsEnabled && subscriber.stats != nullptr) {
-            subscriber.stats->RecordPushRejected();
-        }
-        return;
-    }
-
-    auto queueFullPolicy = QueueFullPolicy::DropTail;
-    if (m_pipelineContext != nullptr) {
-        queueFullPolicy = m_pipelineContext->GetConfig().nonBlockingQueueFullPolicy;
-    }
-
-    if (queueFullPolicy == QueueFullPolicy::DropHead) {
-        auto result = subscriber.queue->TryPushDropHead(message);
-        if (result.status == MessageQueue::PushStatus::Success) {
-            if (statisticsEnabled && subscriber.stats != nullptr) {
-                subscriber.stats->RecordPushAccepted(1, result.droppedCount);
-            }
-            NotifyActorReady(subscriber.dstActorState);
-        } else if (result.status == MessageQueue::PushStatus::Shutdown) {
-            if (statisticsEnabled && subscriber.stats != nullptr) {
-                subscriber.stats->RecordPushRejected();
-            }
-        } else if (statisticsEnabled && subscriber.stats != nullptr) {
-            subscriber.stats->RecordPushDropped(1);
-        }
-        return;
-    }
-
-    auto status = subscriber.queue->TryPushWithStatus(message);
-    if (status == MessageQueue::PushStatus::Success) {
-        if (statisticsEnabled && subscriber.stats != nullptr) {
-            subscriber.stats->RecordPushAccepted(1, 0);
-        }
-        NotifyActorReady(subscriber.dstActorState);
-    } else if (status == MessageQueue::PushStatus::Shutdown) {
-        if (statisticsEnabled && subscriber.stats != nullptr) {
-            subscriber.stats->RecordPushRejected();
-        }
-    } else if (statisticsEnabled && subscriber.stats != nullptr) {
-        subscriber.stats->RecordPushDropped(1);
-    }
+    m_portRouter.Route(actorName, outputPortName, message, blocking);
 }
 
 }} // namespace nexusflow::executor
