@@ -14,7 +14,17 @@ namespace nexusflow {
 // Forward declarations
 class Pipeline;
 
-struct PipelineBuildPlan {
+struct ExecutionPlan {
+    /**
+     * @brief 一条待物化的运行时节点定义。
+     */
+    struct PlannedModuleNode {
+        std::shared_ptr<GraphNode> graphNode;
+        std::shared_ptr<Module> module;
+        Module::TriggerPolicy triggerPolicy = Module::TriggerPolicy::Auto;
+        Module::SourcePolicy sourcePolicy = Module::SourcePolicy::Polling;
+    };
+
     /**
      * @brief 一条待物化的运行时边定义。
      */
@@ -23,9 +33,11 @@ struct PipelineBuildPlan {
         std::shared_ptr<GraphNode> dstNode;
         std::string srcPort;
         std::string dstPort;
+        std::size_t queueSize = 0;
+        bool statisticsEnabled = false;
     };
 
-    std::vector<std::shared_ptr<GraphNode>> topoNodes;
+    std::vector<PlannedModuleNode> moduleNodes;
     std::vector<PlannedEdge> edges;
 };
 
@@ -48,9 +60,9 @@ public:
 
 private:
     ErrorCode ValidateGraph() const;
-    PipelineBuildPlan BuildPlan() const;
-    ErrorCode MaterializeRuntime(const PipelineBuildPlan& plan);
-    std::shared_ptr<ModuleNode> GetOrCreateNode(const std::shared_ptr<GraphNode>& node);
+    ExecutionPlan BuildExecutionPlan() const;
+    ErrorCode MaterializeRuntime(const ExecutionPlan& plan);
+    std::shared_ptr<ModuleNode> GetOrCreateNode(const ExecutionPlan::PlannedModuleNode& plannedNode);
 
     std::unordered_map<std::string, std::shared_ptr<ModuleNode>> moduleNodeMap;
 };

@@ -73,8 +73,8 @@ ErrorCode Pipeline::Impl::ValidateGraph() const {
     return ErrorCode::SUCCESS;
 }
 
-PipelineBuildPlan Pipeline::Impl::BuildPlan() const {
-    PipelineBuildPlan plan;
+ExecutionPlan Pipeline::Impl::BuildExecutionPlan() const {
+    ExecutionPlan plan;
     auto edgeList = graph->ToEdgeListBfs();
     LOG_TRACE("edgeList size: {}", edgeList.size());
 
@@ -89,28 +89,54 @@ PipelineBuildPlan Pipeline::Impl::BuildPlan() const {
 
         if (orderedNodes.find(srcNode->name) == orderedNodes.end()) {
             orderedNodes.emplace(srcNode->name, srcNode);
-            plan.topoNodes.push_back(srcNode);
+            auto module = CreateModuleForGraphNode(srcNode);
+            plan.moduleNodes.push_back(
+                ExecutionPlan::PlannedModuleNode{srcNode, module, module->GetTriggerPolicy(), module->GetSourcePolicy()});
         }
         if (orderedNodes.find(dstNode->name) == orderedNodes.end()) {
             orderedNodes.emplace(dstNode->name, dstNode);
-            plan.topoNodes.push_back(dstNode);
+            auto module = CreateModuleForGraphNode(dstNode);
+            plan.moduleNodes.push_back(
+                ExecutionPlan::PlannedModuleNode{dstNode, module, module->GetTriggerPolicy(), module->GetSourcePolicy()});
         }
 
-        plan.edges.push_back(PipelineBuildPlan::PlannedEdge{srcNode, dstNode, edge.srcPort, edge.dstPort});
+        plan.edges.push_back(
+            ExecutionPlan::PlannedEdge{srcNode,
+                                       dstNode,
+                                       edge.srcPort,
+                                       edge.dstPort,
+                                       config.queueSize,
+                                       pipelineContext != nullptr && pipelineContext->IsStatisticsEnabled()});
     }
 
     return plan;
 }
 
-ErrorCode Pipeline::Impl::MaterializeRuntime(const PipelineBuildPlan& plan) {
-    for (const auto& plannedEdge : plan.edges) {
-        auto srcModuleNode = GetOrCreateNode(plannedEdge.srcNode);
-        auto dstModuleNode = GetOrCreateNode(plannedEdge.dstNode);
+ErrorCode Pipeline::Impl::MaterializeRuntime(const ExecutionPlan& plan) {
+    for (const auto& plannedNode : plan.moduleNodes) {
+        GetOrCreateNode(plannedNode);
+    }
 
-        auto queue = std::make_unique<MessageQueue>(this->config.queueSize);
+    for (const auto& plannedEdge : plan.edges) {
+        auto srcIt = std::find_if(plan.moduleNodes.begin(), plan.moduleNodes.end(),
+                                  [&](const ExecutionPlan::PlannedModuleNode& plannedNode) {
+                                      return plannedNode.graphNode == plannedEdge.srcNode;
+                                  });
+        auto dstIt = std::find_if(plan.moduleNodes.begin(), plan.moduleNodes.end(),
+                                  [&](const ExecutionPlan::PlannedModuleNode& plannedNode) {
+                                      return plannedNode.graphNode == plannedEdge.dstNode;
+                                  });
+        if (srcIt == plan.moduleNodes.end() || dstIt == plan.moduleNodes.end()) {
+            throw std::runtime_error("Execution plan references an unknown module node.");
+        }
+
+        auto srcModuleNode = GetOrCreateNode(*srcIt);
+        auto dstModuleNode = GetOrCreateNode(*dstIt);
+
+        auto queue = std::make_unique<MessageQueue>(plannedEdge.queueSize);
         auto queueView = makeViewPtr(queue.get());
         executor::Executor::PortStatsStatePtr portStats;
-        if (pipelineContext != nullptr && pipelineContext->IsStatisticsEnabled()) {
+        if (plannedEdge.statisticsEnabled) {
             portStats = std::make_shared<executor::Executor::PortStatsState>(
                 plannedEdge.srcNode->name, plannedEdge.srcPort, plannedEdge.dstNode->name, plannedEdge.dstPort);
         }
@@ -122,9 +148,9 @@ ErrorCode Pipeline::Impl::MaterializeRuntime(const PipelineBuildPlan& plan) {
     }
 
     moduleNodes.clear();
-    moduleNodes.reserve(plan.topoNodes.size());
-    for (const auto& node : plan.topoNodes) {
-        auto it = moduleNodeMap.find(node->name);
+    moduleNodes.reserve(plan.moduleNodes.size());
+    for (const auto& plannedNode : plan.moduleNodes) {
+        auto it = moduleNodeMap.find(plannedNode.graphNode->name);
         if (it != moduleNodeMap.end()) {
             moduleNodes.push_back(it->second);
         }
@@ -136,9 +162,9 @@ ErrorCode Pipeline::Impl::MaterializeRuntime(const PipelineBuildPlan& plan) {
     return ErrorCode::SUCCESS;
 }
 
-std::shared_ptr<ModuleNode> Pipeline::Impl::GetOrCreateNode(const std::shared_ptr<GraphNode>& node) {
+std::shared_ptr<ModuleNode> Pipeline::Impl::GetOrCreateNode(const ExecutionPlan::PlannedModuleNode& plannedNode) {
     // 此处 graph node name == module name
-    const auto& nodeName = node->name;
+    const auto& nodeName = plannedNode.graphNode->name;
 
     // 检查缓存中是否已存在
     auto it = moduleNodeMap.find(nodeName);
@@ -147,11 +173,7 @@ std::shared_ptr<ModuleNode> Pipeline::Impl::GetOrCreateNode(const std::shared_pt
     }
 
     // 不存在，则创建新的运行时包装节点
-    // 1. 获取或创建 Module
-    auto module = CreateModuleForGraphNode(node);
-
-    // 2. 创建 ModuleNode 并存入 map
-    auto moduleNode = std::make_shared<ModuleNode>(module, this->config, pipelineContext, executor);
+    auto moduleNode = std::make_shared<ModuleNode>(plannedNode.module, this->config, pipelineContext, executor);
     moduleNodeMap.emplace(nodeName, moduleNode);
 
     return moduleNode;
@@ -164,7 +186,7 @@ ErrorCode Pipeline::Impl::Init() {
         return validationResult;
     }
 
-    auto plan = BuildPlan();
+    auto plan = BuildExecutionPlan();
     auto materializeResult = MaterializeRuntime(plan);
     if (materializeResult != ErrorCode::SUCCESS) {
         return materializeResult;
