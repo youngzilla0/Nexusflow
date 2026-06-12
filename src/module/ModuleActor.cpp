@@ -13,7 +13,7 @@ ModuleActor::ModuleActor(const std::shared_ptr<Module>& module,
     m_executor = executor;
     m_module->SetExecutor(m_executor);
     m_module->SetPipelineContext(pipelineContext);
-    m_executor->RegisterActor(m_module->GetModuleName(), m_module, runtimeConfig);
+    m_executor->RegisterNode(m_module->GetModuleName(), m_module, runtimeConfig);
 }
 
 ModuleActor::~ModuleActor() = default;

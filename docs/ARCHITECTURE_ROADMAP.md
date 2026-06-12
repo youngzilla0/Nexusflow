@@ -156,7 +156,7 @@ Current `Executor` responsibilities should be separated into smaller units:
 - `Scheduler`
 - `PortRouter`
 - `JoinStateStore`
-- `RuntimeStatsCollector`
+- `Statistics`
 
 The public `Executor` type may still remain as a facade, but its internal structure
 should stop being a single coordination blob.
@@ -220,7 +220,7 @@ Implemented so far:
 - `Pipeline::CreateFromYaml()` now loads the optional top-level `runtime:` block
 - YAML runtime config coverage now includes executor threads, queue size, and statistics disablement
 - `PipelineBuilder` and YAML graph creation now share one internal graph assembly and validation helper
-- runtime statistics state/snapshot logic now lives in a dedicated `RuntimeStatsCollector`
+- runtime statistics state/snapshot logic now lives in a dedicated `Statistics`
 - pending `OnAllInputs` join state now lives in a dedicated `JoinStateStore`
 - actor reschedule rules and per-task step budgets now flow through an internal `SchedulingPolicy`
 

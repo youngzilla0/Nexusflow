@@ -31,7 +31,7 @@ flowchart TD
     E --> I["ThreadPool"]
     E --> J["SchedulingPolicy<br/>调度策略"]
     E --> K["JoinStateStore<br/>OnAllInputs 拼接状态"]
-    E --> L["RuntimeStatsCollector<br/>运行时统计"]
+    E --> L["Statistics<br/>运行时统计"]
 
     H --> M["PortInputsView"]
     H --> N["PortOutputs"]
@@ -135,7 +135,7 @@ flowchart TD
 - 拼齐一组输入后吐给模块
 - 负责超时淘汰和上限淘汰
 
-#### `RuntimeStatsCollector`
+#### `Statistics`
 
 - 聚合 port / actor 的运行时统计
 - 不参与调度决策
@@ -222,7 +222,7 @@ flowchart TD
    看调度规则被抽到了哪里。
 9. [src/executor/JoinStateStore.hpp](/Users/yang/Code/Nexusflow/src/executor/JoinStateStore.hpp)
    看 `OnAllInputs` 的拼接状态。
-10. [src/executor/RuntimeStatsCollector.hpp](/Users/yang/Code/Nexusflow/src/executor/RuntimeStatsCollector.hpp)
+10. [src/executor/Statistics.hpp](/Users/yang/Code/Nexusflow/src/executor/Statistics.hpp)
    最后看统计层。
 
 ## 8. 现在这套架构的核心优点

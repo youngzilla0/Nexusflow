@@ -194,16 +194,16 @@ public:
     }
 };
 
-PortRuntimeStats GetOnlyPortStats(const Pipeline& pipeline) {
+PortStats GetOnlyPortStats(const Pipeline& pipeline) {
     auto stats = pipeline.GetPortStats();
     EXPECT_EQ(stats.size(), 1u);
-    return stats.empty() ? PortRuntimeStats{} : stats.front();
+    return stats.empty() ? PortStats{} : stats.front();
 }
 
-const ActorRuntimeStats* FindActorStats(const PipelineObservation& observation, const std::string& actorName) {
-    for (const auto& actor : observation.actors) {
-        if (actor.actorName == actorName) {
-            return &actor;
+const NodeStats* FindNodeStats(const PipelineObservation& observation, const std::string& nodeName) {
+    for (const auto& node : observation.nodes) {
+        if (node.nodeName == nodeName) {
+            return &node;
         }
     }
     return nullptr;
@@ -406,7 +406,7 @@ TEST(PipelineRuntimeTest, StatisticsCanBeDisabledFromPipelineContext) {
     EXPECT_TRUE(sink->WaitForCount(1, 500ms));
     EXPECT_EQ(sink->Values(), std::vector<int>({7}));
     EXPECT_TRUE(pipeline->GetPortStats().empty());
-    EXPECT_TRUE(pipeline->GetActorStats().empty());
+    EXPECT_TRUE(pipeline->GetNodeStats().empty());
 
     EXPECT_EQ(pipeline->Stop(), ErrorCode::SUCCESS);
     EXPECT_EQ(pipeline->DeInit(), ErrorCode::SUCCESS);
@@ -457,7 +457,7 @@ TEST(PipelineRuntimeTest, OnAllInputsJoinLimit_EvictsOldestPendingGroup) {
 
     PipelineObserver observerBeforeJoin(*pipeline);
     const auto observationBeforeJoin = observerBeforeJoin.Snapshot();
-    const auto* joinStatsBeforeJoin = FindActorStats(observationBeforeJoin, "Join");
+    const auto* joinStatsBeforeJoin = FindNodeStats(observationBeforeJoin, "Join");
     ASSERT_NE(joinStatsBeforeJoin, nullptr);
     EXPECT_EQ(joinStatsBeforeJoin->pendingJoinGroupCount, 1u);
     EXPECT_EQ(joinStatsBeforeJoin->joinOverflowDropCount, 1u);
@@ -546,10 +546,10 @@ TEST(PipelineRuntimeTest, PipelineObserver_AggregatesEdgeDropsToActors) {
     PipelineObserver observer(*pipeline);
     const auto observation = observer.Snapshot();
     ASSERT_EQ(observation.ports.size(), 1u);
-    ASSERT_EQ(observation.actors.size(), 2u);
+    ASSERT_EQ(observation.nodes.size(), 2u);
 
-    const auto* sourceStats = FindActorStats(observation, "Source");
-    const auto* sinkStats = FindActorStats(observation, "Sink");
+    const auto* sourceStats = FindNodeStats(observation, "Source");
+    const auto* sinkStats = FindNodeStats(observation, "Sink");
     ASSERT_NE(sourceStats, nullptr);
     ASSERT_NE(sinkStats, nullptr);
 
@@ -561,8 +561,8 @@ TEST(PipelineRuntimeTest, PipelineObserver_AggregatesEdgeDropsToActors) {
     EXPECT_EQ(pipeline->DeInit(), ErrorCode::SUCCESS);
 }
 
-TEST(PipelineRuntimeTest, PortRuntimeStatsState_CurrentDepthDoesNotLeakWhenDequeueWinsRace) {
-    executor::Executor::PortRuntimeStatsState stats("Source", "out", "Sink", "in");
+TEST(PipelineRuntimeTest, PortStatsState_CurrentDepthDoesNotLeakWhenDequeueWinsRace) {
+    executor::Executor::PortStatsState stats("Source", "out", "Sink", "in");
 
     stats.RecordDequeue();
     stats.RecordPushAccepted(1, 0);
@@ -633,7 +633,7 @@ TEST(PipelineRuntimeTest, CreateFromYaml_LoadsRuntimeConfig) {
     EXPECT_EQ(g_yamlQueueSize, 9u);
     ASSERT_EQ(pipeline->Start(), ErrorCode::SUCCESS);
     EXPECT_TRUE(pipeline->GetPortStats().empty());
-    EXPECT_TRUE(pipeline->GetActorStats().empty());
+    EXPECT_TRUE(pipeline->GetNodeStats().empty());
     EXPECT_EQ(pipeline->Stop(), ErrorCode::SUCCESS);
     EXPECT_EQ(pipeline->DeInit(), ErrorCode::SUCCESS);
 }

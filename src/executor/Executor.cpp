@@ -89,7 +89,7 @@ Executor::~Executor() { Stop(); }
  * @param module 对应的模块实例。
  * @param runtimeConfig actor 对应的运行时配置。
  */
-void Executor::RegisterActor(const std::string& actorName, const std::shared_ptr<Module>& module,
+void Executor::RegisterNode(const std::string& actorName, const std::shared_ptr<Module>& module,
                              const PipelineConfig& runtimeConfig) {
     std::lock_guard<std::mutex> lock(m_mutex);
 
@@ -99,13 +99,13 @@ void Executor::RegisterActor(const std::string& actorName, const std::shared_ptr
     }
 
     auto state = std::make_shared<ScheduledActorState>();
-    state->actorName = actorName;
+    state->nodeName = actorName;
     state->module = module;
     state->runtimeConfig = runtimeConfig;
     auto actorState = state;
     m_actorStates.emplace(actorName, std::move(state));
-    m_statsCollector.RegisterActor(
-        actorName, actorState->runtimeStats,
+    m_statsCollector.RegisterNode(
+        actorName, actorState->stats,
         [state = std::move(actorState)]() -> std::uint64_t {
             return state->joinState.PendingGroupCount();
         });
@@ -119,7 +119,7 @@ void Executor::RegisterActor(const std::string& actorName, const std::shared_ptr
  * @param stats 对应边的统计状态。
  */
 void Executor::AddInputQueue(const std::string& actorName, const std::string& inputPortName, ViewPtr<MessageQueue> queue,
-                             const PortRuntimeStatsStatePtr& stats) {
+                             const PortStatsStatePtr& stats) {
     std::lock_guard<std::mutex> lock(m_mutex);
 
     auto it = m_actorStates.find(actorName);
@@ -141,12 +141,12 @@ void Executor::AddInputQueue(const std::string& actorName, const std::string& in
  */
 void Executor::AddOutputQueue(const std::string& actorName, const std::string& outputPortName, const std::string& dstActorName,
                               const std::string& dstInputPortName, ViewPtr<MessageQueue> queue,
-                              const PortRuntimeStatsStatePtr& stats) {
+                              const PortStatsStatePtr& stats) {
     std::lock_guard<std::mutex> lock(m_mutex);
 
     auto portStats = StatisticsEnabled() ? stats : nullptr;
     if (StatisticsEnabled() && portStats == nullptr) {
-        portStats = std::make_shared<PortRuntimeStatsState>(actorName, outputPortName, dstActorName, dstInputPortName);
+        portStats = std::make_shared<PortStatsState>(actorName, outputPortName, dstActorName, dstInputPortName);
     }
 
     auto dstIt = m_actorStates.find(dstActorName);
@@ -164,13 +164,13 @@ void Executor::AddOutputQueue(const std::string& actorName, const std::string& o
 void Executor::SetThreadCount(std::size_t threadCount) { m_threadCount = threadCount; }
 
 /** @brief 生成全部边级统计快照。 */
-std::vector<PortRuntimeStats> Executor::GetPortStats() const {
+std::vector<PortStats> Executor::GetPortStats() const {
     return m_statsCollector.SnapshotPorts();
 }
 
-/** @brief 生成全部 actor 级统计快照。 */
-std::vector<ActorRuntimeStats> Executor::GetActorStats() const {
-    return m_statsCollector.SnapshotActors();
+/** @brief 生成全部节点级统计快照。 */
+std::vector<NodeStats> Executor::GetNodeStats() const {
+    return m_statsCollector.SnapshotNodes();
 }
 
 /**
@@ -350,7 +350,7 @@ bool Executor::HasPendingWork(const std::shared_ptr<ScheduledActorState>& state)
  */
 void Executor::RunActorTask(const std::shared_ptr<ScheduledActorState>& state) {
     if (!state || !state->module) {
-        LOG_ERROR("Invalid actor state for '{}'", state ? state->actorName : std::string("<null>"));
+        LOG_ERROR("Invalid actor state for '{}'", state ? state->nodeName : std::string("<null>"));
         return;
     }
 
@@ -414,10 +414,10 @@ Executor::StepResult Executor::RunSourceStep(const std::shared_ptr<ScheduledActo
     PortOutputs outputs;
     state->module->Process(inputView, outputs);
     const bool emittedOutputs = !outputs.Empty();
-    if (StatisticsEnabled() && state->runtimeStats != nullptr) {
-        state->runtimeStats->processCount.fetch_add(1, std::memory_order_relaxed);
+    if (StatisticsEnabled() && state->stats != nullptr) {
+        state->stats->processCount.fetch_add(1, std::memory_order_relaxed);
     }
-    DispatchOutputs(state->actorName, outputs);
+    DispatchOutputs(state->nodeName, outputs);
     return StepResult{true, emittedOutputs};
 }
 
@@ -439,10 +439,10 @@ Executor::StepResult Executor::RunOnAnyInputStep(const std::shared_ptr<Scheduled
     PortOutputs outputs;
     state->module->Process(inputView, outputs);
     const bool emittedOutputs = !outputs.Empty();
-    if (StatisticsEnabled() && state->runtimeStats != nullptr) {
-        state->runtimeStats->processCount.fetch_add(1, std::memory_order_relaxed);
+    if (StatisticsEnabled() && state->stats != nullptr) {
+        state->stats->processCount.fetch_add(1, std::memory_order_relaxed);
     }
-    DispatchOutputs(state->actorName, outputs);
+    DispatchOutputs(state->nodeName, outputs);
     return StepResult{true, emittedOutputs};
 }
 
@@ -465,18 +465,18 @@ Executor::StepResult Executor::RunOnAllInputsStep(const std::shared_ptr<Schedule
         if (statisticsEnabled && inputQueue.stats != nullptr) {
             inputQueue.stats->RecordDequeue();
         }
-        if (statisticsEnabled && state->runtimeStats != nullptr) {
-            state->runtimeStats->inputMessageCount.fetch_add(1, std::memory_order_relaxed);
+        if (statisticsEnabled && state->stats != nullptr) {
+            state->stats->inputMessageCount.fetch_add(1, std::memory_order_relaxed);
         }
 
         state->joinState.Insert(ResolveJoinKey(*state, message), inputQueue.inputPortName, std::move(message));
     }
 
     const auto currentTimeMs = GetCurrentSystemTimeMs();
-    if (StatisticsEnabled() && state->runtimeStats != nullptr) {
-        state->runtimeStats->joinTimeoutDropCount.fetch_add(
+    if (StatisticsEnabled() && state->stats != nullptr) {
+        state->stats->joinTimeoutDropCount.fetch_add(
             state->joinState.EvictExpired(currentTimeMs, state->runtimeConfig.fusionTimeoutMs), std::memory_order_relaxed);
-        state->runtimeStats->joinOverflowDropCount.fetch_add(
+        state->stats->joinOverflowDropCount.fetch_add(
             state->joinState.EnforceLimit(state->runtimeConfig.maxPendingJoinGroups), std::memory_order_relaxed);
     } else {
         state->joinState.EvictExpired(currentTimeMs, state->runtimeConfig.fusionTimeoutMs);
@@ -497,10 +497,10 @@ Executor::StepResult Executor::RunOnAllInputsStep(const std::shared_ptr<Schedule
     PortOutputs outputs;
     state->module->Process(inputView, outputs);
     const bool emittedOutputs = !outputs.Empty();
-    if (statisticsEnabled && state->runtimeStats != nullptr) {
-        state->runtimeStats->processCount.fetch_add(1, std::memory_order_relaxed);
+    if (statisticsEnabled && state->stats != nullptr) {
+        state->stats->processCount.fetch_add(1, std::memory_order_relaxed);
     }
-    DispatchOutputs(state->actorName, outputs);
+    DispatchOutputs(state->nodeName, outputs);
     return StepResult{true, emittedOutputs};
 }
 
@@ -527,8 +527,8 @@ bool Executor::TryPopAnyInput(const std::shared_ptr<ScheduledActorState>& state,
             if (statisticsEnabled && inputQueue.stats != nullptr) {
                 inputQueue.stats->RecordDequeue();
             }
-            if (statisticsEnabled && state->runtimeStats != nullptr) {
-                state->runtimeStats->inputMessageCount.fetch_add(1, std::memory_order_relaxed);
+            if (statisticsEnabled && state->stats != nullptr) {
+                state->stats->inputMessageCount.fetch_add(1, std::memory_order_relaxed);
             }
             portMessage.port = inputQueue.inputPortName;
             portMessage.message = std::move(message);
@@ -547,10 +547,10 @@ bool Executor::TryPopAnyInput(const std::shared_ptr<ScheduledActorState>& state,
 void Executor::DispatchOutputs(const std::string& actorName, PortOutputs& outputs) {
     if (StatisticsEnabled()) {
         auto actorIt = m_actorStates.find(actorName);
-        if (actorIt != m_actorStates.end() && actorIt->second->runtimeStats != nullptr) {
-            actorIt->second->runtimeStats->emittedBroadcastCount.fetch_add(
+        if (actorIt != m_actorStates.end() && actorIt->second->stats != nullptr) {
+            actorIt->second->stats->emittedBroadcastCount.fetch_add(
                 static_cast<std::uint64_t>(outputs.m_broadcasts.size()), std::memory_order_relaxed);
-            actorIt->second->runtimeStats->emittedRouteCount.fetch_add(static_cast<std::uint64_t>(outputs.m_routes.size()),
+            actorIt->second->stats->emittedRouteCount.fetch_add(static_cast<std::uint64_t>(outputs.m_routes.size()),
                                                                        std::memory_order_relaxed);
         }
     }

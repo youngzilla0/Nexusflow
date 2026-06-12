@@ -26,7 +26,7 @@ NexusFlow 当前运行时通过共享 `Executor` 与 work-stealing `ThreadPool` 
 | Fan-out / Join 拓扑 | Diamond join 在 2/4/8/16 分支下均成功交付 10K 条合并结果，零丢弃。 | Join 路径功能正确；分支数增加会提高协调成本。 |
 | 非阻塞过载行为 | Queue capacity overload benchmark 展示了较高的 drop count 与受限的队列深度。 | 背压/drop 统计清晰可观测，也便于测试。 |
 | 队列路径 | Pipeline 使用 `LockBaseQueue<Message>`；lock-free queue 当前只在独立 microbenchmark 中测试。 | 这是对外报告时必须说明的边界。 |
-| 可观测性 | Per-port/per-actor runtime stats 已支持 enqueue/dequeue/drop/reject 与 join 状态；benchmark sink 也已支持 latency percentile 统计。 | 足够支撑报告级基准分析，但 runtime 内置 histogram 仍未实现。 |
+| 可观测性 | 端口级与节点级统计已支持 enqueue/dequeue/drop/reject 与 join 状态；benchmark sink 也已支持 latency percentile 统计。 | 足够支撑报告级基准分析，但运行时内置 histogram 仍未实现。 |
 
 ## 2. 被测架构
 

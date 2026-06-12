@@ -1,12 +1,12 @@
-#ifndef NEXUSFLOW_RUNTIME_STATS_HPP
-#define NEXUSFLOW_RUNTIME_STATS_HPP
+#ifndef NEXUSFLOW_STATISTICS_TYPES_HPP
+#define NEXUSFLOW_STATISTICS_TYPES_HPP
 
 #include <cstdint>
 #include <string>
 
 namespace nexusflow {
 
-struct PortRuntimeStats {
+struct PortStats {
     std::string srcModuleName;
     std::string srcPortName;
     std::string dstModuleName;
@@ -23,8 +23,8 @@ struct PortRuntimeStats {
     std::uint64_t peakDepth = 0;
 };
 
-struct ActorRuntimeStats {
-    std::string actorName;
+struct NodeStats {
+    std::string nodeName;
     std::uint64_t processCount = 0;
     std::uint64_t inputMessageCount = 0;
     std::uint64_t emittedBroadcastCount = 0;
@@ -40,4 +40,4 @@ struct ActorRuntimeStats {
 
 } // namespace nexusflow
 
-#endif // NEXUSFLOW_RUNTIME_STATS_HPP
+#endif // NEXUSFLOW_STATISTICS_TYPES_HPP

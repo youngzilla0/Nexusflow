@@ -12,34 +12,34 @@ PipelineObserver::PipelineObserver(const Pipeline& pipeline) : m_pipeline(pipeli
 
 PipelineObservation PipelineObserver::Snapshot() const {
     PipelineObservation observation;
-    observation.actors = m_pipeline.GetActorStats();
+    observation.nodes = m_pipeline.GetNodeStats();
     observation.ports = m_pipeline.GetPortStats();
 
-    std::unordered_map<std::string, std::size_t> actorIndex;
-    actorIndex.reserve(observation.actors.size());
-    for (std::size_t index = 0; index < observation.actors.size(); ++index) {
-        actorIndex.emplace(observation.actors[index].actorName, index);
+    std::unordered_map<std::string, std::size_t> nodeIndex;
+    nodeIndex.reserve(observation.nodes.size());
+    for (std::size_t index = 0; index < observation.nodes.size(); ++index) {
+        nodeIndex.emplace(observation.nodes[index].nodeName, index);
     }
 
     for (const auto& port : observation.ports) {
-        auto srcIt = actorIndex.find(port.srcModuleName);
-        if (srcIt != actorIndex.end()) {
-            auto& actor = observation.actors[srcIt->second];
-            actor.outgoingEnqueueCount += port.enqueueCount;
-            actor.outgoingDropCount += port.dropCount;
-            actor.outgoingRejectCount += port.rejectCount;
+        auto srcIt = nodeIndex.find(port.srcModuleName);
+        if (srcIt != nodeIndex.end()) {
+            auto& node = observation.nodes[srcIt->second];
+            node.outgoingEnqueueCount += port.enqueueCount;
+            node.outgoingDropCount += port.dropCount;
+            node.outgoingRejectCount += port.rejectCount;
         }
 
-        auto dstIt = actorIndex.find(port.dstModuleName);
-        if (dstIt != actorIndex.end()) {
-            observation.actors[dstIt->second].incomingDequeueCount += port.dequeueCount;
+        auto dstIt = nodeIndex.find(port.dstModuleName);
+        if (dstIt != nodeIndex.end()) {
+            observation.nodes[dstIt->second].incomingDequeueCount += port.dequeueCount;
         }
     }
 
-    std::sort(observation.actors.begin(), observation.actors.end(),
-              [](const ActorRuntimeStats& lhs, const ActorRuntimeStats& rhs) { return lhs.actorName < rhs.actorName; });
+    std::sort(observation.nodes.begin(), observation.nodes.end(),
+              [](const NodeStats& lhs, const NodeStats& rhs) { return lhs.nodeName < rhs.nodeName; });
     std::sort(observation.ports.begin(), observation.ports.end(),
-              [](const PortRuntimeStats& lhs, const PortRuntimeStats& rhs) {
+              [](const PortStats& lhs, const PortStats& rhs) {
                   if (lhs.srcModuleName != rhs.srcModuleName) return lhs.srcModuleName < rhs.srcModuleName;
                   if (lhs.srcPortName != rhs.srcPortName) return lhs.srcPortName < rhs.srcPortName;
                   if (lhs.dstModuleName != rhs.dstModuleName) return lhs.dstModuleName < rhs.dstModuleName;
@@ -53,20 +53,20 @@ std::string PipelineObserver::Describe() const {
     const auto observation = Snapshot();
     std::ostringstream oss;
 
-    oss << "Actors\n";
-    for (const auto& actor : observation.actors) {
-        oss << "  " << actor.actorName << ":"
-            << " process=" << actor.processCount
-            << " input=" << actor.inputMessageCount
-            << " incomingDequeue=" << actor.incomingDequeueCount
-            << " outgoingEnqueue=" << actor.outgoingEnqueueCount
-            << " outgoingDrop=" << actor.outgoingDropCount
-            << " outgoingReject=" << actor.outgoingRejectCount
-            << " emitBroadcast=" << actor.emittedBroadcastCount
-            << " emitRoute=" << actor.emittedRouteCount
-            << " pendingJoins=" << actor.pendingJoinGroupCount
-            << " joinTimeoutDrop=" << actor.joinTimeoutDropCount
-            << " joinOverflowDrop=" << actor.joinOverflowDropCount << "\n";
+    oss << "Nodes\n";
+    for (const auto& node : observation.nodes) {
+        oss << "  " << node.nodeName << ":"
+            << " process=" << node.processCount
+            << " input=" << node.inputMessageCount
+            << " incomingDequeue=" << node.incomingDequeueCount
+            << " outgoingEnqueue=" << node.outgoingEnqueueCount
+            << " outgoingDrop=" << node.outgoingDropCount
+            << " outgoingReject=" << node.outgoingRejectCount
+            << " emitBroadcast=" << node.emittedBroadcastCount
+            << " emitRoute=" << node.emittedRouteCount
+            << " pendingJoins=" << node.pendingJoinGroupCount
+            << " joinTimeoutDrop=" << node.joinTimeoutDropCount
+            << " joinOverflowDrop=" << node.joinOverflowDropCount << "\n";
     }
 
     oss << "Ports\n";

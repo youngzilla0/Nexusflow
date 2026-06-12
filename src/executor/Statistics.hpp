@@ -1,7 +1,7 @@
-#ifndef NEXUSFLOW_EXECUTOR_RUNTIME_STATS_COLLECTOR_HPP
-#define NEXUSFLOW_EXECUTOR_RUNTIME_STATS_COLLECTOR_HPP
+#ifndef NEXUSFLOW_EXECUTOR_STATISTICS_HPP
+#define NEXUSFLOW_EXECUTOR_STATISTICS_HPP
 
-#include <nexusflow/RuntimeStats.hpp>
+#include <nexusflow/StatisticsTypes.hpp>
 
 #include <atomic>
 #include <cstddef>
@@ -20,12 +20,12 @@ namespace nexusflow { namespace executor {
  * Executor 与 queue 在热路径上仅负责记录事件；
  * 对外暴露的快照由该类统一聚合和组装。
  */
-class RuntimeStatsCollector {
+class Statistics {
 public:
     /**
      * @brief 单条边的运行时统计状态。
      */
-    struct PortRuntimeStatsState {
+    struct PortStatsState {
         /**
          * @brief 构造一份边级统计状态。
          * @param srcModuleName 源模块名称。
@@ -33,8 +33,8 @@ public:
          * @param dstModuleName 目标模块名称。
          * @param dstPortName 目标输入端口名称。
          */
-        PortRuntimeStatsState(std::string srcModuleName, std::string srcPortName,
-                              std::string dstModuleName, std::string dstPortName);
+        PortStatsState(std::string srcModuleName, std::string srcPortName,
+                       std::string dstModuleName, std::string dstPortName);
 
         /** @brief 记录一次 push 尝试。 */
         void RecordPushAttempt(bool blocking);
@@ -51,7 +51,7 @@ public:
          * @brief 生成当前边级统计快照。
          * @return 当前边的只读统计快照。
          */
-        PortRuntimeStats Snapshot() const;
+        PortStats Snapshot() const;
 
         std::string srcModuleName;
         std::string srcPortName;
@@ -69,12 +69,12 @@ public:
         std::atomic<std::uint64_t> peakDepth{0};
     };
 
-    using PortRuntimeStatsStatePtr = std::shared_ptr<PortRuntimeStatsState>;
+    using PortStatsStatePtr = std::shared_ptr<PortStatsState>;
 
     /**
      * @brief 单个 actor 的运行时统计状态。
      */
-    struct ActorRuntimeStatsState {
+    struct NodeStatsState {
         std::atomic<std::uint64_t> processCount{0};
         std::atomic<std::uint64_t> inputMessageCount{0};
         std::atomic<std::uint64_t> emittedBroadcastCount{0};
@@ -83,14 +83,14 @@ public:
         std::atomic<std::uint64_t> joinOverflowDropCount{0};
     };
 
-    using ActorRuntimeStatsStatePtr = std::shared_ptr<ActorRuntimeStatsState>;
+    using NodeStatsStatePtr = std::shared_ptr<NodeStatsState>;
     using PendingJoinGroupCountFn = std::function<std::uint64_t()>;
 
     /**
      * @brief 构造统计聚合器。
      * @param enabled 是否启用统计聚合。
      */
-    explicit RuntimeStatsCollector(bool enabled);
+    explicit Statistics(bool enabled);
 
     /**
      * @brief 返回统计功能是否启用。
@@ -102,44 +102,44 @@ public:
      * @brief 注册一条边的统计状态。
      * @param stats 边级统计状态对象。
      */
-    void RegisterPortStats(const PortRuntimeStatsStatePtr& stats);
+    void RegisterPortStats(const PortStatsStatePtr& stats);
 
     /**
-     * @brief 注册一个 actor 的统计状态。
-     * @param actorName actor 名称。
-     * @param stats actor 统计状态对象。
+     * @brief 注册一个节点的统计状态。
+     * @param nodeName 节点名称。
+     * @param stats 节点统计状态对象。
      * @param pendingJoinGroupCountFn 用于查询当前 pending join group 数量的回调。
      */
-    void RegisterActor(std::string actorName, const ActorRuntimeStatsStatePtr& stats, PendingJoinGroupCountFn pendingJoinGroupCountFn);
+    void RegisterNode(std::string nodeName, const NodeStatsStatePtr& stats, PendingJoinGroupCountFn pendingJoinGroupCountFn);
 
     /**
      * @brief 生成全部边级统计快照。
      * @return 当前所有边的统计快照列表。
      */
-    std::vector<PortRuntimeStats> SnapshotPorts() const;
+    std::vector<PortStats> SnapshotPorts() const;
 
     /**
-     * @brief 生成全部 actor 级统计快照。
-     * @return 当前所有 actor 的统计快照列表。
+     * @brief 生成全部节点级统计快照。
+     * @return 当前所有节点的统计快照列表。
      */
-    std::vector<ActorRuntimeStats> SnapshotActors() const;
+    std::vector<NodeStats> SnapshotNodes() const;
 
 private:
     /**
-     * @brief actor 统计注册信息。
+     * @brief 节点统计注册信息。
      */
-    struct ActorRegistration {
-        std::string actorName;
-        ActorRuntimeStatsStatePtr stats;
+    struct NodeRegistration {
+        std::string nodeName;
+        NodeStatsStatePtr stats;
         PendingJoinGroupCountFn pendingJoinGroupCountFn;
     };
 
     bool m_enabled;
     mutable std::mutex m_mutex;
-    std::vector<PortRuntimeStatsStatePtr> m_portStats;
-    std::vector<ActorRegistration> m_actorRegistrations;
+    std::vector<PortStatsStatePtr> m_portStats;
+    std::vector<NodeRegistration> m_nodeRegistrations;
 };
 
 }} // namespace nexusflow::executor
 
-#endif // NEXUSFLOW_EXECUTOR_RUNTIME_STATS_COLLECTOR_HPP
+#endif // NEXUSFLOW_EXECUTOR_STATISTICS_HPP

@@ -27,7 +27,7 @@ NexusFlow's current runtime uses a shared `Executor` with a work-stealing `Threa
 | Fan-out/join topology | Diamond join benchmark delivered 10K joined messages at 2/4/8/16 branches with no drops. | Join path is functional; branch count increases coordination cost. |
 | Non-blocking overload behavior | Queue-capacity overload benchmark shows high drop counts and bounded queue depth. | Backpressure/drop accounting is visible and testable. |
 | Queue path | Pipeline uses `LockBaseQueue<Message>`; lock-free queues are currently standalone benchmark targets. | Important reporting boundary. |
-| Observability | Per-port and per-actor runtime stats exist for enqueue/dequeue/drop/reject and join state; benchmark sinks now report latency percentiles. | Enough for report-grade benchmark analysis, but runtime histogram telemetry is not built in yet. |
+| Observability | Per-port and per-node statistics cover enqueue/dequeue/drop/reject and join state; benchmark sinks also report latency percentiles. | Enough for report-grade benchmark analysis, but built-in runtime histogram telemetry is still missing. |
 
 ## 2. Architecture Under Test
 

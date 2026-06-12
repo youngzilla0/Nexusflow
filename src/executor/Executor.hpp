@@ -2,7 +2,7 @@
 #define NEXUSFLOW_EXECUTOR_HPP
 
 #include "JoinStateStore.hpp"
-#include "RuntimeStatsCollector.hpp"
+#include "Statistics.hpp"
 #include "SchedulingPolicy.hpp"
 #include "ThreadPool.hpp"
 #include "base/Define.hpp"
@@ -11,7 +11,7 @@
 #include <nexusflow/Module.hpp>
 #include <nexusflow/PipelineConfig.hpp>
 #include <nexusflow/PipelineContext.hpp>
-#include <nexusflow/RuntimeStats.hpp>
+#include <nexusflow/StatisticsTypes.hpp>
 
 #include <atomic>
 #include <cstddef>
@@ -32,10 +32,10 @@ namespace nexusflow { namespace executor {
  */
 class Executor {
 public:
-    using PortRuntimeStatsState = RuntimeStatsCollector::PortRuntimeStatsState;
-    using PortRuntimeStatsStatePtr = RuntimeStatsCollector::PortRuntimeStatsStatePtr;
-    using ActorRuntimeStatsState = RuntimeStatsCollector::ActorRuntimeStatsState;
-    using ActorRuntimeStatsStatePtr = RuntimeStatsCollector::ActorRuntimeStatsStatePtr;
+    using PortStatsState = Statistics::PortStatsState;
+    using PortStatsStatePtr = Statistics::PortStatsStatePtr;
+    using NodeStatsState = Statistics::NodeStatsState;
+    using NodeStatsStatePtr = Statistics::NodeStatsStatePtr;
 
     /**
      * @brief 构造一个 Executor。
@@ -50,36 +50,36 @@ public:
 
     /**
      * @brief 注册一个 actor 及其运行时配置。
-     * @param actorName actor 名称。
+     * @param nodeName actor 名称。
      * @param module actor 持有的模块实例。
      * @param runtimeConfig actor 对应的运行时配置快照。
      */
-    void RegisterActor(const std::string& actorName,
+    void RegisterNode(const std::string& nodeName,
                        const std::shared_ptr<Module>& module,
                        const PipelineConfig& runtimeConfig);
 
     /**
      * @brief 为 actor 绑定一个输入队列。
-     * @param actorName 目标 actor 名称。
+     * @param nodeName 目标 actor 名称。
      * @param inputPortName 输入端口名。
      * @param queue 与该输入端口关联的消息队列。
      * @param stats 该边对应的统计状态。
      */
-    void AddInputQueue(const std::string& actorName, const std::string& inputPortName, ViewPtr<MessageQueue> queue,
-                       const PortRuntimeStatsStatePtr& stats);
+    void AddInputQueue(const std::string& nodeName, const std::string& inputPortName, ViewPtr<MessageQueue> queue,
+                       const PortStatsStatePtr& stats);
 
     /**
      * @brief 为 actor 绑定一个输出订阅边。
-     * @param actorName 源 actor 名称。
+     * @param nodeName 源 actor 名称。
      * @param outputPortName 源输出端口名称。
      * @param dstActorName 目标 actor 名称。
      * @param dstInputPortName 目标输入端口名称。
      * @param queue 源到目标之间的消息队列。
      * @param stats 该边对应的统计状态。
      */
-    void AddOutputQueue(const std::string& actorName, const std::string& outputPortName, const std::string& dstActorName,
+    void AddOutputQueue(const std::string& nodeName, const std::string& outputPortName, const std::string& dstActorName,
                         const std::string& dstInputPortName, ViewPtr<MessageQueue> queue,
-                        const PortRuntimeStatsStatePtr& stats);
+                        const PortStatsStatePtr& stats);
 
     /**
      * @brief 设置 Executor 的线程数配置。
@@ -89,32 +89,32 @@ public:
 
     /**
      * @brief 向 actor 的全部广播订阅者分发一条消息。
-     * @param actorName 源 actor 名称。
+     * @param nodeName 源 actor 名称。
      * @param message 待分发消息。
      * @param blocking 是否采用阻塞推送。
      */
-    void Emit(const std::string& actorName, const Message& message, bool blocking);
+    void Emit(const std::string& nodeName, const Message& message, bool blocking);
 
     /**
      * @brief 向 actor 的指定输出端口订阅者分发一条消息。
-     * @param actorName 源 actor 名称。
+     * @param nodeName 源 actor 名称。
      * @param outputPortName 源输出端口名称。
      * @param message 待分发消息。
      * @param blocking 是否采用阻塞推送。
      */
-    void Route(const std::string& actorName, const std::string& outputPortName, const Message& message, bool blocking);
+    void Route(const std::string& nodeName, const std::string& outputPortName, const Message& message, bool blocking);
 
     /**
      * @brief 返回当前全部边级统计快照。
      * @return 边级统计快照列表。
      */
-    std::vector<PortRuntimeStats> GetPortStats() const;
+    std::vector<PortStats> GetPortStats() const;
 
     /**
-     * @brief 返回当前全部 actor 级统计快照。
-     * @return actor 级统计快照列表。
+     * @brief 返回当前全部节点级统计快照。
+     * @return 节点级统计快照列表。
      */
-    std::vector<ActorRuntimeStats> GetActorStats() const;
+    std::vector<NodeStats> GetNodeStats() const;
 
     /**
      * @brief 启动线程池并开始调度可运行 actor。
@@ -133,7 +133,7 @@ private:
     struct InputQueueBinding {
         std::string inputPortName;
         ViewPtr<MessageQueue> queue;
-        PortRuntimeStatsStatePtr stats;
+        PortStatsStatePtr stats;
     };
 
     /**
@@ -143,7 +143,7 @@ private:
      * 为避免与 ModuleActor 的包装层职责混淆，此处显式命名为 ScheduledActorState。
      */
     struct ScheduledActorState {
-        std::string actorName;
+        std::string nodeName;
         std::shared_ptr<Module> module;
         PipelineConfig runtimeConfig;
         std::vector<InputQueueBinding> inputQueues;
@@ -151,7 +151,7 @@ private:
         JoinStateStore joinState;       // 只在 OnAllInputs 下使用，缓存待拼齐的 join group。
         std::atomic<bool> taskScheduled{false}; // 当前 actor 是否已经在池中排队或执行，避免重复提交。
         std::atomic<std::uint64_t> pendingRunSignals{0}; // 记录执行期间新增的“需要再跑一次”信号。
-        ActorRuntimeStatsStatePtr runtimeStats = std::make_shared<ActorRuntimeStatsState>();
+        NodeStatsStatePtr stats = std::make_shared<NodeStatsState>();
     };
 
     /**
@@ -161,7 +161,7 @@ private:
         std::string dstActorName;
         std::string dstInputPortName;
         ViewPtr<MessageQueue> queue;
-        PortRuntimeStatsStatePtr stats;
+        PortStatsStatePtr stats;
         std::shared_ptr<ScheduledActorState> dstActorState;
     };
 
@@ -261,10 +261,10 @@ private:
 
     /**
      * @brief 分发模块本轮产生的全部输出。
-     * @param actorName 源 actor 名称。
+     * @param nodeName 源 actor 名称。
      * @param outputs 模块本轮产生的输出集合。
      */
-    void DispatchOutputs(const std::string& actorName, PortOutputs& outputs);
+    void DispatchOutputs(const std::string& nodeName, PortOutputs& outputs);
 
     /**
      * @brief 将一条消息分发给单个下游订阅者。
@@ -279,7 +279,7 @@ private:
     std::unordered_map<std::string, std::shared_ptr<ScheduledActorState>> m_actorStates;
     std::unordered_map<std::string, std::vector<OutputSubscriber>> m_broadcastSubscribers;
     std::unordered_map<std::string, std::vector<OutputSubscriber>> m_outputSubscribers;
-    RuntimeStatsCollector m_statsCollector;
+    Statistics m_statsCollector;
     std::shared_ptr<PipelineContext> m_pipelineContext;
     std::unique_ptr<ThreadPool> m_threadPool;
     std::unique_ptr<SchedulingPolicy> m_schedulingPolicy;

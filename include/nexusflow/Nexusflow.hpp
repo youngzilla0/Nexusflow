@@ -11,7 +11,7 @@
 #include <nexusflow/PipelineBuilder.hpp>
 #include <nexusflow/PipelineObserver.hpp>
 #include <nexusflow/Ports.hpp>
-#include <nexusflow/RuntimeStats.hpp>
+#include <nexusflow/StatisticsTypes.hpp>
 #include <nexusflow/StatisticsOptions.hpp>
 #include <nexusflow/TypeTraits.hpp>
 #include <nexusflow/Any.hpp>

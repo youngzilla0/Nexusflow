@@ -42,7 +42,7 @@ public:
      * @param stats 该边的统计状态。
      */
     void AddInputQueue(const std::string& portName, ViewPtr<MessageQueue> queue,
-                       const executor::Executor::PortRuntimeStatsStatePtr& stats) {
+                       const executor::Executor::PortStatsStatePtr& stats) {
         m_executor->AddInputQueue(m_module->GetModuleName(), portName, queue, stats);
     }
 
@@ -55,7 +55,7 @@ public:
      * @param stats 该边的统计状态。
      */
     void AddOutputQueue(const std::string& outputPortName, const std::string& dstActorName, const std::string& dstInputPortName,
-                        ViewPtr<MessageQueue> queue, const executor::Executor::PortRuntimeStatsStatePtr& stats) {
+                        ViewPtr<MessageQueue> queue, const executor::Executor::PortStatsStatePtr& stats) {
         m_executor->AddOutputQueue(m_module->GetModuleName(), outputPortName, dstActorName, dstInputPortName, queue, stats);
     }
 

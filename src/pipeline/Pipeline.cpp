@@ -49,10 +49,10 @@ ErrorCode Pipeline::Init() {
     for (auto& actorNode : m_pImpl->actorOrderedNodes) {
         ErrorCode errCode = actorNode->Init();
         if (errCode != ErrorCode::SUCCESS) {
-            LOG_ERROR("Init module failed, actorName={}", actorNode->GetModuleName());
+            LOG_ERROR("Init module failed, nodeName={}", actorNode->GetModuleName());
             return errCode;
         } else {
-            LOG_DEBUG("Init module success, actorName={}", actorNode->GetModuleName());
+            LOG_DEBUG("Init module success, nodeName={}", actorNode->GetModuleName());
         }
     }
     return ErrorCode::SUCCESS;
@@ -69,10 +69,10 @@ ErrorCode Pipeline::DeInit() {
         auto& actorNode = *it;
         ErrorCode errCode = actorNode->DeInit();
         if (errCode != ErrorCode::SUCCESS) {
-            LOG_ERROR("DeInit module failed, actorName={}", actorNode->GetModuleName());
+            LOG_ERROR("DeInit module failed, nodeName={}", actorNode->GetModuleName());
             return errCode;
         } else {
-            LOG_DEBUG("DeInit module success, actorName={}", actorNode->GetModuleName());
+            LOG_DEBUG("DeInit module success, nodeName={}", actorNode->GetModuleName());
         }
     }
 
@@ -90,10 +90,10 @@ ErrorCode Pipeline::Start() {
     for (auto& actorNode : m_pImpl->actorOrderedNodes) {
         ErrorCode errCode = actorNode->Start();
         if (errCode != ErrorCode::SUCCESS) {
-            LOG_ERROR("Start worker failed, actorName={}", actorNode->GetModuleName());
+            LOG_ERROR("Start worker failed, nodeName={}", actorNode->GetModuleName());
             return errCode;
         } else {
-            LOG_DEBUG("Start module success, actorName={}", actorNode->GetModuleName());
+            LOG_DEBUG("Start module success, nodeName={}", actorNode->GetModuleName());
         }
     }
     LOG_DEBUG("Pipeline started successfully.");
@@ -114,28 +114,28 @@ ErrorCode Pipeline::Stop() {
     for (auto& actorNode : m_pImpl->actorOrderedNodes) {
         errCode = actorNode->Stop();
         if (errCode != ErrorCode::SUCCESS) {
-            LOG_ERROR("Stop worker failed, actorName={}", actorNode->GetModuleName());
+            LOG_ERROR("Stop worker failed, nodeName={}", actorNode->GetModuleName());
             return errCode;
         } else {
-            LOG_DEBUG("Stop module success, actorName={}", actorNode->GetModuleName());
+            LOG_DEBUG("Stop module success, nodeName={}", actorNode->GetModuleName());
         }
     }
     LOG_DEBUG("Pipeline stopped successfully.");
     return ErrorCode::SUCCESS;
 }
 
-std::vector<PortRuntimeStats> Pipeline::GetPortStats() const {
+std::vector<PortStats> Pipeline::GetPortStats() const {
     if (!m_pImpl || !m_pImpl->executor) {
         return {};
     }
     return m_pImpl->executor->GetPortStats();
 }
 
-std::vector<ActorRuntimeStats> Pipeline::GetActorStats() const {
+std::vector<NodeStats> Pipeline::GetNodeStats() const {
     if (!m_pImpl || !m_pImpl->executor) {
         return {};
     }
-    return m_pImpl->executor->GetActorStats();
+    return m_pImpl->executor->GetNodeStats();
 }
 
 }; // namespace nexusflow

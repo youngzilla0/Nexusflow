@@ -109,9 +109,9 @@ ErrorCode Pipeline::Impl::MaterializeRuntime(const PipelineBuildPlan& plan) {
 
         auto queue = std::make_unique<MessageQueue>(this->config.queueSize);
         auto queueView = makeViewPtr(queue.get());
-        executor::Executor::PortRuntimeStatsStatePtr portStats;
+        executor::Executor::PortStatsStatePtr portStats;
         if (pipelineContext != nullptr && pipelineContext->IsStatisticsEnabled()) {
-            portStats = std::make_shared<executor::Executor::PortRuntimeStatsState>(
+            portStats = std::make_shared<executor::Executor::PortStatsState>(
                 plannedEdge.srcNode->name, plannedEdge.srcPort, plannedEdge.dstNode->name, plannedEdge.dstPort);
         }
 

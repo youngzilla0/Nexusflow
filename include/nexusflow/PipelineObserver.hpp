@@ -1,7 +1,7 @@
 #ifndef NEXUSFLOW_PIPELINE_OBSERVER_HPP
 #define NEXUSFLOW_PIPELINE_OBSERVER_HPP
 
-#include <nexusflow/RuntimeStats.hpp>
+#include <nexusflow/StatisticsTypes.hpp>
 
 #include <string>
 #include <vector>
@@ -11,8 +11,8 @@ namespace nexusflow {
 class Pipeline;
 
 struct PipelineObservation {
-    std::vector<ActorRuntimeStats> actors;
-    std::vector<PortRuntimeStats> ports;
+    std::vector<NodeStats> nodes;
+    std::vector<PortStats> ports;
 };
 
 class PipelineObserver {

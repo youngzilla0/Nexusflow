@@ -3,7 +3,7 @@
 
 #include <nexusflow/ErrorCode.hpp>
 #include <nexusflow/PipelineConfig.hpp>
-#include <nexusflow/RuntimeStats.hpp>
+#include <nexusflow/StatisticsTypes.hpp>
 
 #include <memory>
 #include <string>
@@ -33,8 +33,8 @@ public:
 
     ErrorCode DeInit();
 
-    std::vector<PortRuntimeStats> GetPortStats() const;
-    std::vector<ActorRuntimeStats> GetActorStats() const;
+    std::vector<PortStats> GetPortStats() const;
+    std::vector<NodeStats> GetNodeStats() const;
 
     ~Pipeline();
 

@@ -19,7 +19,7 @@ Key decisions:
 
 - one `Executor` per `Pipeline`
 - one `ThreadPool` per `Executor`
-- modules are logical actors, not dedicated OS threads
+- modules are logical nodes, not dedicated OS threads
 - user modules process port views, not queue batches
 
 ## 2. Public API Model
@@ -104,7 +104,7 @@ On `Start()`:
 
 1. resolve thread count
 2. create `ThreadPool`
-3. prime runnable actors
+3. prime runnable nodes
 4. submit short actor tasks on demand
 
 On `Stop()`:
@@ -198,7 +198,7 @@ Snapshots expose:
 - enqueue, drop, reject, and dequeue counts
 - current queue depth and peak depth
 
-`Pipeline::GetPortStats()` and `Pipeline::GetActorStats()` collect these snapshots without exposing queue internals to modules.
+`Pipeline::GetPortStats()` and `Pipeline::GetNodeStats()` collect these snapshots without exposing queue internals to modules.
 `PipelineObserver` builds a combined actor + edge view for observability and debugging.
 
 ## 8. Data Flow Example
@@ -252,7 +252,7 @@ These are known limitations of the current implementation:
 - `OnAllInputs` depends on `messageId` only; there is no watermark or time-window fusion
 - runtime stats are snapshot-oriented; there is no push-based monitoring hook yet
 - the runtime queue is lock-based, so queue contention is still a meaningful cost
-- source actors still rely on `idleWaitUs` when idle, and multi-input actors still scan input queues on each activation
+- source nodes still rely on `idleWaitUs` when idle, and multi-input nodes still scan input queues on each activation
 
 ## 11. Code Map
 
@@ -263,7 +263,7 @@ Important files:
 - [docs/ARCHITECTURE_ROADMAP.md](/Users/yang/Code/Nexusflow/docs/ARCHITECTURE_ROADMAP.md)
 - [include/nexusflow/Ports.hpp](/Users/yang/Code/Nexusflow/include/nexusflow/Ports.hpp)
 - [include/nexusflow/PipelineObserver.hpp](/Users/yang/Code/Nexusflow/include/nexusflow/PipelineObserver.hpp)
-- [include/nexusflow/RuntimeStats.hpp](/Users/yang/Code/Nexusflow/include/nexusflow/RuntimeStats.hpp)
+- [include/nexusflow/StatisticsTypes.hpp](/Users/yang/Code/Nexusflow/include/nexusflow/StatisticsTypes.hpp)
 - [src/executor/Executor.hpp](/Users/yang/Code/Nexusflow/src/executor/Executor.hpp)
 - [src/executor/Executor.cpp](/Users/yang/Code/Nexusflow/src/executor/Executor.cpp)
 - [src/pipeline/impl/PipelineImpl.cpp](/Users/yang/Code/Nexusflow/src/pipeline/impl/PipelineImpl.cpp)

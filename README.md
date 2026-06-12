@@ -30,7 +30,7 @@ New concepts:
 - `PortOutputs`: emit to all downstream edges or route to a named output port, with explicit blocking mode
 - `QueueFullPolicy`: controls how non-blocking sends behave on full queues
 - `Pipeline::GetPortStats()`: snapshots per-edge enqueue, drop, dequeue, and depth stats
-- `Pipeline::GetActorStats()` / `PipelineObserver`: snapshots per-actor processing, drop, and join state
+- `Pipeline::GetNodeStats()` / `PipelineObserver`: snapshots per-node processing, drop, and join state
 
 ## Build
 
@@ -215,7 +215,7 @@ for (const auto& stats : pipeline->GetPortStats()) {
 }
 ```
 
-Pipelines also expose per-actor runtime snapshots and an observer that aggregates edge and actor views:
+Pipelines also expose per-node runtime snapshots and an observer that aggregates edge and node views:
 
 ```cpp
 nexusflow::PipelineObserver observer(*pipeline);

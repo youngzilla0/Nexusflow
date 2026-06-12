@@ -1,4 +1,4 @@
-#include "executor/RuntimeStatsCollector.hpp"
+#include "executor/Statistics.hpp"
 
 #include <algorithm>
 #include <utility>
@@ -12,15 +12,15 @@ namespace nexusflow { namespace executor {
  * @param dstModuleNameValue 目标模块名称。
  * @param dstPortNameValue 目标输入端口名称。
  */
-RuntimeStatsCollector::PortRuntimeStatsState::PortRuntimeStatsState(std::string srcModuleNameValue, std::string srcPortNameValue,
-                                                                    std::string dstModuleNameValue, std::string dstPortNameValue)
+Statistics::PortStatsState::PortStatsState(std::string srcModuleNameValue, std::string srcPortNameValue,
+                                           std::string dstModuleNameValue, std::string dstPortNameValue)
     : srcModuleName(std::move(srcModuleNameValue)),
       srcPortName(std::move(srcPortNameValue)),
       dstModuleName(std::move(dstModuleNameValue)),
       dstPortName(std::move(dstPortNameValue)) {}
 
 /** @brief 记录一次 push 尝试。 */
-void RuntimeStatsCollector::PortRuntimeStatsState::RecordPushAttempt(bool blocking) {
+void Statistics::PortStatsState::RecordPushAttempt(bool blocking) {
     pushAttempts.fetch_add(1, std::memory_order_relaxed);
     if (blocking) {
         blockingPushAttempts.fetch_add(1, std::memory_order_relaxed);
@@ -34,7 +34,7 @@ void RuntimeStatsCollector::PortRuntimeStatsState::RecordPushAttempt(bool blocki
  * @param enqueuedCount 本次成功入队的消息数量。
  * @param droppedToMakeRoom 为腾出空间而被丢弃的旧消息数量。
  */
-void RuntimeStatsCollector::PortRuntimeStatsState::RecordPushAccepted(std::size_t enqueuedCount, std::size_t droppedToMakeRoom) {
+void Statistics::PortStatsState::RecordPushAccepted(std::size_t enqueuedCount, std::size_t droppedToMakeRoom) {
     enqueueCount.fetch_add(1, std::memory_order_relaxed);
     if (droppedToMakeRoom > 0) {
         dropCount.fetch_add(static_cast<std::uint64_t>(droppedToMakeRoom), std::memory_order_relaxed);
@@ -57,17 +57,17 @@ void RuntimeStatsCollector::PortRuntimeStatsState::RecordPushAccepted(std::size_
  * @brief 记录一次主动丢弃。
  * @param dropCountValue 本次丢弃的消息数量。
  */
-void RuntimeStatsCollector::PortRuntimeStatsState::RecordPushDropped(std::size_t dropCountValue) {
+void Statistics::PortStatsState::RecordPushDropped(std::size_t dropCountValue) {
     dropCount.fetch_add(static_cast<std::uint64_t>(dropCountValue), std::memory_order_relaxed);
 }
 
 /** @brief 记录一次 push 拒绝。 */
-void RuntimeStatsCollector::PortRuntimeStatsState::RecordPushRejected() {
+void Statistics::PortStatsState::RecordPushRejected() {
     rejectCount.fetch_add(1, std::memory_order_relaxed);
 }
 
 /** @brief 记录一次 dequeue。 */
-void RuntimeStatsCollector::PortRuntimeStatsState::RecordDequeue() {
+void Statistics::PortStatsState::RecordDequeue() {
     dequeueCount.fetch_add(1, std::memory_order_relaxed);
     depthSubtractions.fetch_add(1, std::memory_order_relaxed);
 }
@@ -76,8 +76,8 @@ void RuntimeStatsCollector::PortRuntimeStatsState::RecordDequeue() {
  * @brief 生成当前边级统计快照。
  * @return 当前边级统计快照。
  */
-PortRuntimeStats RuntimeStatsCollector::PortRuntimeStatsState::Snapshot() const {
-    PortRuntimeStats snapshot;
+PortStats Statistics::PortStatsState::Snapshot() const {
+    PortStats snapshot;
     snapshot.srcModuleName = srcModuleName;
     snapshot.srcPortName = srcPortName;
     snapshot.dstModuleName = dstModuleName;
@@ -100,20 +100,20 @@ PortRuntimeStats RuntimeStatsCollector::PortRuntimeStatsState::Snapshot() const 
  * @brief 构造统计聚合器。
  * @param enabled 是否启用统计。
  */
-RuntimeStatsCollector::RuntimeStatsCollector(bool enabled) : m_enabled(enabled) {}
+Statistics::Statistics(bool enabled) : m_enabled(enabled) {}
 
 /**
  * @brief 注册一条边的统计状态。
  * @param stats 边级统计状态对象。
  */
-void RuntimeStatsCollector::RegisterPortStats(const PortRuntimeStatsStatePtr& stats) {
+void Statistics::RegisterPortStats(const PortStatsStatePtr& stats) {
     if (!m_enabled || stats == nullptr) {
         return;
     }
 
     std::lock_guard<std::mutex> lock(m_mutex);
     auto duplicateIt = std::find_if(m_portStats.begin(), m_portStats.end(),
-                                    [&stats](const PortRuntimeStatsStatePtr& existing) {
+                                    [&stats](const PortStatsStatePtr& existing) {
                                         return existing.get() == stats.get();
                                     });
     if (duplicateIt == m_portStats.end()) {
@@ -122,33 +122,33 @@ void RuntimeStatsCollector::RegisterPortStats(const PortRuntimeStatsStatePtr& st
 }
 
 /**
- * @brief 注册一个 actor 的统计状态。
- * @param actorName actor 名称。
- * @param stats actor 统计状态对象。
+ * @brief 注册一个节点的统计状态。
+ * @param nodeName 节点名称。
+ * @param stats 节点统计状态对象。
  * @param pendingJoinGroupCountFn 用于查询 pending join group 数量的回调。
  */
-void RuntimeStatsCollector::RegisterActor(std::string actorName, const ActorRuntimeStatsStatePtr& stats,
-                                          PendingJoinGroupCountFn pendingJoinGroupCountFn) {
+void Statistics::RegisterNode(std::string nodeName, const NodeStatsStatePtr& stats,
+                              PendingJoinGroupCountFn pendingJoinGroupCountFn) {
     if (!m_enabled || stats == nullptr) {
         return;
     }
 
     std::lock_guard<std::mutex> lock(m_mutex);
-    m_actorRegistrations.push_back(ActorRegistration{std::move(actorName), stats, std::move(pendingJoinGroupCountFn)});
+    m_nodeRegistrations.push_back(NodeRegistration{std::move(nodeName), stats, std::move(pendingJoinGroupCountFn)});
 }
 
 /**
  * @brief 生成全部边级统计快照。
  * @return 当前全部边级统计快照列表。
  */
-std::vector<PortRuntimeStats> RuntimeStatsCollector::SnapshotPorts() const {
+std::vector<PortStats> Statistics::SnapshotPorts() const {
     if (!m_enabled) {
         return {};
     }
 
     std::lock_guard<std::mutex> lock(m_mutex);
 
-    std::vector<PortRuntimeStats> snapshots;
+    std::vector<PortStats> snapshots;
     snapshots.reserve(m_portStats.size());
     for (const auto& stats : m_portStats) {
         if (stats != nullptr) {
@@ -159,25 +159,25 @@ std::vector<PortRuntimeStats> RuntimeStatsCollector::SnapshotPorts() const {
 }
 
 /**
- * @brief 生成全部 actor 级统计快照。
- * @return 当前全部 actor 级统计快照列表。
+ * @brief 生成全部节点级统计快照。
+ * @return 当前全部节点级统计快照列表。
  */
-std::vector<ActorRuntimeStats> RuntimeStatsCollector::SnapshotActors() const {
+std::vector<NodeStats> Statistics::SnapshotNodes() const {
     if (!m_enabled) {
         return {};
     }
 
     std::lock_guard<std::mutex> lock(m_mutex);
 
-    std::vector<ActorRuntimeStats> snapshots;
-    snapshots.reserve(m_actorRegistrations.size());
-    for (const auto& registration : m_actorRegistrations) {
+    std::vector<NodeStats> snapshots;
+    snapshots.reserve(m_nodeRegistrations.size());
+    for (const auto& registration : m_nodeRegistrations) {
         if (registration.stats == nullptr) {
             continue;
         }
 
-        ActorRuntimeStats snapshot;
-        snapshot.actorName = registration.actorName;
+        NodeStats snapshot;
+        snapshot.nodeName = registration.nodeName;
         snapshot.processCount = registration.stats->processCount.load(std::memory_order_relaxed);
         snapshot.inputMessageCount = registration.stats->inputMessageCount.load(std::memory_order_relaxed);
         snapshot.emittedBroadcastCount = registration.stats->emittedBroadcastCount.load(std::memory_order_relaxed);
