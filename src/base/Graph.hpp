@@ -13,10 +13,14 @@ namespace nexusflow {
 class Module; // Forward declaration.
 }
 
+enum class ModuleSource {
+    Type,     // 模块在物化阶段通过 ModuleFactory 按类型名创建。
+    Instance, // 模块由 builder/tests 直接提供现成实例。
+};
+
 enum class NodeKind {
     Generic,
-    ModuleClass,
-    ModuleInstance,
+    Module, // 表示该图节点最终会物化为一个 Module。
 };
 
 // Graph Node is a topology vertex. The base type only carries the node name and
@@ -30,33 +34,29 @@ struct Node {
     virtual NodeKind GetKind() const { return NodeKind::Generic; }
 };
 
-// ModuleClassNode represents a declarative node created from config/YAML. The
-// concrete Module instance is materialized later through ModuleFactory.
-struct ModuleClassNode : Node {
+// ModuleNode 表示“图层里的模块节点”。
+// 它统一承载两种来源：
+// - Type: 来自 YAML/注册表，运行时再按类型名创建 Module
+// - Instance: 来自 builder/tests，运行时直接复用现成 Module
+struct ModuleNode : Node {
     using Super = Node;
+    ModuleSource source = ModuleSource::Type;
     std::string moduleClassName;
+    std::shared_ptr<nexusflow::Module> modulePtr = nullptr;
     nexusflow::Config config;
 
-    ModuleClassNode(std::string name, std::string moduleClassName, nexusflow::Config config)
-        : Super(std::move(name)), moduleClassName(std::move(moduleClassName)), config(std::move(config)) {}
+    ModuleNode(std::string name, std::string moduleClassName, nexusflow::Config config)
+        : Super(std::move(name)), source(ModuleSource::Type), moduleClassName(std::move(moduleClassName)),
+          config(std::move(config)) {}
 
-    NodeKind GetKind() const override { return NodeKind::ModuleClass; }
+    ModuleNode(std::string name, const std::shared_ptr<nexusflow::Module>& modulePtr)
+        : Super(std::move(name)), source(ModuleSource::Instance), modulePtr(modulePtr) {}
+
+    NodeKind GetKind() const override { return NodeKind::Module; }
 };
 
-// ModuleInstanceNode represents a programmatically provided Module instance. It
-// is mainly used by builder/tests where the caller already owns the module.
-struct ModuleInstanceNode : Node {
-    using Super = Node;
-
-    std::shared_ptr<nexusflow::Module> modulePtr = nullptr; // The instance of the module.
-    ModuleInstanceNode(std::string name, const std::shared_ptr<nexusflow::Module>& modulePtr)
-        : Super(std::move(name)), modulePtr(modulePtr) {}
-
-    NodeKind GetKind() const override { return NodeKind::ModuleInstance; }
-};
-
-using NodeWithModuleClassName = ModuleClassNode;
-using NodeWithModulePtr = ModuleInstanceNode;
+using NodeWithModuleClassName = ModuleNode;
+using NodeWithModulePtr = ModuleNode;
 
 struct Edge {
     std::weak_ptr<Node> srcNodePtr, dstNodePtr;

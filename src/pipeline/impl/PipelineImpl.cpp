@@ -30,11 +30,15 @@ std::shared_ptr<Module> CreateModuleForGraphNode(const std::shared_ptr<Node>& no
     }
 
     switch (node->GetKind()) {
-        case NodeKind::ModuleInstance: return static_cast<ModuleInstanceNode&>(*node).modulePtr;
-        case NodeKind::ModuleClass: {
-            auto& moduleNode = static_cast<ModuleClassNode&>(*node);
+        case NodeKind::Module: {
+            auto& moduleNode = static_cast<ModuleNode&>(*node);
+            if (moduleNode.source == ModuleSource::Instance) {
+                return moduleNode.modulePtr;
+            }
+
             auto& moduleFactory = ModuleFactory::GetInstance();
-            return moduleFactory.CreateModule(ModuleBuildContext{moduleNode.moduleClassName, moduleNode.name, moduleNode.config});
+            return moduleFactory.CreateModule(
+                ModuleBuildContext{moduleNode.moduleClassName, moduleNode.name, moduleNode.config});
         }
         case NodeKind::Generic:
         default:

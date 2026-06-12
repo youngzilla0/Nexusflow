@@ -187,9 +187,9 @@ std::unique_ptr<Graph> CreateGraphFromSpec(const GraphSpec& spec) {
 
         std::shared_ptr<Node> node;
         if (nodeSpec.moduleInstance) {
-            node = std::make_shared<ModuleInstanceNode>(nodeSpec.nodeName, nodeSpec.moduleInstance);
+            node = std::make_shared<ModuleNode>(nodeSpec.nodeName, nodeSpec.moduleInstance);
         } else if (!nodeSpec.moduleClassName.empty()) {
-            node = std::make_shared<ModuleClassNode>(nodeSpec.nodeName, nodeSpec.moduleClassName, nodeSpec.config);
+            node = std::make_shared<ModuleNode>(nodeSpec.nodeName, nodeSpec.moduleClassName, nodeSpec.config);
         } else {
             LOG_ERROR("Graph '{}' node '{}' must provide either a module class or a module instance.", spec.graphName,
                       nodeSpec.nodeName);
