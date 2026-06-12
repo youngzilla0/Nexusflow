@@ -9,20 +9,20 @@
 
 namespace {
 
-bool EdgeMatches(const Edge& edge, const std::shared_ptr<Node>& srcNodePtr, const std::shared_ptr<Node>& dstNodePtr,
+bool EdgeMatches(const Edge& edge, const std::shared_ptr<GraphNode>& srcNodePtr, const std::shared_ptr<GraphNode>& dstNodePtr,
                  const std::string& srcPort, const std::string& dstPort) {
     return edge.srcNodePtr.lock() == srcNodePtr && edge.dstNodePtr.lock() == dstNodePtr && edge.srcPort == srcPort &&
            edge.dstPort == dstPort;
 }
 
-std::unordered_set<std::shared_ptr<Node>> CollectReachableNodes(
-    const Graph::AdjacencyList& adjList, const std::vector<Edge>& edges, const std::shared_ptr<Node>& rootNodePtr) {
-    std::unordered_set<std::shared_ptr<Node>> reachableNodes;
+std::unordered_set<std::shared_ptr<GraphNode>> CollectReachableNodes(
+    const Graph::AdjacencyList& adjList, const std::vector<Edge>& edges, const std::shared_ptr<GraphNode>& rootNodePtr) {
+    std::unordered_set<std::shared_ptr<GraphNode>> reachableNodes;
     if (!rootNodePtr) {
         return reachableNodes;
     }
 
-    std::queue<std::shared_ptr<Node>> nodeQueue;
+    std::queue<std::shared_ptr<GraphNode>> nodeQueue;
     nodeQueue.push(rootNodePtr);
     reachableNodes.insert(rootNodePtr);
 
@@ -52,7 +52,7 @@ std::unordered_set<std::shared_ptr<Node>> CollectReachableNodes(
 
 } // namespace
 
-void Graph::AddNode(const std::shared_ptr<Node>& nodePtr) {
+void Graph::AddNode(const std::shared_ptr<GraphNode>& nodePtr) {
     if (nodePtr == nullptr) return;
 
     auto inserted = m_nodeMap.emplace(nodePtr->name, nodePtr);
@@ -62,7 +62,7 @@ void Graph::AddNode(const std::shared_ptr<Node>& nodePtr) {
     m_adjList.emplace(nodePtr, std::vector<std::size_t>{});
 }
 
-void Graph::AddEdge(const std::shared_ptr<Node>& srcNodePtr, const std::shared_ptr<Node>& dstNodePtr, std::string srcPort,
+void Graph::AddEdge(const std::shared_ptr<GraphNode>& srcNodePtr, const std::shared_ptr<GraphNode>& dstNodePtr, std::string srcPort,
                     std::string dstPort) {
     if (srcNodePtr == nullptr || dstNodePtr == nullptr) return;
 
@@ -83,16 +83,16 @@ void Graph::AddEdge(const std::shared_ptr<Node>& srcNodePtr, const std::shared_p
 
 bool Graph::HasCycle() const { return CheckCycleAndConvertToEdgeList(nullptr).first; }
 
-std::vector<Edge> Graph::ToEdgeListBfs(const std::shared_ptr<Node>& inputNodePtr) const {
+std::vector<Edge> Graph::ToEdgeListBfs(const std::shared_ptr<GraphNode>& inputNodePtr) const {
     if (inputNodePtr == nullptr) {
         return m_edges;
     }
     return CheckCycleAndConvertToEdgeList(inputNodePtr).second;
 }
 
-std::pair<bool, std::vector<Edge>> Graph::CheckCycleAndConvertToEdgeList(const std::shared_ptr<Node>& inputNodePtr) const {
+std::pair<bool, std::vector<Edge>> Graph::CheckCycleAndConvertToEdgeList(const std::shared_ptr<GraphNode>& inputNodePtr) const {
     std::vector<Edge> edgeList;
-    std::unordered_set<std::shared_ptr<Node>> traversalNodes;
+    std::unordered_set<std::shared_ptr<GraphNode>> traversalNodes;
 
     if (inputNodePtr != nullptr) {
         traversalNodes = CollectReachableNodes(m_adjList, m_edges, inputNodePtr);
@@ -102,7 +102,7 @@ std::pair<bool, std::vector<Edge>> Graph::CheckCycleAndConvertToEdgeList(const s
         }
     }
 
-    std::unordered_map<std::shared_ptr<Node>, int> inDegree;
+    std::unordered_map<std::shared_ptr<GraphNode>, int> inDegree;
     for (const auto& node : traversalNodes) {
         inDegree[node] = 0;
     }
@@ -122,7 +122,7 @@ std::pair<bool, std::vector<Edge>> Graph::CheckCycleAndConvertToEdgeList(const s
         }
     }
 
-    std::queue<std::shared_ptr<Node>> nodeQueue;
+    std::queue<std::shared_ptr<GraphNode>> nodeQueue;
     if (inputNodePtr != nullptr) {
         nodeQueue.push(inputNodePtr);
         inDegree[inputNodePtr] = 0;
@@ -160,8 +160,8 @@ std::pair<bool, std::vector<Edge>> Graph::CheckCycleAndConvertToEdgeList(const s
     return {visitedCount != static_cast<int>(traversalNodes.size()), std::move(edgeList)};
 }
 
-std::vector<std::shared_ptr<Node>> Graph::GetConvergeNodes() const {
-    std::vector<std::shared_ptr<Node>> convergeNodes;
+std::vector<std::shared_ptr<GraphNode>> Graph::GetConvergeNodes() const {
+    std::vector<std::shared_ptr<GraphNode>> convergeNodes;
 
     for (const auto& nodeEntry : m_nodeMap) {
         const auto& node = nodeEntry.second;
@@ -182,7 +182,7 @@ std::vector<std::shared_ptr<Node>> Graph::GetConvergeNodes() const {
     return convergeNodes;
 }
 
-bool Graph::IsConvergeNode(const std::shared_ptr<Node>& node) const {
+bool Graph::IsConvergeNode(const std::shared_ptr<GraphNode>& node) const {
     if (!node) return false;
 
     int incomingCount = 0;

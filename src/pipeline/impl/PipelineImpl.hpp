@@ -4,7 +4,7 @@
 #include "base/Define.hpp"
 #include "base/Graph.hpp"
 #include "executor/Executor.hpp"
-#include "module/ModuleActor.hpp"
+#include "module/ModuleNode.hpp"
 #include <nexusflow/PipelineContext.hpp>
 #include <nexusflow/Pipeline.hpp>
 #include <string>
@@ -14,31 +14,18 @@ namespace nexusflow {
 // Forward declarations
 class Pipeline;
 
-/**
- * @brief Pipeline 内部使用的模块运行时节点名称。
- */
-using ActorName = std::string;
-
-/**
- * @brief Pipeline 生命周期列表中使用的模块运行时包装节点类型。
- *
- * 这里的 ActorNode 实际上是 ModuleActor 的别名，
- * 表示“Pipeline 视角下的运行时模块节点”。
- */
-using ActorNode = ModuleActor;
-
 struct PipelineBuildPlan {
     /**
      * @brief 一条待物化的运行时边定义。
      */
     struct PlannedEdge {
-        std::shared_ptr<Node> srcNode;
-        std::shared_ptr<Node> dstNode;
+        std::shared_ptr<GraphNode> srcNode;
+        std::shared_ptr<GraphNode> dstNode;
         std::string srcPort;
         std::string dstPort;
     };
 
-    std::vector<std::shared_ptr<Node>> topoNodes;
+    std::vector<std::shared_ptr<GraphNode>> topoNodes;
     std::vector<PlannedEdge> edges;
 };
 
@@ -53,7 +40,7 @@ public:
     std::shared_ptr<PipelineContext> pipelineContext;
     std::shared_ptr<executor::Executor> executor;
 
-    std::vector<std::shared_ptr<ActorNode>> actorOrderedNodes;
+    std::vector<std::shared_ptr<ModuleNode>> moduleNodes;
 
     ErrorCode Init();
 
@@ -63,9 +50,9 @@ private:
     ErrorCode ValidateGraph() const;
     PipelineBuildPlan BuildPlan() const;
     ErrorCode MaterializeRuntime(const PipelineBuildPlan& plan);
-    std::shared_ptr<ActorNode> GetOrCreateActorNode(const std::shared_ptr</*Graph::*/ Node>& node);
+    std::shared_ptr<ModuleNode> GetOrCreateNode(const std::shared_ptr<GraphNode>& node);
 
-    std::unordered_map<ActorName, std::shared_ptr<ActorNode>> actorModuleMap;
+    std::unordered_map<std::string, std::shared_ptr<ModuleNode>> moduleNodeMap;
 };
 
 } // namespace nexusflow

@@ -12,7 +12,7 @@ Pipeline
   ├─ Graph
   ├─ Executor
   │   └─ ThreadPool
-  └─ ModuleActor[N]
+  └─ ModuleNode[N]
 ```
 
 Key decisions:
@@ -91,7 +91,7 @@ The executor owns all runtime scheduling logic.
 
 ### 4.1 Actor registration
 
-Each `ModuleActor` registers:
+Each `ModuleNode` registers:
 
 - module instance
 - runtime config snapshot

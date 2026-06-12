@@ -24,7 +24,7 @@ flowchart TD
     B --> C["Pipeline::Impl<br/>Validate -> BuildPlan -> MaterializeRuntime"]
     C --> D["PipelineContext<br/>运行时配置与上下文"]
     C --> E["Executor<br/>运行时调度中枢"]
-    C --> F["ModuleActor[N]<br/>模块包装层"]
+    C --> F["ModuleNode[N]<br/>模块包装层"]
     C --> G["MessageQueue[边队列]"]
 
     F --> H["Module<br/>用户业务逻辑"]
@@ -50,7 +50,7 @@ flowchart LR
     B --> C["Pipeline::Impl::ValidateGraph()"]
     C --> D["Pipeline::Impl::BuildPlan()"]
     D --> E["Pipeline::Impl::MaterializeRuntime()"]
-    E --> F["ModuleActor"]
+    E --> F["ModuleNode"]
     E --> G["Executor"]
     E --> H["MessageQueue"]
 ```
@@ -61,7 +61,7 @@ flowchart LR
 2. `ValidateGraph()` 检查图是否为空、是否有环、名字是否合法。
 3. `BuildPlan()` 按拓扑顺序整理出节点和边。
 4. `MaterializeRuntime()` 把“图”变成“运行时对象”：
-   - 为每个模块准备 `ModuleActor`
+   - 为每个模块准备 `ModuleNode`
    - 为每条边创建 `MessageQueue`
    - 把队列绑定到 `Executor`
 
@@ -108,7 +108,7 @@ flowchart TD
 - 负责把 DAG 物化成运行时
 - 保存 actor 的拓扑顺序
 
-#### `ModuleActor`
+#### `ModuleNode`
 
 - 很薄的一层包装
 - 把 `Module` 注册到 `Executor`
@@ -212,7 +212,7 @@ flowchart TD
    看生命周期入口。
 4. [src/pipeline/impl/PipelineImpl.cpp](/Users/yang/Code/Nexusflow/src/pipeline/impl/PipelineImpl.cpp)
    看 DAG 如何变成运行时对象。
-5. [src/module/ModuleActor.cpp](/Users/yang/Code/Nexusflow/src/module/ModuleActor.cpp)
+5. [src/module/ModuleNode.cpp](/Users/yang/Code/Nexusflow/src/module/ModuleNode.cpp)
    看模块是怎么接进运行时的。
 6. [src/executor/Executor.hpp](/Users/yang/Code/Nexusflow/src/executor/Executor.hpp)
    先记住对象关系。
@@ -237,4 +237,3 @@ flowchart TD
 - `Executor` 仍然是核心中枢，后面如果继续演进，最容易继续拆的是路由和 actor registry。
 - `SchedulingPolicy` 现在还是内部策略，后面再决定要不要升格为公开配置。
 - `JoinStateStore` 目前是“简单可读优先”，还不是最终性能形态。
-

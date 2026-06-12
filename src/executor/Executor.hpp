@@ -140,7 +140,7 @@ private:
      * @brief 单个 actor 在 Executor 调度层中的运行时状态。
      *
      * 该结构是 Executor 的私有内部状态，不直接暴露给 Pipeline 或 Module。
-     * 为避免与 ModuleActor 的包装层职责混淆，此处显式命名为 ScheduledActorState。
+     * 为避免与 ModuleNode 的包装层职责混淆，此处显式命名为 ScheduledActorState。
      */
     struct ScheduledActorState {
         std::string nodeName;

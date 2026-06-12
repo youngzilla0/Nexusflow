@@ -70,8 +70,8 @@ blending "topology description" and "runtime activation" into the same step.
 
 Replace address-ordered actor storage with an explicit topological order:
 
-- `std::vector<std::shared_ptr<ActorNode>> actorTopoOrder`
-- `std::unordered_map<std::string, std::shared_ptr<ActorNode>> actorByName`
+- `std::vector<std::shared_ptr<ModuleNode>> moduleTopoOrder`
+- `std::unordered_map<std::string, std::shared_ptr<ModuleNode>> moduleByName`
 
 Expected lifecycle semantics:
 
@@ -127,7 +127,7 @@ This can begin as configuration and later evolve into a richer policy model.
 
 - pipeline initialization fails early and clearly when graph/spec validation fails
 - actor lifecycle order is deterministic across runs
-- runtime no longer depends directly on raw topology-only `Node`
+- runtime no longer depends directly on raw topology-only `GraphNode`
 - `OnAllInputs` can correlate by something other than `messageId`
 
 Implemented so far:

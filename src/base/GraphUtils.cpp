@@ -176,7 +176,7 @@ std::unique_ptr<Graph> CreateGraphFromSpec(const GraphSpec& spec) {
     auto graph = std::make_unique<Graph>();
     graph->SetName(spec.graphName);
 
-    std::unordered_map<std::string, std::shared_ptr<Node>> tempNodeMap;
+    std::unordered_map<std::string, std::shared_ptr<GraphNode>> tempNodeMap;
     tempNodeMap.reserve(spec.nodes.size());
 
     for (const auto& nodeSpec : spec.nodes) {
@@ -185,11 +185,11 @@ std::unique_ptr<Graph> CreateGraphFromSpec(const GraphSpec& spec) {
             return nullptr;
         }
 
-        std::shared_ptr<Node> node;
+        std::shared_ptr<GraphNode> node;
         if (nodeSpec.moduleInstance) {
-            node = std::make_shared<ModuleNode>(nodeSpec.nodeName, nodeSpec.moduleInstance);
+            node = std::make_shared<GraphModuleNode>(nodeSpec.nodeName, nodeSpec.moduleInstance);
         } else if (!nodeSpec.moduleClassName.empty()) {
-            node = std::make_shared<ModuleNode>(nodeSpec.nodeName, nodeSpec.moduleClassName, nodeSpec.config);
+            node = std::make_shared<GraphModuleNode>(nodeSpec.nodeName, nodeSpec.moduleClassName, nodeSpec.config);
         } else {
             LOG_ERROR("Graph '{}' node '{}' must provide either a module class or a module instance.", spec.graphName,
                       nodeSpec.nodeName);

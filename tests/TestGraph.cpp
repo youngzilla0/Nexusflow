@@ -2,12 +2,12 @@
 #include <cstdlib>
 #include <gtest/gtest.h>
 
-auto a = std::make_shared<Node>("a");
-auto b = std::make_shared<Node>("b");
-auto c = std::make_shared<Node>("c");
-auto d = std::make_shared<Node>("d");
-auto e = std::make_shared<Node>("e");
-auto f = std::make_shared<Node>("f");
+auto a = std::make_shared<GraphNode>("a");
+auto b = std::make_shared<GraphNode>("b");
+auto c = std::make_shared<GraphNode>("c");
+auto d = std::make_shared<GraphNode>("d");
+auto e = std::make_shared<GraphNode>("e");
+auto f = std::make_shared<GraphNode>("f");
 static constexpr size_t kNumNode = 6;
 
 TEST(GraphTest, HasCycle_LinearGraphVariants) {

@@ -13,7 +13,7 @@ namespace executor {
 class Executor;
 }
 
-class ModuleActor;
+class ModuleNode;
 class Pipeline;
 
 class PipelineContext {
@@ -49,7 +49,7 @@ public:
     }
 
 private:
-    friend class ModuleActor;
+    friend class ModuleNode;
     friend class Pipeline;
     friend class executor::Executor;
 

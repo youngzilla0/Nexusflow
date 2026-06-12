@@ -24,23 +24,23 @@ std::size_t ResolveExecutorThreadCount(std::size_t configuredThreadCount, std::s
     return std::max<std::size_t>(hardwareThreads, 1);
 }
 
-std::shared_ptr<Module> CreateModuleForGraphNode(const std::shared_ptr<Node>& node) {
+std::shared_ptr<Module> CreateModuleForGraphNode(const std::shared_ptr<GraphNode>& node) {
     if (!node) {
         throw std::runtime_error("Cannot create a module from a null graph node.");
     }
 
     switch (node->GetKind()) {
-        case NodeKind::Module: {
-            auto& moduleNode = static_cast<ModuleNode&>(*node);
-            if (moduleNode.source == ModuleSource::Instance) {
-                return moduleNode.modulePtr;
+        case GraphNodeKind::Module: {
+            auto& graphModuleNode = static_cast<GraphModuleNode&>(*node);
+            if (graphModuleNode.source == ModuleSource::Instance) {
+                return graphModuleNode.modulePtr;
             }
 
             auto& moduleFactory = ModuleFactory::GetInstance();
             return moduleFactory.CreateModule(
-                ModuleBuildContext{moduleNode.moduleClassName, moduleNode.name, moduleNode.config});
+                ModuleBuildContext{graphModuleNode.moduleClassName, graphModuleNode.name, graphModuleNode.config});
         }
-        case NodeKind::Generic:
+        case GraphNodeKind::Generic:
         default:
             throw std::runtime_error("Graph node '" + node->name +
                                      "' only describes topology and cannot materialize a Module.");
@@ -78,7 +78,7 @@ PipelineBuildPlan Pipeline::Impl::BuildPlan() const {
     auto edgeList = graph->ToEdgeListBfs();
     LOG_TRACE("edgeList size: {}", edgeList.size());
 
-    std::unordered_map<std::string, std::shared_ptr<Node>> orderedNodes;
+    std::unordered_map<std::string, std::shared_ptr<GraphNode>> orderedNodes;
     for (const auto& edge : edgeList) {
         auto srcNode = edge.srcNodePtr.lock();
         auto dstNode = edge.dstNodePtr.lock();
@@ -104,8 +104,8 @@ PipelineBuildPlan Pipeline::Impl::BuildPlan() const {
 
 ErrorCode Pipeline::Impl::MaterializeRuntime(const PipelineBuildPlan& plan) {
     for (const auto& plannedEdge : plan.edges) {
-        auto srcActorNode = GetOrCreateActorNode(plannedEdge.srcNode);
-        auto dstActorNode = GetOrCreateActorNode(plannedEdge.dstNode);
+        auto srcModuleNode = GetOrCreateNode(plannedEdge.srcNode);
+        auto dstModuleNode = GetOrCreateNode(plannedEdge.dstNode);
 
         auto queue = std::make_unique<MessageQueue>(this->config.queueSize);
         auto queueView = makeViewPtr(queue.get());
@@ -115,46 +115,46 @@ ErrorCode Pipeline::Impl::MaterializeRuntime(const PipelineBuildPlan& plan) {
                 plannedEdge.srcNode->name, plannedEdge.srcPort, plannedEdge.dstNode->name, plannedEdge.dstPort);
         }
 
-        srcActorNode->AddOutputQueue(plannedEdge.srcPort, plannedEdge.dstNode->name, plannedEdge.dstPort, queueView, portStats);
-        dstActorNode->AddInputQueue(plannedEdge.dstPort, queueView, portStats);
+        srcModuleNode->AddOutputQueue(plannedEdge.srcPort, plannedEdge.dstNode->name, plannedEdge.dstPort, queueView, portStats);
+        dstModuleNode->AddInputQueue(plannedEdge.dstPort, queueView, portStats);
 
         queues.push_back(std::move(queue));
     }
 
-    actorOrderedNodes.clear();
-    actorOrderedNodes.reserve(plan.topoNodes.size());
+    moduleNodes.clear();
+    moduleNodes.reserve(plan.topoNodes.size());
     for (const auto& node : plan.topoNodes) {
-        auto it = actorModuleMap.find(node->name);
-        if (it != actorModuleMap.end()) {
-            actorOrderedNodes.push_back(it->second);
+        auto it = moduleNodeMap.find(node->name);
+        if (it != moduleNodeMap.end()) {
+            moduleNodes.push_back(it->second);
         }
     }
 
-    CHECK(actorModuleMap.size() == actorOrderedNodes.size(), "actorModuleMap size != actorOrderedNodes size, [{} != {}]",
-          actorModuleMap.size(), actorOrderedNodes.size());
+    CHECK(moduleNodeMap.size() == moduleNodes.size(), "moduleNodeMap size != moduleNodes size, [{} != {}]", moduleNodeMap.size(),
+          moduleNodes.size());
 
     return ErrorCode::SUCCESS;
 }
 
-std::shared_ptr<ActorNode> Pipeline::Impl::GetOrCreateActorNode(const std::shared_ptr<Node>& node) {
-    // 此处NodeName == ModuleName
+std::shared_ptr<ModuleNode> Pipeline::Impl::GetOrCreateNode(const std::shared_ptr<GraphNode>& node) {
+    // 此处 graph node name == module name
     const auto& nodeName = node->name;
 
-    // 检查 activeNodeMap 中是否已存在
-    auto it = actorModuleMap.find(nodeName);
-    if (it != actorModuleMap.end()) {
+    // 检查缓存中是否已存在
+    auto it = moduleNodeMap.find(nodeName);
+    if (it != moduleNodeMap.end()) {
         return it->second; // 已存在，直接返回
     }
 
-    // 不存在，则创建新的 ActiveNode
+    // 不存在，则创建新的运行时包装节点
     // 1. 获取或创建 Module
     auto module = CreateModuleForGraphNode(node);
 
-    // 2. 创建 ActiveNode 并存入 map
-    auto actorNode = std::make_shared<ActorNode>(module, this->config, pipelineContext, executor);
-    actorModuleMap.emplace(nodeName, actorNode);
+    // 2. 创建 ModuleNode 并存入 map
+    auto moduleNode = std::make_shared<ModuleNode>(module, this->config, pipelineContext, executor);
+    moduleNodeMap.emplace(nodeName, moduleNode);
 
-    return actorNode;
+    return moduleNode;
 }
 
 ErrorCode Pipeline::Impl::Init() {
@@ -170,7 +170,7 @@ ErrorCode Pipeline::Impl::Init() {
         return materializeResult;
     }
 
-    auto executorThreadCount = ResolveExecutorThreadCount(config.executorThreadCount, actorOrderedNodes.size());
+    auto executorThreadCount = ResolveExecutorThreadCount(config.executorThreadCount, moduleNodes.size());
     pipelineContext->SetExecutorThreadCount(executorThreadCount);
     executor->SetThreadCount(executorThreadCount);
 

@@ -11,7 +11,7 @@
 
 namespace nexusflow {
 
-class ModuleActor;
+class ModuleNode;
 namespace executor {
 class Executor;
 }
@@ -60,7 +60,7 @@ protected:
     void SendTo(const std::string& outputPortName, const Message& message, bool blocking);
 
 private:
-    friend class ModuleActor;
+    friend class ModuleNode;
 
     void SetExecutor(const std::shared_ptr<executor::Executor>& executor);
     void SetPipelineContext(const std::shared_ptr<PipelineContext>& pipelineContext);

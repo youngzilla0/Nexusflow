@@ -1,5 +1,5 @@
-#ifndef NEXUSFLOW_MODULE_ACTOR_HPP
-#define NEXUSFLOW_MODULE_ACTOR_HPP
+#ifndef NEXUSFLOW_MODULE_NODE_HPP
+#define NEXUSFLOW_MODULE_NODE_HPP
 
 #include "executor/Executor.hpp"
 #include "nexusflow/ErrorCode.hpp"
@@ -10,7 +10,7 @@ namespace nexusflow {
 /**
  * @brief Module 的运行时包装层。
  *
- * ModuleActor 负责将一个业务 Module 接入 Pipeline 运行时：
+ * ModuleNode 负责将一个业务 Module 接入 Pipeline 运行时：
  * - 为 Module 注入 Executor 与 PipelineContext
  * - 将 Module 注册到 Executor
  * - 作为 Pipeline 生命周期中的模块节点包装对象存在
@@ -18,22 +18,22 @@ namespace nexusflow {
  * 当前代码中它更接近“运行时模块句柄”，而不是独立调度状态本体。
  * 真正由 Executor 调度的内部状态位于 Executor::ScheduledActorState。
  */
-class ModuleActor {
+class ModuleNode {
 public:
     /**
-     * @brief 构造一个 ModuleActor。
+     * @brief 构造一个 ModuleNode。
      * @param module 业务模块实例。
      * @param runtimeConfig 该模块对应的运行时配置。
      * @param pipelineContext 所属 Pipeline 的共享上下文。
      * @param executor 所属 Pipeline 的共享 Executor。
      */
-    ModuleActor(const std::shared_ptr<Module>& module,
-                const PipelineConfig& runtimeConfig,
-                const std::shared_ptr<PipelineContext>& pipelineContext,
-                const std::shared_ptr<executor::Executor>& executor);
+    ModuleNode(const std::shared_ptr<Module>& module,
+               const PipelineConfig& runtimeConfig,
+               const std::shared_ptr<PipelineContext>& pipelineContext,
+               const std::shared_ptr<executor::Executor>& executor);
 
-    /** @brief 析构 ModuleActor。 */
-    ~ModuleActor();
+    /** @brief 析构 ModuleNode。 */
+    ~ModuleNode();
 
     /**
      * @brief 为该模块绑定一个输入队列。
