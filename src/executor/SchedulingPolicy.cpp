@@ -18,8 +18,8 @@ public:
     TaskExecutionPlan Plan(const SchedulingContext& context) const override {
         TaskExecutionPlan plan;
         plan.executionMode = ResolveExecutionMode(context);
-        // 单 worker 场景优先保证公平性，限制单次连续执行步数。
-        plan.maxStepsPerTask = context.isSourceActor ? kSourceStepsPerTask : kSingleWorkerInputStepsPerTask;
+        // 单 worker 场景优先保证公平性，默认每次只跑一个 step，避免某个 actor 长时间独占线程。
+        plan.maxStepsPerTask = context.isSourceActor ? kSourceStepsPerTask : 1;
         return plan;
     }
 
@@ -39,7 +39,7 @@ public:
         }
         // 仅在本轮未产生输出时执行退避，以降低空转开销。
         if (feedback.emittedOutputs || context.idleWaitUs == 0) {
-            return std::chrono::microseconds(0);
+            return feedback.emittedOutputs ? std::chrono::microseconds(0) : std::chrono::microseconds(1);
         }
         return std::chrono::microseconds(context.idleWaitUs);
     }

@@ -163,6 +163,9 @@ public:
      */
     void Submit(std::function<void()> task, bool detach = true) {
         std::size_t targetQueue = SelectQueue();
+        if (m_queues.size() == 1) {
+            targetQueue = 0;
+        }
 
         m_queues[targetQueue]->PushBack(std::move(task));
         m_pendingTasks.fetch_add(1, std::memory_order_relaxed);
@@ -178,13 +181,14 @@ private:
     void WorkerLoop(std::size_t workerIndex) {
         std::mt19937 rng(std::random_device{}() + static_cast<unsigned>(workerIndex));
         std::uniform_int_distribution<std::size_t> dist(0, m_queues.size() - 1);
+        const bool singleWorker = m_queues.size() == 1;
 
         while (true) {
             Optional<std::function<void()>> optTask;
 
             // 优先消费本地队列，保持 FIFO 语义。
             optTask = m_queues[workerIndex]->PopFront();
-            if (!optTask) {
+            if (!optTask && !singleWorker) {
                 // 本地为空时尝试从其他 worker 窃取任务。
                 optTask = TrySteal(workerIndex, rng, dist);
             }
@@ -198,7 +202,9 @@ private:
                 if (!optTask) {
                     if (m_state.load(std::memory_order_acquire) != State::KRunning) {
                         // 退出前再执行一次窃取尝试，尽量消费残留任务。
-                        optTask = TrySteal(workerIndex, rng, dist);
+                        if (!singleWorker) {
+                            optTask = TrySteal(workerIndex, rng, dist);
+                        }
                         if (!optTask) return;
                     } else {
                         // 等待新任务到达或停止信号。

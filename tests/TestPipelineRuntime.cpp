@@ -367,6 +367,38 @@ TEST(PipelineRuntimeTest, ManualSource_DoesNotStarveSingleWorkerExecutor) {
     EXPECT_EQ(pipeline->DeInit(), Error::Ok());
 }
 
+TEST(PipelineRuntimeTest, SingleWorkerPipeline_CompletesWithoutTimeoutOnShortChain) {
+    auto source = std::make_shared<ManualSourceModule>("Source");
+    auto pass = std::make_shared<ForwardModule>("Pass");
+    auto sink = std::make_shared<CollectSinkModule>("Sink");
+
+    PipelineConfig config;
+    config.executorThreadCount = 1;
+    config.queueSize = 8;
+    config.idleWaitUs = 0;
+
+    auto pipeline = PipelineBuilder()
+                        .AddModule(source)
+                        .AddModule(pass)
+                        .AddModule(sink)
+                        .Connect("Source", "Pass")
+                        .Connect("Pass", "Sink")
+                        .WithConfig(config)
+                        .Build();
+
+    ASSERT_NE(pipeline, nullptr);
+    ASSERT_EQ(pipeline->Init(), Error::Ok());
+    ASSERT_EQ(pipeline->Start(), Error::Ok());
+
+    source->Send(7, true);
+
+    EXPECT_TRUE(sink->WaitForCount(1, 500ms));
+    EXPECT_EQ(sink->Values(), std::vector<int>({7}));
+
+    EXPECT_EQ(pipeline->Stop(), Error::Ok());
+    EXPECT_EQ(pipeline->DeInit(), Error::Ok());
+}
+
 TEST(PipelineRuntimeTest, Lifecycle_OrderFollowsTopologyAndReverseTopology) {
     auto recorder = std::make_shared<LifecycleRecorder>();
     auto source = std::make_shared<ManualSourceModule>("Source");

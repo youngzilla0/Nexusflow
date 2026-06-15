@@ -21,7 +21,7 @@ TEST(SchedulingPolicyTest, SingleWorkerPolicy_PrefersFairOnAnyInputExecution) {
 
     const auto plan = policy->Plan(context);
     EXPECT_EQ(plan.executionMode, TaskExecutionMode::OnAnyInput);
-    EXPECT_EQ(plan.maxStepsPerTask, 16u);
+    EXPECT_EQ(plan.maxStepsPerTask, 1u);
 
     EXPECT_FALSE(policy->ShouldPrimeActorOnStart(context, false));
     EXPECT_TRUE(policy->ShouldPrimeActorOnStart(context, true));
@@ -29,6 +29,9 @@ TEST(SchedulingPolicyTest, SingleWorkerPolicy_PrefersFairOnAnyInputExecution) {
     SchedulingFeedback feedback;
     feedback.hasPendingSignals = true;
     EXPECT_TRUE(policy->ShouldReschedule(context, feedback));
+
+    SchedulingFeedback idleFeedback;
+    EXPECT_EQ(policy->IdleBackoff(context, idleFeedback), std::chrono::microseconds(0));
 }
 
 TEST(SchedulingPolicyTest, MultiWorkerPolicy_UsesJoinModeAndSourceIdleBackoff) {
