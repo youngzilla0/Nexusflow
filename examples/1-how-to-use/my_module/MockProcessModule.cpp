@@ -3,13 +3,15 @@
 #include "MyMessage.hpp"
 #include "nexusflow/Message.hpp"
 
+namespace ns = nexusflow;
+
 MockProcessModule::MockProcessModule(const std::string& name) : Module(name) {
     LOG_TRACE("MockProcessModule constructor, name={}", name);
 }
 
 MockProcessModule::~MockProcessModule() { LOG_TRACE("MockProcessModule destructor, name={}", GetModuleName()); }
 
-void MockProcessModule::Process(const nexusflow::PortInputsView& inputs, nexusflow::PortOutputs& outputs) {
+void MockProcessModule::Process(const ns::PortInputsView& inputs, ns::PortOutputs& outputs) {
     auto* inputMessage = inputs.OnlyMessage();
     if (inputMessage == nullptr) {
         return;
@@ -20,7 +22,7 @@ void MockProcessModule::Process(const nexusflow::PortInputsView& inputs, nexusfl
         LOG_DEBUG("Received message is {}", seqMsg->toString());
         seqMsg->addData(GetModuleName() + "_" + std::to_string(m_count++));
         LOG_INFO(GetModuleName() + ": send message: {}", seqMsg->toString());
-        outputs.Emit(nexusflow::MakeMessage(std::move(seqMsg), GetModuleName()), true);
+        outputs.Emit(ns::MakeMessage(std::move(seqMsg), GetModuleName()), true);
     }
 }
 

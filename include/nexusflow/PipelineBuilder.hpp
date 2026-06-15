@@ -3,6 +3,7 @@
 
 #include <nexusflow/Module.hpp>
 #include <nexusflow/Pipeline.hpp>
+#include <nexusflow/PipelineEvents.hpp>
 
 #include <memory>
 #include <string>
@@ -64,6 +65,14 @@ public:
      * @return A reference to this builder for chaining.
      */
     PipelineBuilder& WithConfig(const PipelineConfig& config);
+
+    /**
+     * @brief Registers an error callback for runtime failures.
+     * @param callback Callback invoked when the pipeline reports a fatal error.
+     *
+     * The framework only publishes the error; the caller decides how to handle it.
+     */
+    PipelineBuilder& OnError(std::function<void(const PipelineErrorEvent&)> callback);
 
     /**
      * @brief Builds the Pipeline instance from the defined configuration.

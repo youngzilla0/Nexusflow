@@ -1,23 +1,25 @@
 #pragma once
 
-#include "nexusflow/ErrorCode.hpp"
+#include "nexusflow/Error.hpp"
 
 #include <nexusflow/Message.hpp>
 #include <nexusflow/Module.hpp>
 
-class MyPersonDetectorModule : public nexusflow::Module {
+namespace ns = nexusflow;
+
+class MyPersonDetectorModule : public ns::Module {
     
 
 public:
     MyPersonDetectorModule(const std::string& name);
     ~MyPersonDetectorModule() override;
 
-    nexusflow::ErrorCode Configure(const nexusflow::Config& config) override;
+    ns::Error Configure(const ns::Config& config) override;
 
-    nexusflow::ErrorCode Init() override;
+    ns::Error Init() override;
 
 protected:
-    void Process(const nexusflow::PortInputsView& inputs, nexusflow::PortOutputs& outputs) override;
+    void Process(const ns::PortInputsView& inputs, ns::PortOutputs& outputs) override;
 
 private:
     std::string m_modelPath;

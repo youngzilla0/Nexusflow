@@ -3,11 +3,13 @@
 #include "nexusflow/Message.hpp"
 #include <nexusflow/Module.hpp>
 
-class MockOutputModule : public nexusflow::Module {
+namespace ns = nexusflow;
+
+class MockOutputModule : public ns::Module {
 public:
     MockOutputModule(const std::string& name);
     ~MockOutputModule() override;
 
 protected:
-    void Process(const nexusflow::PortInputsView& inputs, nexusflow::PortOutputs& outputs) override;
+    void Process(const ns::PortInputsView& inputs, ns::PortOutputs& outputs) override;
 };

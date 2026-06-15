@@ -7,7 +7,7 @@
 
 #include "impl/PipelineImpl.hpp"
 #include <memory>
-#include <nexusflow/ErrorCode.hpp>
+#include <nexusflow/Error.hpp>
 #include <nexusflow/Module.hpp>
 #include <nexusflow/Pipeline.hpp>
 #include <stdexcept>
@@ -36,7 +36,7 @@ void Pipeline::InitWithGraph(std::unique_ptr<Graph> graph, const PipelineConfig&
     m_pImpl->graph = std::move(graph);
     m_pImpl->config = config;
     auto initResult = m_pImpl->Init();
-    if (initResult != ErrorCode::SUCCESS) {
+    if (initResult.IsErr()) {
         throw std::runtime_error("Failed to initialize pipeline runtime from graph.");
     }
 }
@@ -48,36 +48,36 @@ std::unique_ptr<Pipeline> Pipeline::CreateFromYaml(const std::string& configPath
     return pipeline;
 }
 
-ErrorCode Pipeline::Init() {
-    if (!m_pImpl) return ErrorCode::UNINITIALIZED_ERROR;
+Error Pipeline::Init() {
+    if (!m_pImpl) return Error::Err(Error::Code::Uninitialized, "Pipeline is uninitialized.");
 
     for (auto& moduleNode : m_pImpl->moduleNodes) {
-        ErrorCode errCode = moduleNode->Init();
-        if (errCode != ErrorCode::SUCCESS) {
+        Error errCode = moduleNode->Init();
+        if (errCode.IsErr()) {
             LOG_ERROR("Init module failed, nodeName={}", moduleNode->GetModuleName());
-            m_pImpl->NotifyPipelineError(errCode, "Init", moduleNode->GetModuleName(), "Module initialization failed.");
+            m_pImpl->NotifyPipelineError(errCode, "Init", moduleNode->GetModuleName());
             return errCode;
         } else {
             LOG_DEBUG("Init module success, nodeName={}", moduleNode->GetModuleName());
         }
     }
     m_pImpl->NotifyPipelineInitialized();
-    return ErrorCode::SUCCESS;
+    return Error::Ok();
 }
 
-ErrorCode Pipeline::DeInit() {
+Error Pipeline::DeInit() {
     if (!m_pImpl) {
-        return ErrorCode::SUCCESS; // Nothing to de-initialize
+        return Error::Ok(); // Nothing to de-initialize
     }
     LOG_DEBUG("De-initializing pipeline...");
 
     // Reverse order
     for (auto it = m_pImpl->moduleNodes.rbegin(); it != m_pImpl->moduleNodes.rend(); ++it) {
         auto& moduleNode = *it;
-        ErrorCode errCode = moduleNode->DeInit();
-        if (errCode != ErrorCode::SUCCESS) {
+        Error errCode = moduleNode->DeInit();
+        if (errCode.IsErr()) {
             LOG_ERROR("DeInit module failed, nodeName={}", moduleNode->GetModuleName());
-            m_pImpl->NotifyPipelineError(errCode, "DeInit", moduleNode->GetModuleName(), "Module de-initialization failed.");
+            m_pImpl->NotifyPipelineError(errCode, "DeInit", moduleNode->GetModuleName());
             return errCode;
         } else {
             LOG_DEBUG("DeInit module success, nodeName={}", moduleNode->GetModuleName());
@@ -86,21 +86,21 @@ ErrorCode Pipeline::DeInit() {
 
     LOG_DEBUG("Pipeline de-initialized successfully.");
     m_pImpl->NotifyPipelineDeInitialized();
-    return ErrorCode::SUCCESS;
+    return Error::Ok();
 }
 
-ErrorCode Pipeline::Start() {
+Error Pipeline::Start() {
     if (!m_pImpl) {
         LOG_ERROR("Cannot start pipeline: not initialized.");
-        return ErrorCode::UNINITIALIZED_ERROR;
+        return Error::Err(Error::Code::Uninitialized, "Pipeline is uninitialized.");
     }
     LOG_DEBUG("Starting pipeline...");
 
     for (auto& moduleNode : m_pImpl->moduleNodes) {
-        ErrorCode errCode = moduleNode->Start();
-        if (errCode != ErrorCode::SUCCESS) {
+        Error errCode = moduleNode->Start();
+        if (errCode.IsErr()) {
             LOG_ERROR("Start worker failed, nodeName={}", moduleNode->GetModuleName());
-            m_pImpl->NotifyPipelineError(errCode, "Start", moduleNode->GetModuleName(), "Module start failed.");
+            m_pImpl->NotifyPipelineError(errCode, "Start", moduleNode->GetModuleName());
             return errCode;
         } else {
             LOG_DEBUG("Start module success, nodeName={}", moduleNode->GetModuleName());
@@ -108,12 +108,12 @@ ErrorCode Pipeline::Start() {
     }
     LOG_DEBUG("Pipeline started successfully.");
     m_pImpl->NotifyPipelineStarted();
-    return ErrorCode::SUCCESS;
+    return Error::Ok();
 }
 
-ErrorCode Pipeline::Stop() {
+Error Pipeline::Stop() {
     if (!m_pImpl) {
-        return ErrorCode::SUCCESS; // Nothing to stop.
+        return Error::Ok(); // Nothing to stop.
     }
 
     LOG_DEBUG("Stopping pipeline...");
@@ -121,12 +121,12 @@ ErrorCode Pipeline::Stop() {
     for (auto& queue : m_pImpl->queues) {
         queue->Shutdown();
     }
-    ErrorCode errCode = ErrorCode::SUCCESS;
+    Error errCode = Error::Ok();
     for (auto& moduleNode : m_pImpl->moduleNodes) {
         errCode = moduleNode->Stop();
-        if (errCode != ErrorCode::SUCCESS) {
+        if (errCode.IsErr()) {
             LOG_ERROR("Stop worker failed, nodeName={}", moduleNode->GetModuleName());
-            m_pImpl->NotifyPipelineError(errCode, "Stop", moduleNode->GetModuleName(), "Module stop failed.");
+            m_pImpl->NotifyPipelineError(errCode, "Stop", moduleNode->GetModuleName());
             return errCode;
         } else {
             LOG_DEBUG("Stop module success, nodeName={}", moduleNode->GetModuleName());
@@ -134,7 +134,7 @@ ErrorCode Pipeline::Stop() {
     }
     LOG_DEBUG("Pipeline stopped successfully.");
     m_pImpl->NotifyPipelineStopped();
-    return ErrorCode::SUCCESS;
+    return Error::Ok();
 }
 
 void Pipeline::AddObserver(const std::shared_ptr<IPipelineObserver>& observer) {

@@ -2,9 +2,10 @@
 #include "MyAlarmPusherModule.hpp"
 #include "../MyMessage.hpp"
 #include "../src/utils/logging.hpp" // TODO: remove
-#include "nexusflow/ErrorCode.hpp"
 #include "nexusflow/Message.hpp"
 #include <thread>
+
+namespace ns = nexusflow;
 
 MyAlarmPusherModule::MyAlarmPusherModule(const std::string& name) : Module(name) {
     LOG_TRACE("MyAlarmPusherModule constructor, name={}", name);
@@ -12,32 +13,32 @@ MyAlarmPusherModule::MyAlarmPusherModule(const std::string& name) : Module(name)
 
 MyAlarmPusherModule::~MyAlarmPusherModule() { LOG_TRACE("MyAlarmPusherModule destructor, name={}", GetModuleName()); }
 
-nexusflow::ErrorCode MyAlarmPusherModule::Configure(const nexusflow::Config& config) {
+ns::Error MyAlarmPusherModule::Configure(const ns::Config& config) {
     m_savePath = config.GetValueOrDefault("savePath", std::string("default-result.txt"));
     LOG_INFO("MyAlarmPusherModule::Configure, name={}, savePath={}", GetModuleName(), m_savePath);
-    return nexusflow::ErrorCode::SUCCESS;
+    return ns::Error::Ok();
 }
 
-nexusflow::ErrorCode MyAlarmPusherModule::Init() {
+ns::Error MyAlarmPusherModule::Init() {
     m_outFile.open(m_savePath, std::ios::out);
     if (!m_outFile.is_open()) {
         LOG_ERROR("MyAlarmPusherModule::Init, name={}, open file failed, path={}", GetModuleName(), m_savePath);
-        return nexusflow::ErrorCode::FAILED_TO_OPEN_FILE;
+        return ns::Error::Err(ns::Error::Code::FileOpenFailed, "Failed to open output file.");
     }
 
     LOG_INFO("MyAlarmPusherModule::Init, name={}, savePath={}", GetModuleName(), m_savePath);
-    return nexusflow::ErrorCode::SUCCESS;
+    return ns::Error::Ok();
 }
 
-nexusflow::ErrorCode MyAlarmPusherModule::DeInit() {
+ns::Error MyAlarmPusherModule::DeInit() {
     if (m_outFile.is_open()) m_outFile.close();
     LOG_INFO("MyAlarmPusherModule::DeInit, name={}", GetModuleName());
-    return nexusflow::ErrorCode::SUCCESS;
+    return ns::Error::Ok();
 }
 
-void MyAlarmPusherModule::Process(const nexusflow::PortInputsView& inputs, nexusflow::PortOutputs& outputs) {
+void MyAlarmPusherModule::Process(const ns::PortInputsView& inputs, ns::PortOutputs& outputs) {
     if (auto* msg = inputs.OnlyAs<InferenceMessage>()) {
         m_outFile << msg->toString() << std::endl;
-        outputs.Emit(nexusflow::MakeMessage(*msg, GetModuleName()), true);
+        outputs.Emit(ns::MakeMessage(*msg, GetModuleName()), true);
     }
 }

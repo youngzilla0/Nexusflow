@@ -110,28 +110,28 @@ std::string Pipeline::Impl::GetPipelineName() const {
  * @brief 校验 Pipeline 图是否可以进入运行阶段。
  * @return 校验结果。
  */
-ErrorCode Pipeline::Impl::ValidateGraph() const {
+Error Pipeline::Impl::ValidateGraph() const {
     if (!graph) {
         LOG_ERROR("Pipeline graph is null.");
-        return ErrorCode::UNINITIALIZED_ERROR;
+        return Error::Err(Error::Code::Uninitialized, "Pipeline graph is null.");
     }
 
     if (graph->GetName().empty()) {
         LOG_ERROR("Pipeline graph name is empty.");
-        return ErrorCode::FAILURE;
+        return Error::Err(Error::Code::Failure, "Pipeline graph name is empty.");
     }
 
     if (graph->IsEmpty()) {
         LOG_ERROR("Pipeline graph '{}' is empty or incomplete.", graph->GetName());
-        return ErrorCode::FAILURE;
+        return Error::Err(Error::Code::Failure, "Pipeline graph is empty or incomplete.");
     }
 
     if (graph->HasCycle()) {
         LOG_ERROR("Pipeline graph '{}' contains a cycle.", graph->GetName());
-        return ErrorCode::FAILURE;
+        return Error::Err(Error::Code::Failure, "Pipeline graph contains a cycle.");
     }
 
-    return ErrorCode::SUCCESS;
+    return Error::Ok();
 }
 
 /**
@@ -210,7 +210,7 @@ ExecutionPlan Pipeline::Impl::BuildExecutionPlan() const {
  * - 建立输入/输出绑定
  * - 将队列所有权保存到 Pipeline::Impl::queues
  */
-ErrorCode Pipeline::Impl::MaterializeRuntime(const ExecutionPlan& plan) {
+Error Pipeline::Impl::MaterializeRuntime(const ExecutionPlan& plan) {
     moduleNodes.clear();
     moduleNodes.reserve(plan.moduleNodes.size());
 
@@ -247,23 +247,23 @@ ErrorCode Pipeline::Impl::MaterializeRuntime(const ExecutionPlan& plan) {
         queues.push_back(std::move(queue));
     }
 
-    return ErrorCode::SUCCESS;
+    return Error::Ok();
 }
 
 /**
  * @brief 完成 Pipeline 初始化。
  * @return 初始化结果。
  */
-ErrorCode Pipeline::Impl::Init() {
+Error Pipeline::Impl::Init() {
     LOG_TRACE("Try init pipeline with graph, [graphName={}]", graph->GetName());
     auto validationResult = ValidateGraph();
-    if (validationResult != ErrorCode::SUCCESS) {
+    if (validationResult.IsErr()) {
         return validationResult;
     }
 
     auto plan = BuildExecutionPlan();
     auto materializeResult = MaterializeRuntime(plan);
-    if (materializeResult != ErrorCode::SUCCESS) {
+    if (materializeResult.IsErr()) {
         return materializeResult;
     }
 
@@ -273,7 +273,7 @@ ErrorCode Pipeline::Impl::Init() {
 
     ApplyTopologyPolicies();
 
-    return ErrorCode::SUCCESS;
+    return Error::Ok();
 }
 
 /**
@@ -424,16 +424,13 @@ void Pipeline::Impl::NotifyPipelineDeInitialized() {
  * @param nodeName 相关节点名称。
  * @param message 错误描述。
  */
-void Pipeline::Impl::NotifyPipelineError(ErrorCode code,
-                                         const std::string& stage,
-                                         const std::string& nodeName,
-                                         const std::string& message) {
+void Pipeline::Impl::NotifyPipelineError(const Error& error, const std::string& stage, const std::string& nodeName) {
     PipelineErrorEvent event;
     event.pipelineName = GetPipelineName();
     event.stage = stage;
     event.nodeName = nodeName;
-    event.code = code;
-    event.message = message;
+    event.code = error.GetCode();
+    event.message = error.GetMessage();
 
     std::vector<std::shared_ptr<IPipelineObserver>> snapshot;
     {

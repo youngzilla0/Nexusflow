@@ -2,16 +2,17 @@
 #include "MockInputModule.hpp"
 #include "../src/utils/logging.hpp" // TODO: remove
 #include "MyMessage.hpp"
-#include "nexusflow/ErrorCode.hpp"
 #include "nexusflow/Message.hpp"
 #include <thread>
 #include <type_traits>
+
+namespace ns = nexusflow;
 
 MockInputModule::MockInputModule(const std::string& name) : Module(name) { LOG_TRACE("MockInputModule constructor, name={}", name); }
 
 MockInputModule::~MockInputModule() { LOG_TRACE("MockInputModule destructor, name={}", GetModuleName()); }
 
-nexusflow::ErrorCode MockInputModule::Configure(const nexusflow::Config& config) {
+ns::Error MockInputModule::Configure(const ns::Config& config) {
     LOG_INFO("Configure init, module={}", GetModuleName());
     m_sendIntervalMs = config.GetValueOrDefault("send_interval_ms", 1000);
     LOG_INFO("Configure done, m_sendIntervalMs={}", m_sendIntervalMs);
@@ -19,10 +20,10 @@ nexusflow::ErrorCode MockInputModule::Configure(const nexusflow::Config& config)
         LOG_INFO("param key={}, type={}", pair.first, pair.second.getType().name());
     }
 
-    return nexusflow::ErrorCode::SUCCESS;
+    return ns::Error::Ok();
 }
 
-void MockInputModule::Process(const nexusflow::PortInputsView& inputs, nexusflow::PortOutputs& outputs) {
+void MockInputModule::Process(const ns::PortInputsView& inputs, ns::PortOutputs& outputs) {
     (void)inputs;
     // mock 5 fps messages.
     std::this_thread::sleep_for(std::chrono::milliseconds(m_sendIntervalMs));
@@ -32,5 +33,5 @@ void MockInputModule::Process(const nexusflow::PortInputsView& inputs, nexusflow
     seqMsg->addData(GetModuleName() + "_" + std::to_string(counter++));
     LOG_INFO(GetModuleName() + ": send message: {}", seqMsg->toString());
 
-    outputs.Emit(nexusflow::MakeMessage(std::move(seqMsg), GetModuleName()), true);
+    outputs.Emit(ns::MakeMessage(std::move(seqMsg), GetModuleName()), true);
 }

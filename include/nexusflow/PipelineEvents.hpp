@@ -1,7 +1,7 @@
 #ifndef NEXUSFLOW_PIPELINE_EVENTS_HPP
 #define NEXUSFLOW_PIPELINE_EVENTS_HPP
 
-#include <nexusflow/ErrorCode.hpp>
+#include <nexusflow/Error.hpp>
 
 #include <cstdint>
 #include <functional>
@@ -11,18 +11,18 @@
 namespace nexusflow {
 
 /**
- * @brief Pipeline 生命周期错误事件。
+ * @brief Pipeline lifecycle error event.
  */
 struct PipelineErrorEvent {
     std::string pipelineName;
     std::string stage;
     std::string nodeName;
-    ErrorCode code = ErrorCode::SUCCESS;
+    Error::Code code = Error::Code::Success;
     std::string message;
 };
 
 /**
- * @brief Pipeline 消息投递异常类型。
+ * @brief Message delivery event type.
  */
 enum class PipelineMessageEventType {
     Dropped,
@@ -30,7 +30,7 @@ enum class PipelineMessageEventType {
 };
 
 /**
- * @brief Pipeline 中消息被丢弃或拒绝时的事件。
+ * @brief Event emitted when a message is dropped or rejected.
  */
 struct PipelineMessageEvent {
     std::string pipelineName;
@@ -45,10 +45,10 @@ struct PipelineMessageEvent {
 };
 
 /**
- * @brief Pipeline 事件观察接口。
+ * @brief Pipeline event observer interface.
  *
- * 该接口用于异步接收 Pipeline 生命周期和消息投递事件，
- * 与统计快照采集接口解耦。
+ * This interface is used to receive lifecycle and message events
+ * asynchronously, decoupled from statistics snapshot collection.
  */
 class IPipelineObserver {
 public:
@@ -63,7 +63,7 @@ public:
 };
 
 /**
- * @brief 回调式 Pipeline 事件观察器。
+ * @brief Callback-based pipeline observer.
  */
 class CallbackPipelineObserver : public IPipelineObserver {
 public:

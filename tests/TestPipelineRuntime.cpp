@@ -102,11 +102,11 @@ class ContextAwareForwardModule : public Module {
 public:
     explicit ContextAwareForwardModule(std::string name) : Module(std::move(name)) {}
 
-    ErrorCode Init() override {
+    Error Init() override {
         m_statisticsEnabled = GetPipelineContext().IsStatisticsEnabled();
         m_throughputEnabled = GetPipelineContext().IsThroughputStatisticsEnabled();
         m_latencyEnabled = GetPipelineContext().IsLatencyStatisticsEnabled();
-        return ErrorCode::SUCCESS;
+        return Error::Ok();
     }
 
     void Process(const PortInputsView& inputs, PortOutputs& outputs) override {
@@ -146,14 +146,14 @@ public:
     LifecycleProbeModule(std::string name, std::shared_ptr<LifecycleRecorder> recorder)
         : Module(std::move(name)), m_recorder(std::move(recorder)) {}
 
-    ErrorCode Init() override {
+    Error Init() override {
         m_recorder->Record("Init:" + GetModuleName());
-        return ErrorCode::SUCCESS;
+        return Error::Ok();
     }
 
-    ErrorCode DeInit() override {
+    Error DeInit() override {
         m_recorder->Record("DeInit:" + GetModuleName());
-        return ErrorCode::SUCCESS;
+        return Error::Ok();
     }
 
     void Process(const PortInputsView& inputs, PortOutputs& outputs) override {
@@ -165,6 +165,18 @@ public:
 
 private:
     std::shared_ptr<LifecycleRecorder> m_recorder;
+};
+
+class FailingInitModule : public Module {
+public:
+    explicit FailingInitModule(std::string name) : Module(std::move(name)) {}
+
+    Error Init() override { return Error::Err(Error::Code::Failure, "Module initialization failed."); }
+
+    void Process(const PortInputsView& inputs, PortOutputs& outputs) override {
+        (void)inputs;
+        (void)outputs;
+    }
 };
 
 class YamlSourceModule : public Module {
@@ -181,11 +193,11 @@ class YamlSinkModule : public Module {
 public:
     explicit YamlSinkModule(std::string name) : Module(std::move(name)) {}
 
-    ErrorCode Init() override {
+    Error Init() override {
         g_yamlStatisticsEnabled = GetPipelineContext().IsStatisticsEnabled();
         g_yamlExecutorThreadCount = GetPipelineContext().GetExecutorThreadCount();
         g_yamlQueueSize = GetPipelineContext().GetConfig().queueSize;
-        return ErrorCode::SUCCESS;
+        return Error::Ok();
     }
 
     void Process(const PortInputsView& inputs, PortOutputs& outputs) override {
@@ -223,7 +235,7 @@ TEST(PipelineRuntimeTest, NonBlockingDropTail_DropsNewestAndPreservesOldestMessa
     auto pipeline = PipelineBuilder().AddModule(source).AddModule(sink).Connect("Source", "Sink").WithConfig(config).Build();
 
     ASSERT_NE(pipeline, nullptr);
-    ASSERT_EQ(pipeline->Init(), ErrorCode::SUCCESS);
+    ASSERT_TRUE(pipeline->Init().IsOk());
 
     source->Send(1, false);
     source->Send(2, false);
@@ -240,7 +252,7 @@ TEST(PipelineRuntimeTest, NonBlockingDropTail_DropsNewestAndPreservesOldestMessa
     EXPECT_EQ(beforeStart.currentDepth, 1u);
     EXPECT_EQ(beforeStart.peakDepth, 1u);
 
-    ASSERT_EQ(pipeline->Start(), ErrorCode::SUCCESS);
+    ASSERT_TRUE(pipeline->Start().IsOk());
     EXPECT_TRUE(sink->WaitForCount(1, 500ms));
     EXPECT_EQ(sink->Values(), std::vector<int>({1}));
 
@@ -248,8 +260,8 @@ TEST(PipelineRuntimeTest, NonBlockingDropTail_DropsNewestAndPreservesOldestMessa
     EXPECT_EQ(afterStart.dequeueCount, 1u);
     EXPECT_EQ(afterStart.currentDepth, 0u);
 
-    EXPECT_EQ(pipeline->Stop(), ErrorCode::SUCCESS);
-    EXPECT_EQ(pipeline->DeInit(), ErrorCode::SUCCESS);
+    EXPECT_TRUE(pipeline->Stop().IsOk());
+    EXPECT_TRUE(pipeline->DeInit().IsOk());
 }
 
 TEST(PipelineRuntimeTest, NonBlockingDropHead_DropsOldestAndPreservesLatestMessage) {
@@ -264,7 +276,7 @@ TEST(PipelineRuntimeTest, NonBlockingDropHead_DropsOldestAndPreservesLatestMessa
     auto pipeline = PipelineBuilder().AddModule(source).AddModule(sink).Connect("Source", "Sink").WithConfig(config).Build();
 
     ASSERT_NE(pipeline, nullptr);
-    ASSERT_EQ(pipeline->Init(), ErrorCode::SUCCESS);
+    ASSERT_TRUE(pipeline->Init().IsOk());
 
     source->Send(1, false);
     source->Send(2, false);
@@ -281,7 +293,7 @@ TEST(PipelineRuntimeTest, NonBlockingDropHead_DropsOldestAndPreservesLatestMessa
     EXPECT_EQ(beforeStart.currentDepth, 1u);
     EXPECT_EQ(beforeStart.peakDepth, 1u);
 
-    ASSERT_EQ(pipeline->Start(), ErrorCode::SUCCESS);
+    ASSERT_TRUE(pipeline->Start().IsOk());
     EXPECT_TRUE(sink->WaitForCount(1, 500ms));
     EXPECT_EQ(sink->Values(), std::vector<int>({3}));
 
@@ -289,8 +301,8 @@ TEST(PipelineRuntimeTest, NonBlockingDropHead_DropsOldestAndPreservesLatestMessa
     EXPECT_EQ(afterStart.dequeueCount, 1u);
     EXPECT_EQ(afterStart.currentDepth, 0u);
 
-    EXPECT_EQ(pipeline->Stop(), ErrorCode::SUCCESS);
-    EXPECT_EQ(pipeline->DeInit(), ErrorCode::SUCCESS);
+    EXPECT_TRUE(pipeline->Stop().IsOk());
+    EXPECT_TRUE(pipeline->DeInit().IsOk());
 }
 
 TEST(PipelineRuntimeTest, ExecutorThreadPool_ReusesThreadsAcrossMultipleActors) {
@@ -307,16 +319,16 @@ TEST(PipelineRuntimeTest, ExecutorThreadPool_ReusesThreadsAcrossMultipleActors) 
         PipelineBuilder().AddModule(source).AddModule(pass).AddModule(sink).Connect("Source", "Pass").Connect("Pass", "Sink").WithConfig(config).Build();
 
     ASSERT_NE(pipeline, nullptr);
-    ASSERT_EQ(pipeline->Init(), ErrorCode::SUCCESS);
-    ASSERT_EQ(pipeline->Start(), ErrorCode::SUCCESS);
+    ASSERT_EQ(pipeline->Init(), Error::Ok());
+    ASSERT_EQ(pipeline->Start(), Error::Ok());
 
     source->Send(42, true);
 
     EXPECT_TRUE(sink->WaitForCount(1, 500ms));
     EXPECT_EQ(sink->Values(), std::vector<int>({42}));
 
-    EXPECT_EQ(pipeline->Stop(), ErrorCode::SUCCESS);
-    EXPECT_EQ(pipeline->DeInit(), ErrorCode::SUCCESS);
+    EXPECT_EQ(pipeline->Stop(), Error::Ok());
+    EXPECT_EQ(pipeline->DeInit(), Error::Ok());
 }
 
 TEST(PipelineRuntimeTest, ManualSource_DoesNotStarveSingleWorkerExecutor) {
@@ -342,8 +354,8 @@ TEST(PipelineRuntimeTest, ManualSource_DoesNotStarveSingleWorkerExecutor) {
                         .Build();
 
     ASSERT_NE(pipeline, nullptr);
-    ASSERT_EQ(pipeline->Init(), ErrorCode::SUCCESS);
-    ASSERT_EQ(pipeline->Start(), ErrorCode::SUCCESS);
+    ASSERT_EQ(pipeline->Init(), Error::Ok());
+    ASSERT_EQ(pipeline->Start(), Error::Ok());
 
     std::this_thread::sleep_for(20ms);
     source->Send(42, true);
@@ -351,8 +363,8 @@ TEST(PipelineRuntimeTest, ManualSource_DoesNotStarveSingleWorkerExecutor) {
     EXPECT_TRUE(sink->WaitForCount(1, 500ms));
     EXPECT_EQ(sink->Values(), std::vector<int>({42}));
 
-    EXPECT_EQ(pipeline->Stop(), ErrorCode::SUCCESS);
-    EXPECT_EQ(pipeline->DeInit(), ErrorCode::SUCCESS);
+    EXPECT_EQ(pipeline->Stop(), Error::Ok());
+    EXPECT_EQ(pipeline->DeInit(), Error::Ok());
 }
 
 TEST(PipelineRuntimeTest, Lifecycle_OrderFollowsTopologyAndReverseTopology) {
@@ -369,12 +381,12 @@ TEST(PipelineRuntimeTest, Lifecycle_OrderFollowsTopologyAndReverseTopology) {
         PipelineBuilder().AddModule(source).AddModule(pass).AddModule(sink).Connect("Source", "Pass").Connect("Pass", "Sink").WithConfig(config).Build();
 
     ASSERT_NE(pipeline, nullptr);
-    ASSERT_EQ(pipeline->Init(), ErrorCode::SUCCESS);
+    ASSERT_EQ(pipeline->Init(), Error::Ok());
     EXPECT_EQ(recorder->Snapshot(), std::vector<std::string>({"Init:Pass", "Init:Sink"}));
 
-    ASSERT_EQ(pipeline->Start(), ErrorCode::SUCCESS);
-    EXPECT_EQ(pipeline->Stop(), ErrorCode::SUCCESS);
-    EXPECT_EQ(pipeline->DeInit(), ErrorCode::SUCCESS);
+    ASSERT_EQ(pipeline->Start(), Error::Ok());
+    EXPECT_EQ(pipeline->Stop(), Error::Ok());
+    EXPECT_EQ(pipeline->DeInit(), Error::Ok());
     EXPECT_EQ(recorder->Snapshot(),
               std::vector<std::string>({"Init:Pass", "Init:Sink", "DeInit:Sink", "DeInit:Pass"}));
 }
@@ -395,21 +407,21 @@ TEST(PipelineRuntimeTest, StatisticsCanBeDisabledFromPipelineContext) {
         PipelineBuilder().AddModule(source).AddModule(pass).AddModule(sink).Connect("Source", "Pass").Connect("Pass", "Sink").WithConfig(config).Build();
 
     ASSERT_NE(pipeline, nullptr);
-    ASSERT_EQ(pipeline->Init(), ErrorCode::SUCCESS);
+    ASSERT_EQ(pipeline->Init(), Error::Ok());
     EXPECT_FALSE(pass->StatisticsEnabled());
     EXPECT_FALSE(pass->ThroughputEnabled());
     EXPECT_FALSE(pass->LatencyEnabled());
 
     source->Send(7, true);
 
-    ASSERT_EQ(pipeline->Start(), ErrorCode::SUCCESS);
+    ASSERT_EQ(pipeline->Start(), Error::Ok());
     EXPECT_TRUE(sink->WaitForCount(1, 500ms));
     EXPECT_EQ(sink->Values(), std::vector<int>({7}));
     EXPECT_TRUE(pipeline->GetPortStats().empty());
     EXPECT_TRUE(pipeline->GetNodeStats().empty());
 
-    EXPECT_EQ(pipeline->Stop(), ErrorCode::SUCCESS);
-    EXPECT_EQ(pipeline->DeInit(), ErrorCode::SUCCESS);
+    EXPECT_EQ(pipeline->Stop(), Error::Ok());
+    EXPECT_EQ(pipeline->DeInit(), Error::Ok());
 }
 
 TEST(PipelineRuntimeTest, OnAllInputsJoinLimit_EvictsOldestPendingGroup) {
@@ -436,7 +448,7 @@ TEST(PipelineRuntimeTest, OnAllInputsJoinLimit_EvictsOldestPendingGroup) {
                         .Build();
 
     ASSERT_NE(pipeline, nullptr);
-    ASSERT_EQ(pipeline->Init(), ErrorCode::SUCCESS);
+    ASSERT_EQ(pipeline->Init(), Error::Ok());
 
     auto sendTagged = [](const std::shared_ptr<ManualSourceModule>& source, int value, std::uint64_t messageId) {
         auto message = MakeMessage(value, source->GetModuleName());
@@ -452,7 +464,7 @@ TEST(PipelineRuntimeTest, OnAllInputsJoinLimit_EvictsOldestPendingGroup) {
     sendTagged(leftSource, 10, 1);
     sendTagged(leftSource, 20, 2);
 
-    ASSERT_EQ(pipeline->Start(), ErrorCode::SUCCESS);
+    ASSERT_EQ(pipeline->Start(), Error::Ok());
     std::this_thread::sleep_for(20ms);
 
     PipelineObserver observerBeforeJoin(*pipeline);
@@ -467,8 +479,8 @@ TEST(PipelineRuntimeTest, OnAllInputsJoinLimit_EvictsOldestPendingGroup) {
     EXPECT_TRUE(sink->WaitForCount(1, 500ms));
     EXPECT_EQ(sink->Values(), std::vector<int>({220}));
 
-    EXPECT_EQ(pipeline->Stop(), ErrorCode::SUCCESS);
-    EXPECT_EQ(pipeline->DeInit(), ErrorCode::SUCCESS);
+    EXPECT_EQ(pipeline->Stop(), Error::Ok());
+    EXPECT_EQ(pipeline->DeInit(), Error::Ok());
 }
 
 TEST(PipelineRuntimeTest, OnAllInputs_CanCorrelateByTimestamp) {
@@ -495,8 +507,8 @@ TEST(PipelineRuntimeTest, OnAllInputs_CanCorrelateByTimestamp) {
                         .Build();
 
     ASSERT_NE(pipeline, nullptr);
-    ASSERT_EQ(pipeline->Init(), ErrorCode::SUCCESS);
-    ASSERT_EQ(pipeline->Start(), ErrorCode::SUCCESS);
+    ASSERT_EQ(pipeline->Init(), Error::Ok());
+    ASSERT_EQ(pipeline->Start(), Error::Ok());
 
     const auto baseTimestampMs =
         static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -521,8 +533,8 @@ TEST(PipelineRuntimeTest, OnAllInputs_CanCorrelateByTimestamp) {
     }
     EXPECT_EQ(sink->Values(), std::vector<int>({30}));
 
-    EXPECT_EQ(pipeline->Stop(), ErrorCode::SUCCESS);
-    EXPECT_EQ(pipeline->DeInit(), ErrorCode::SUCCESS);
+    EXPECT_EQ(pipeline->Stop(), Error::Ok());
+    EXPECT_EQ(pipeline->DeInit(), Error::Ok());
 }
 
 TEST(PipelineRuntimeTest, PipelineObserver_AggregatesEdgeDropsToActors) {
@@ -537,7 +549,7 @@ TEST(PipelineRuntimeTest, PipelineObserver_AggregatesEdgeDropsToActors) {
     auto pipeline = PipelineBuilder().AddModule(source).AddModule(sink).Connect("Source", "Sink").WithConfig(config).Build();
 
     ASSERT_NE(pipeline, nullptr);
-    ASSERT_EQ(pipeline->Init(), ErrorCode::SUCCESS);
+    ASSERT_EQ(pipeline->Init(), Error::Ok());
 
     source->Send(1, false);
     source->Send(2, false);
@@ -558,7 +570,7 @@ TEST(PipelineRuntimeTest, PipelineObserver_AggregatesEdgeDropsToActors) {
     EXPECT_EQ(sourceStats->outgoingRejectCount, 0u);
     EXPECT_EQ(sinkStats->incomingDequeueCount, 0u);
 
-    EXPECT_EQ(pipeline->DeInit(), ErrorCode::SUCCESS);
+    EXPECT_EQ(pipeline->DeInit(), Error::Ok());
 }
 
 TEST(PipelineRuntimeTest, PipelineObserverSummary_ComputesDropRateFromPorts) {
@@ -573,7 +585,7 @@ TEST(PipelineRuntimeTest, PipelineObserverSummary_ComputesDropRateFromPorts) {
     auto pipeline = PipelineBuilder().AddModule(source).AddModule(sink).Connect("Source", "Sink").WithConfig(config).Build();
 
     ASSERT_NE(pipeline, nullptr);
-    ASSERT_EQ(pipeline->Init(), ErrorCode::SUCCESS);
+    ASSERT_EQ(pipeline->Init(), Error::Ok());
 
     source->Send(1, false);
     source->Send(2, false);
@@ -589,7 +601,7 @@ TEST(PipelineRuntimeTest, PipelineObserverSummary_ComputesDropRateFromPorts) {
     EXPECT_DOUBLE_EQ(observation.summary.dropRate, 2.0 / 3.0);
     EXPECT_DOUBLE_EQ(observation.summary.rejectRate, 0.0);
 
-    EXPECT_EQ(pipeline->DeInit(), ErrorCode::SUCCESS);
+    EXPECT_EQ(pipeline->DeInit(), Error::Ok());
 }
 
 TEST(PipelineRuntimeTest, PipelineObserverSummary_CollectsSinkLatencySamples) {
@@ -606,8 +618,8 @@ TEST(PipelineRuntimeTest, PipelineObserverSummary_CollectsSinkLatencySamples) {
         PipelineBuilder().AddModule(source).AddModule(pass).AddModule(sink).Connect("Source", "Pass").Connect("Pass", "Sink").WithConfig(config).Build();
 
     ASSERT_NE(pipeline, nullptr);
-    ASSERT_EQ(pipeline->Init(), ErrorCode::SUCCESS);
-    ASSERT_EQ(pipeline->Start(), ErrorCode::SUCCESS);
+    ASSERT_EQ(pipeline->Init(), Error::Ok());
+    ASSERT_EQ(pipeline->Start(), Error::Ok());
 
     auto message = MakeMessage(7, source->GetModuleName());
     const auto nowMs = static_cast<std::uint64_t>(
@@ -625,8 +637,8 @@ TEST(PipelineRuntimeTest, PipelineObserverSummary_CollectsSinkLatencySamples) {
     EXPECT_GE(observation.summary.latencyP99Ms, observation.summary.latencyP50Ms);
     EXPECT_GE(observation.summary.latencyMaxMs, observation.summary.latencyP99Ms);
 
-    EXPECT_EQ(pipeline->Stop(), ErrorCode::SUCCESS);
-    EXPECT_EQ(pipeline->DeInit(), ErrorCode::SUCCESS);
+    EXPECT_EQ(pipeline->Stop(), Error::Ok());
+    EXPECT_EQ(pipeline->DeInit(), Error::Ok());
 }
 
 TEST(PipelineRuntimeTest, PipelineObserverEvents_LifecycleCallbacksFireInOrder) {
@@ -660,10 +672,10 @@ TEST(PipelineRuntimeTest, PipelineObserverEvents_LifecycleCallbacksFireInOrder) 
 
     pipeline->AddObserver(observer);
 
-    EXPECT_EQ(pipeline->Init(), ErrorCode::SUCCESS);
-    EXPECT_EQ(pipeline->Start(), ErrorCode::SUCCESS);
-    EXPECT_EQ(pipeline->Stop(), ErrorCode::SUCCESS);
-    EXPECT_EQ(pipeline->DeInit(), ErrorCode::SUCCESS);
+    EXPECT_EQ(pipeline->Init(), Error::Ok());
+    EXPECT_EQ(pipeline->Start(), Error::Ok());
+    EXPECT_EQ(pipeline->Stop(), Error::Ok());
+    EXPECT_EQ(pipeline->DeInit(), Error::Ok());
 
     const std::vector<std::string> expected = {
         "init:LifecyclePipeline",
@@ -688,7 +700,7 @@ TEST(PipelineRuntimeTest, PipelineObserverEvents_DropEventIsDelivered) {
     auto pipeline = PipelineBuilder().WithName("DropEventPipeline").AddModule(source).AddModule(sink).Connect("Source", "Sink").WithConfig(config).Build();
 
     ASSERT_NE(pipeline, nullptr);
-    ASSERT_EQ(pipeline->Init(), ErrorCode::SUCCESS);
+    ASSERT_EQ(pipeline->Init(), Error::Ok());
 
     auto observer = std::make_shared<CallbackPipelineObserver>();
     std::mutex mutex;
@@ -714,7 +726,7 @@ TEST(PipelineRuntimeTest, PipelineObserverEvents_DropEventIsDelivered) {
     EXPECT_FALSE(messageEvents[0].blocking);
     EXPECT_EQ(messageEvents[0].reason, "drop tail overflow");
 
-    EXPECT_EQ(pipeline->DeInit(), ErrorCode::SUCCESS);
+    EXPECT_EQ(pipeline->DeInit(), Error::Ok());
 }
 
 TEST(PipelineRuntimeTest, PipelineObserverEvents_DropHeadEventReportsEvictedMessage) {
@@ -730,7 +742,7 @@ TEST(PipelineRuntimeTest, PipelineObserverEvents_DropHeadEventReportsEvictedMess
         PipelineBuilder().WithName("DropHeadEventPipeline").AddModule(source).AddModule(sink).Connect("Source", "Sink").WithConfig(config).Build();
 
     ASSERT_NE(pipeline, nullptr);
-    ASSERT_EQ(pipeline->Init(), ErrorCode::SUCCESS);
+    ASSERT_EQ(pipeline->Init(), Error::Ok());
 
     auto observer = std::make_shared<CallbackPipelineObserver>();
     std::mutex mutex;
@@ -756,7 +768,7 @@ TEST(PipelineRuntimeTest, PipelineObserverEvents_DropHeadEventReportsEvictedMess
     EXPECT_FALSE(messageEvents[0].blocking);
     EXPECT_EQ(messageEvents[0].reason, "drop head overflow");
 
-    EXPECT_EQ(pipeline->DeInit(), ErrorCode::SUCCESS);
+    EXPECT_EQ(pipeline->DeInit(), Error::Ok());
 }
 
 TEST(PipelineRuntimeTest, PortStatsState_CurrentDepthDoesNotLeakWhenDequeueWinsRace) {
@@ -794,6 +806,43 @@ TEST(PipelineRuntimeTest, PipelineBuilder_RejectsMultipleModulesWithoutConnectio
     EXPECT_EQ(pipeline, nullptr);
 }
 
+TEST(PipelineRuntimeTest, PipelineBuilder_OnErrorCallbackReceivesInitFailure) {
+    auto source = std::make_shared<ManualSourceModule>("Source");
+    auto fail = std::make_shared<FailingInitModule>("Fail");
+    auto sink = std::make_shared<CollectSinkModule>("Sink");
+
+    std::mutex mutex;
+    std::vector<PipelineErrorEvent> errors;
+
+    auto pipeline = PipelineBuilder()
+                        .WithName("ErrorCallbackPipeline")
+                        .AddModule(source)
+                        .AddModule(fail)
+                        .AddModule(sink)
+                        .Connect("Source", "Fail")
+                        .Connect("Fail", "Sink")
+                        .OnError([&](const PipelineErrorEvent& event) {
+                            std::lock_guard<std::mutex> lock(mutex);
+                            errors.push_back(event);
+                        })
+                        .Build();
+
+    ASSERT_NE(pipeline, nullptr);
+    auto initResult = pipeline->Init();
+    EXPECT_TRUE(initResult.IsErr());
+    EXPECT_EQ(initResult.GetCode(), Error::Code::Failure);
+
+    std::lock_guard<std::mutex> lock(mutex);
+    ASSERT_EQ(errors.size(), 1u);
+    EXPECT_EQ(errors[0].pipelineName, "ErrorCallbackPipeline");
+    EXPECT_EQ(errors[0].stage, "Init");
+    EXPECT_EQ(errors[0].nodeName, "Fail");
+    EXPECT_EQ(errors[0].code, Error::Code::Failure);
+    EXPECT_EQ(errors[0].message, "Module initialization failed.");
+
+    EXPECT_EQ(pipeline->DeInit(), Error::Ok());
+}
+
 TEST(PipelineRuntimeTest, CreateFromYaml_LoadsRuntimeConfig) {
     NEXUSFLOW_REGISTER_MODULE(YamlSourceModule);
     NEXUSFLOW_REGISTER_MODULE(YamlSinkModule);
@@ -825,13 +874,13 @@ TEST(PipelineRuntimeTest, CreateFromYaml_LoadsRuntimeConfig) {
     auto pipeline = Pipeline::CreateFromYaml(yamlPath);
     ASSERT_NE(pipeline, nullptr);
 
-    ASSERT_EQ(pipeline->Init(), ErrorCode::SUCCESS);
+    ASSERT_EQ(pipeline->Init(), Error::Ok());
     EXPECT_FALSE(g_yamlStatisticsEnabled);
     EXPECT_EQ(g_yamlExecutorThreadCount, 3u);
     EXPECT_EQ(g_yamlQueueSize, 9u);
-    ASSERT_EQ(pipeline->Start(), ErrorCode::SUCCESS);
+    ASSERT_EQ(pipeline->Start(), Error::Ok());
     EXPECT_TRUE(pipeline->GetPortStats().empty());
     EXPECT_TRUE(pipeline->GetNodeStats().empty());
-    EXPECT_EQ(pipeline->Stop(), ErrorCode::SUCCESS);
-    EXPECT_EQ(pipeline->DeInit(), ErrorCode::SUCCESS);
+    EXPECT_EQ(pipeline->Stop(), Error::Ok());
+    EXPECT_EQ(pipeline->DeInit(), Error::Ok());
 }

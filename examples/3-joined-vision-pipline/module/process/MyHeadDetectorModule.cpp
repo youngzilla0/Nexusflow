@@ -2,8 +2,10 @@
 #include "MyHeadDetectorModule.hpp"
 #include "../MyMessage.hpp"
 #include "../src/utils/logging.hpp" // TODO: remove
-#include "nexusflow/ErrorCode.hpp"
+#include "nexusflow/Error.hpp"
 #include "nexusflow/Message.hpp"
+
+namespace ns = nexusflow;
 
 namespace {
 
@@ -32,19 +34,19 @@ MyHeadDetectorModule::MyHeadDetectorModule(const std::string& name) : Module(nam
 
 MyHeadDetectorModule::~MyHeadDetectorModule() { LOG_TRACE("MyHeadDetectorModule destructor, name={}", GetModuleName()); }
 
-nexusflow::ErrorCode MyHeadDetectorModule::Configure(const nexusflow::Config& config) {
+ns::Error MyHeadDetectorModule::Configure(const ns::Config& config) {
     m_modelPath = config.GetValueOrDefault("modelPath", std::string(""));
     LOG_INFO("MyHeadDetectorModule::Configure, name={}, modelPath={}", GetModuleName(), m_modelPath);
-    return nexusflow::ErrorCode::SUCCESS;
+    return ns::Error::Ok();
 }
 
-nexusflow::ErrorCode MyHeadDetectorModule::Init() {
+ns::Error MyHeadDetectorModule::Init() {
     LOG_INFO("Tring to load model from {}", m_modelPath);
     LOG_INFO("MyHeadDetectorModule::Init, name={}, modelPath={}", GetModuleName(), m_modelPath);
-    return nexusflow::ErrorCode::SUCCESS;
+    return ns::Error::Ok();
 }
 
-void MyHeadDetectorModule::Process(const nexusflow::PortInputsView& inputs, nexusflow::PortOutputs& outputs) {
+void MyHeadDetectorModule::Process(const ns::PortInputsView& inputs, ns::PortOutputs& outputs) {
     auto* inputMessage = inputs.OnlyMessage();
     if (inputMessage == nullptr) {
         return;

@@ -4,7 +4,9 @@
 #include <nexusflow/Message.hpp>
 #include <nexusflow/Module.hpp>
 
-class MyStreamPullerModule : public nexusflow::Module {
+namespace ns = nexusflow;
+
+class MyStreamPullerModule : public ns::Module {
     
 
 public:
@@ -12,5 +14,5 @@ public:
     ~MyStreamPullerModule() override;
 
 protected:
-    void Process(const nexusflow::PortInputsView& inputs, nexusflow::PortOutputs& outputs) override;
+    void Process(const ns::PortInputsView& inputs, ns::PortOutputs& outputs) override;
 };

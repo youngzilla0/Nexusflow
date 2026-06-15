@@ -12,20 +12,20 @@ Module::Module(std::string name) : m_moduleName(std::move(name)) { LOG_TRACE("Mo
 
 Module::~Module() { LOG_TRACE("Module '{}' destroying...", m_moduleName); }
 
-ErrorCode Module::Configure(const Config& config) {
+Error Module::Configure(const Config& config) {
     (void)config;
     LOG_TRACE("Module '{}' configuring...", m_moduleName);
-    return ErrorCode::SUCCESS;
+    return Error::Ok();
 }
 
-ErrorCode Module::Init() {
+Error Module::Init() {
     LOG_TRACE("Module '{}' initializing...", m_moduleName);
-    return ErrorCode::SUCCESS;
+    return Error::Ok();
 }
 
-ErrorCode Module::DeInit() {
+Error Module::DeInit() {
     LOG_TRACE("Module '{}' de-initializing...", m_moduleName);
-    return ErrorCode::SUCCESS;
+    return Error::Ok();
 }
 
 const PipelineContext& Module::GetPipelineContext() const {

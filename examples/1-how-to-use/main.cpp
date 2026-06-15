@@ -10,7 +10,8 @@
 #include <nexusflow/Nexusflow.hpp>
 #include <thread>
 
-using namespace nexusflow;
+namespace ns = nexusflow;
+using namespace ns;
 
 // --- Helper Functions ---
 
@@ -24,7 +25,7 @@ void registerAllModules() {
 
 void executePipeline(Pipeline& pipeline) {
     LOG_INFO("Initializing pipeline...");
-    if (pipeline.Init() != ErrorCode::SUCCESS) {
+    if (pipeline.Init() != Error::Ok()) {
         throw std::runtime_error("Pipeline initialization failed.");
     }
 
@@ -57,8 +58,8 @@ void runWithBuildModule() {
                         .AddModule(outputModule)
                         .Connect("InputNode", "ProcessNode1")
                         .Connect("InputNode", "ProcessNode2")
-                        .Connect("ProcessNode1", nexusflow::kDefaultOutputPort, "OutputNode", "left")
-                        .Connect("ProcessNode2", nexusflow::kDefaultOutputPort, "OutputNode", "right")
+                        .Connect("ProcessNode1", ns::kDefaultOutputPort, "OutputNode", "left")
+                        .Connect("ProcessNode2", ns::kDefaultOutputPort, "OutputNode", "right")
                         .Build();
 
     if (pipeline == nullptr) {

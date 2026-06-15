@@ -2,8 +2,10 @@
 #include "MyHeadPersonFusionModule.hpp"
 #include "../MyMessage.hpp"
 #include "../src/utils/logging.hpp" // TODO: remove
-#include "nexusflow/ErrorCode.hpp"
+#include "nexusflow/Error.hpp"
 #include "nexusflow/Message.hpp"
+
+namespace ns = nexusflow;
 
 MyHeadPersonFusionModule::MyHeadPersonFusionModule(const std::string& name) : Module(name) {
     SetTriggerPolicy(TriggerPolicy::OnAllInputs);
@@ -12,20 +14,20 @@ MyHeadPersonFusionModule::MyHeadPersonFusionModule(const std::string& name) : Mo
 
 MyHeadPersonFusionModule::~MyHeadPersonFusionModule() { LOG_TRACE("MyHeadPersonFusionModule destructor, name={}", GetModuleName()); }
 
-nexusflow::ErrorCode MyHeadPersonFusionModule::Configure(const nexusflow::Config& config) {
+ns::Error MyHeadPersonFusionModule::Configure(const ns::Config& config) {
     m_modelPath = config.GetValueOrDefault("modelPath", std::string(""));
     LOG_INFO("MyHeadPersonFusionModule::Configure, name={}, modelPath={}", GetModuleName(), m_modelPath);
-    return nexusflow::ErrorCode::SUCCESS;
+    return ns::Error::Ok();
 }
 
-nexusflow::ErrorCode MyHeadPersonFusionModule::Init() {
+ns::Error MyHeadPersonFusionModule::Init() {
     LOG_INFO("Tring to load model from {}", m_modelPath);
 
     LOG_INFO("MyHeadPersonFusionModule::Init, name={}, modelPath={}", GetModuleName(), m_modelPath);
-    return nexusflow::ErrorCode::SUCCESS;
+    return ns::Error::Ok();
 }
 
-void MyHeadPersonFusionModule::Process(const nexusflow::PortInputsView& inputs, nexusflow::PortOutputs& outputs) {
+void MyHeadPersonFusionModule::Process(const ns::PortInputsView& inputs, ns::PortOutputs& outputs) {
     auto* headMessage = inputs.Get<InferenceMessage>("head");
     auto* personMessage = inputs.Get<InferenceMessage>("person");
     if (headMessage == nullptr || personMessage == nullptr) {
@@ -40,7 +42,7 @@ void MyHeadPersonFusionModule::Process(const nexusflow::PortInputsView& inputs, 
 
     LOG_INFO("'{}' Send message to next module, data={}", GetModuleName(), fusedMessage.toString());
 
-    outputs.Emit(nexusflow::MakeMessage(std::move(fusedMessage), GetModuleName()), true);
+    outputs.Emit(ns::MakeMessage(std::move(fusedMessage), GetModuleName()), true);
 }
 
 InferenceMessage MyHeadPersonFusionModule::DoFusion(const InferenceMessage& headMessage, const InferenceMessage& personMessage) const {

@@ -43,7 +43,7 @@ public:
      *
      * 该函数会依次执行图校验、执行计划构建和运行时物化。
      */
-    ErrorCode Init();
+    Error Init();
 
     /**
      * @brief 执行拓扑相关的额外策略分析。
@@ -91,7 +91,7 @@ public:
      * @param nodeName 相关节点名称。
      * @param message 错误描述。
      */
-    void NotifyPipelineError(ErrorCode code, const std::string& stage, const std::string& nodeName, const std::string& message);
+    void NotifyPipelineError(const Error& error, const std::string& stage, const std::string& nodeName);
 
     /**
      * @brief 通知观察者发生消息投递事件。
@@ -110,7 +110,7 @@ private:
      * @brief 校验图结构是否可以进入运行时物化。
      * @return 校验结果。
      */
-    ErrorCode ValidateGraph() const;
+    Error ValidateGraph() const;
 
     /**
      * @brief 将 Graph 转换为稳定的执行计划。
@@ -123,7 +123,7 @@ private:
      * @param plan 执行计划。
      * @return 物化结果。
      */
-    ErrorCode MaterializeRuntime(const ExecutionPlan& plan);
+    Error MaterializeRuntime(const ExecutionPlan& plan);
 
 private:
     std::vector<std::shared_ptr<IPipelineObserver>> observers; ///< 已注册的观察者列表。

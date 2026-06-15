@@ -13,7 +13,8 @@
 #include <thread>
 #include <vector>
 
-using namespace nexusflow;
+namespace ns = nexusflow;
+using namespace ns;
 using namespace std::chrono_literals;
 
 namespace {
@@ -199,11 +200,11 @@ int main() {
         });
         pipeline->AddObserver(eventObserver);
 
-        if (pipeline->Init() != ErrorCode::SUCCESS) {
+        if (pipeline->Init().IsErr()) {
             throw std::runtime_error("Pipeline initialization failed.");
         }
 
-        if (pipeline->Start() != ErrorCode::SUCCESS) {
+        if (pipeline->Start().IsErr()) {
             throw std::runtime_error("Pipeline start failed.");
         }
 

@@ -1,24 +1,26 @@
 #pragma once
 
 #include "../MyMessage.hpp"
-#include "nexusflow/ErrorCode.hpp"
+#include "nexusflow/Error.hpp"
 
 #include <nexusflow/Message.hpp>
 #include <nexusflow/Module.hpp>
 
-class MyHeadPersonFusionModule : public nexusflow::Module {
+namespace ns = nexusflow;
+
+class MyHeadPersonFusionModule : public ns::Module {
     
 
 public:
     MyHeadPersonFusionModule(const std::string& name);
     ~MyHeadPersonFusionModule() override;
 
-    nexusflow::ErrorCode Configure(const nexusflow::Config& config) override;
+    ns::Error Configure(const ns::Config& config) override;
 
-    nexusflow::ErrorCode Init() override;
+    ns::Error Init() override;
 
 protected:
-    void Process(const nexusflow::PortInputsView& inputs, nexusflow::PortOutputs& outputs) override;
+    void Process(const ns::PortInputsView& inputs, ns::PortOutputs& outputs) override;
 
 private:
     InferenceMessage DoFusion(const InferenceMessage& headMessage, const InferenceMessage& personMessage) const;

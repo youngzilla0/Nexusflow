@@ -1,7 +1,7 @@
 #ifndef NEXUSFLOW_PIPELINE_HPP
 #define NEXUSFLOW_PIPELINE_HPP
 
-#include <nexusflow/ErrorCode.hpp>
+#include <nexusflow/Error.hpp>
 #include <nexusflow/PipelineEvents.hpp>
 #include <nexusflow/PipelineConfig.hpp>
 #include <nexusflow/StatisticsTypes.hpp>
@@ -26,13 +26,13 @@ class Pipeline {
 public:
     static std::unique_ptr<Pipeline> CreateFromYaml(const std::string& configPath);
 
-    ErrorCode Init();
+    Error Init();
 
-    ErrorCode Start();
+    Error Start();
 
-    ErrorCode Stop();
+    Error Stop();
 
-    ErrorCode DeInit();
+    Error DeInit();
 
     void AddObserver(const std::shared_ptr<IPipelineObserver>& observer);
 

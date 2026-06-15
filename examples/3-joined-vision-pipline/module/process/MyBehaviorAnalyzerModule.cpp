@@ -2,8 +2,10 @@
 #include "MyBehaviorAnalyzerModule.hpp"
 #include "../MyMessage.hpp"
 #include "../src/utils/logging.hpp" // TODO: remove
-#include "nexusflow/ErrorCode.hpp"
+#include "nexusflow/Error.hpp"
 #include "nexusflow/Message.hpp"
+
+namespace ns = nexusflow;
 
 MyBehaviorAnalyzerModule::MyBehaviorAnalyzerModule(const std::string& name) : Module(name) {
     LOG_TRACE("MyBehaviorAnalyzerModule constructor, name={}", name);
@@ -11,20 +13,20 @@ MyBehaviorAnalyzerModule::MyBehaviorAnalyzerModule(const std::string& name) : Mo
 
 MyBehaviorAnalyzerModule::~MyBehaviorAnalyzerModule() { LOG_TRACE("MyBehaviorAnalyzerModule destructor, name={}", GetModuleName()); }
 
-nexusflow::ErrorCode MyBehaviorAnalyzerModule::Configure(const nexusflow::Config& config) {
+ns::Error MyBehaviorAnalyzerModule::Configure(const ns::Config& config) {
     m_modelPath = config.GetValueOrDefault("modelPath", std::string(""));
     LOG_INFO("MyBehaviorAnalyzerModule::Configure, name={}, modelPath={}", GetModuleName(), m_modelPath);
-    return nexusflow::ErrorCode::SUCCESS;
+    return ns::Error::Ok();
 }
 
-nexusflow::ErrorCode MyBehaviorAnalyzerModule::Init() {
+ns::Error MyBehaviorAnalyzerModule::Init() {
     LOG_INFO("Tring to load model from {}", m_modelPath);
 
     LOG_INFO("MyBehaviorAnalyzerModule::Init, name={}, modelPath={}", GetModuleName(), m_modelPath);
-    return nexusflow::ErrorCode::SUCCESS;
+    return ns::Error::Ok();
 }
 
-void MyBehaviorAnalyzerModule::Process(const nexusflow::PortInputsView& inputs, nexusflow::PortOutputs& outputs) {
+void MyBehaviorAnalyzerModule::Process(const ns::PortInputsView& inputs, ns::PortOutputs& outputs) {
     auto* inputMessage = inputs.OnlyMessage();
     if (inputMessage == nullptr) {
         return;

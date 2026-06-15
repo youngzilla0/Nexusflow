@@ -2,7 +2,7 @@
 #define NEXUSFLOW_MODULE_NODE_HPP
 
 #include "executor/Executor.hpp"
-#include "nexusflow/ErrorCode.hpp"
+#include "nexusflow/Error.hpp"
 #include <nexusflow/Module.hpp>
 
 namespace nexusflow {
@@ -74,16 +74,16 @@ public:
     std::string GetModuleName() const { return m_module->GetModuleName(); }
 
     /** @brief 调用模块的 Init 生命周期。 */
-    ErrorCode Init();
+    Error Init();
 
     /** @brief 调用模块的 DeInit 生命周期。 */
-    ErrorCode DeInit();
+    Error DeInit();
 
     /** @brief 启动所属 Executor。 */
-    ErrorCode Start();
+    Error Start();
 
     /** @brief 停止所属 Executor。 */
-    ErrorCode Stop();
+    Error Stop();
 
 private:
     std::shared_ptr<Module> m_module; ///< 实际业务模块实例。

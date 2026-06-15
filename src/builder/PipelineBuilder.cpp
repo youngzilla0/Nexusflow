@@ -28,6 +28,7 @@ public:
 
     std::vector<Connection> connections;
     PipelineConfig config = PipelineConfig::Default();  // Default configuration
+    std::function<void(const PipelineErrorEvent&)> errorCallback;
 };
 
 // --- PipelineBuilder's Public Methods ---
@@ -74,6 +75,13 @@ PipelineBuilder& PipelineBuilder::WithConfig(const PipelineConfig& config) {
     return *this;
 }
 
+PipelineBuilder& PipelineBuilder::OnError(std::function<void(const PipelineErrorEvent&)> callback) {
+    if (m_pImpl) {
+        m_pImpl->errorCallback = std::move(callback);
+    }
+    return *this;
+}
+
 std::unique_ptr<Pipeline> PipelineBuilder::Build() {
     if (!m_pImpl) {
         return nullptr; // Builder has been consumed
@@ -111,6 +119,11 @@ std::unique_ptr<Pipeline> PipelineBuilder::Build() {
 
     auto pipeline = std::unique_ptr<Pipeline>(new Pipeline());
     pipeline->InitWithGraph(std::move(graph), m_pImpl->config);
+    if (m_pImpl->errorCallback) {
+        auto observer = std::make_shared<CallbackPipelineObserver>();
+        observer->OnError(m_pImpl->errorCallback);
+        pipeline->AddObserver(observer);
+    }
 
     m_pImpl.reset(); // Consume the builder
 

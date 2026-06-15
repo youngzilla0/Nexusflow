@@ -2,8 +2,10 @@
 #include "MyPersonDetectorModule.hpp"
 #include "../src/utils/logging.hpp" // TODO: remove
 #include "MyMessage.hpp"
-#include "nexusflow/ErrorCode.hpp"
+#include "nexusflow/Error.hpp"
 #include "nexusflow/Message.hpp"
+
+namespace ns = nexusflow;
 
 namespace {
 
@@ -32,21 +34,21 @@ MyPersonDetectorModule::MyPersonDetectorModule(const std::string& name) : Module
 
 MyPersonDetectorModule::~MyPersonDetectorModule() { LOG_TRACE("MyPersonDetectorModule destructor, name={}", GetModuleName()); }
 
-nexusflow::ErrorCode MyPersonDetectorModule::Configure(const nexusflow::Config& config) {
+ns::Error MyPersonDetectorModule::Configure(const ns::Config& config) {
     m_modelPath = config.GetValueOrDefault("modelPath", std::string(""));
     LOG_INFO("MyPersonDetectorModule::Configure, name={}, modelPath={}", GetModuleName(), m_modelPath);
 
-    return nexusflow::ErrorCode::SUCCESS;
+    return ns::Error::Ok();
 }
 
-nexusflow::ErrorCode MyPersonDetectorModule::Init() {
+ns::Error MyPersonDetectorModule::Init() {
     LOG_INFO("Tring to load model from {}", m_modelPath);
 
     LOG_INFO("MyPersonDetectorModule::Init, name={}, modelPath={}", GetModuleName(), m_modelPath);
-    return nexusflow::ErrorCode::SUCCESS;
+    return ns::Error::Ok();
 }
 
-void MyPersonDetectorModule::Process(const nexusflow::PortInputsView& inputs, nexusflow::PortOutputs& outputs) {
+void MyPersonDetectorModule::Process(const ns::PortInputsView& inputs, ns::PortOutputs& outputs) {
     auto* inputMessage = inputs.OnlyMessage();
     if (inputMessage == nullptr) {
         return;

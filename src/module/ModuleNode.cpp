@@ -1,5 +1,5 @@
 #include "ModuleNode.hpp"
-#include "nexusflow/ErrorCode.hpp"
+#include "nexusflow/Error.hpp"
 
 #include <memory>
 
@@ -29,21 +29,21 @@ ModuleNode::ModuleNode(const std::shared_ptr<Module>& module,
 ModuleNode::~ModuleNode() = default;
 
 /** @brief 调用模块的 Init 生命周期。 */
-ErrorCode ModuleNode::Init() { return m_module->Init(); }
+Error ModuleNode::Init() { return m_module->Init(); }
 
 /** @brief 调用模块的 DeInit 生命周期。 */
-ErrorCode ModuleNode::DeInit() { return m_module->DeInit(); }
+Error ModuleNode::DeInit() { return m_module->DeInit(); }
 
 /** @brief 启动所属 Executor。 */
-ErrorCode ModuleNode::Start() {
+Error ModuleNode::Start() {
     m_executor->Start();
-    return ErrorCode::SUCCESS;
+    return Error::Ok();
 }
 
 /** @brief 停止所属 Executor。 */
-ErrorCode ModuleNode::Stop() {
+Error ModuleNode::Stop() {
     m_executor->Stop();
-    return ErrorCode::SUCCESS;
+    return Error::Ok();
 }
 
 } // namespace nexusflow

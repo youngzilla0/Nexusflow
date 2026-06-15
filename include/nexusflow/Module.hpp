@@ -2,7 +2,7 @@
 #define NEXUSFLOW_MODULE_HPP
 
 #include <nexusflow/Config.hpp>
-#include <nexusflow/ErrorCode.hpp>
+#include <nexusflow/Error.hpp>
 #include <nexusflow/PipelineContext.hpp>
 #include <nexusflow/Ports.hpp>
 
@@ -36,9 +36,9 @@ public:
     Module(const Module&) = delete;
     Module& operator=(const Module&) = delete;
 
-    virtual ErrorCode Configure(const Config& config);
-    virtual ErrorCode Init();
-    virtual ErrorCode DeInit();
+    virtual Error Configure(const Config& config);
+    virtual Error Init();
+    virtual Error DeInit();
 
     virtual void Process(const PortInputsView& inputs, PortOutputs& outputs) = 0;
 

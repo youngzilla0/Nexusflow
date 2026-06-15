@@ -12,7 +12,8 @@
 #include <nexusflow/Nexusflow.hpp>
 #include <thread>
 
-using namespace nexusflow;
+namespace ns = nexusflow;
+using namespace ns;
 
 // --- Helper Functions ---
 
@@ -28,7 +29,7 @@ void registerAllModules() {
 
 void executePipeline(Pipeline& pipeline) {
     LOG_INFO("Initializing pipeline...");
-    if (pipeline.Init() != ErrorCode::SUCCESS) {
+    if (pipeline.Init() != Error::Ok()) {
         throw std::runtime_error("Pipeline initialization failed.");
     }
 

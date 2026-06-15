@@ -6,6 +6,8 @@
 #include <chrono>
 #include <thread>
 
+namespace ns = nexusflow;
+
 namespace {
 
 DecoderMessage CreateMessage(uint32_t fps) {
@@ -30,9 +32,9 @@ MyStreamPullerModule::MyStreamPullerModule(const std::string& name) : Module(nam
 
 MyStreamPullerModule::~MyStreamPullerModule() { LOG_TRACE("MyStreamPullerModule destructor, name={}", GetModuleName()); }
 
-void MyStreamPullerModule::Process(const nexusflow::PortInputsView& inputs, nexusflow::PortOutputs& outputs) {
+void MyStreamPullerModule::Process(const ns::PortInputsView& inputs, ns::PortOutputs& outputs) {
     (void)inputs;
     constexpr uint32_t kFPS = 25;
     auto msg = CreateMessage(kFPS);
-    outputs.Emit(nexusflow::MakeMessage(std::move(msg), GetModuleName()), true);
+    outputs.Emit(ns::MakeMessage(std::move(msg), GetModuleName()), true);
 }
