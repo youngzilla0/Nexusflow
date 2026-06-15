@@ -151,6 +151,13 @@ void Pipeline::RemoveObserver(const std::shared_ptr<IPipelineObserver>& observer
     m_pImpl->RemoveObserver(observer);
 }
 
+GraphTopologyInfo Pipeline::GetTopologyInfo() const {
+    if (!m_pImpl) {
+        return {};
+    }
+    return m_pImpl->GetTopologyInfo();
+}
+
 std::vector<PortStats> Pipeline::GetPortStats() const {
     if (!m_pImpl || !m_pImpl->executor) {
         return {};

@@ -106,6 +106,10 @@ std::string Pipeline::Impl::GetPipelineName() const {
     return "";
 }
 
+const GraphTopologyInfo& Pipeline::Impl::GetTopologyInfo() const {
+    return topologyInfo;
+}
+
 /**
  * @brief 校验 Pipeline 图是否可以进入运行阶段。
  * @return 校验结果。
@@ -284,9 +288,12 @@ Error Pipeline::Impl::Init() {
 void Pipeline::Impl::ApplyTopologyPolicies() {
     if (!graph) return;
 
-    auto convergeNodes = graph->GetConvergeNodes();
-    LOG_DEBUG("Topology analysis: found {} converge nodes", convergeNodes.size());
-    (void)convergeNodes;
+    topologyInfo = graph->AnalyzeTopology();
+    LOG_DEBUG("Topology analysis: source={}, sink={}, branch={}, join={}",
+              topologyInfo.sourceNodes.size(),
+              topologyInfo.sinkNodes.size(),
+              topologyInfo.branchNodes.size(),
+              topologyInfo.joinNodes.size());
 }
 
 /**

@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 
 #include "executor/Executor.hpp"
+#include "base/Graph.hpp"
 
 #include <nexusflow/Nexusflow.hpp>
 
@@ -395,6 +396,42 @@ TEST(PipelineRuntimeTest, SingleWorkerPipeline_CompletesWithoutTimeoutOnShortCha
     EXPECT_TRUE(sink->WaitForCount(1, 500ms));
     EXPECT_EQ(sink->Values(), std::vector<int>({7}));
 
+    EXPECT_EQ(pipeline->Stop(), Error::Ok());
+    EXPECT_EQ(pipeline->DeInit(), Error::Ok());
+}
+
+TEST(PipelineRuntimeTest, PipelineExposesTopologyForkJoinGroups) {
+    auto source = std::make_shared<ManualSourceModule>("Source");
+    auto left = std::make_shared<ForwardModule>("Left");
+    auto right = std::make_shared<ForwardModule>("Right");
+    auto join = std::make_shared<ForwardModule>("Join");
+
+    PipelineConfig config;
+    config.executorThreadCount = 1;
+    config.queueSize = 8;
+
+    auto pipeline = PipelineBuilder()
+                        .AddModule(source)
+                        .AddModule(left)
+                        .AddModule(right)
+                        .AddModule(join)
+                        .Connect("Source", "Left")
+                        .Connect("Source", "Right")
+                        .Connect("Left", "Join")
+                        .Connect("Right", "Join")
+                        .WithConfig(config)
+                        .Build();
+
+    ASSERT_NE(pipeline, nullptr);
+    ASSERT_EQ(pipeline->Init(), Error::Ok());
+
+    auto topology = pipeline->GetTopologyInfo();
+    ASSERT_EQ(topology.forkJoinGroups.size(), 1u);
+    EXPECT_EQ(topology.forkJoinGroups[0].forkNode->name, "Source");
+    EXPECT_EQ(topology.forkJoinGroups[0].joinNode->name, "Join");
+    EXPECT_EQ(topology.forkJoinGroups[0].paths.size(), 2u);
+
+    EXPECT_EQ(pipeline->Start(), Error::Ok());
     EXPECT_EQ(pipeline->Stop(), Error::Ok());
     EXPECT_EQ(pipeline->DeInit(), Error::Ok());
 }

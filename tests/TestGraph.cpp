@@ -171,6 +171,47 @@ TEST(GraphTest, IsEmpty_DependsOnGraphNameAndEdges) {
     ASSERT_FALSE(graph.IsEmpty());
 }
 
+TEST(GraphTest, AnalyzeTopology_ReportsSourcesBranchesJoinsAndSinks) {
+    Graph graph;
+    graph.AddEdge(a, b);
+    graph.AddEdge(a, c);
+    graph.AddEdge(b, d);
+    graph.AddEdge(c, d);
+
+    auto topology = graph.AnalyzeTopology();
+
+    ASSERT_EQ(topology.sourceNodes.size(), 1u);
+    ASSERT_EQ(topology.sinkNodes.size(), 1u);
+    ASSERT_EQ(topology.branchNodes.size(), 1u);
+    ASSERT_EQ(topology.joinNodes.size(), 1u);
+
+    EXPECT_EQ(topology.sourceNodes[0], a);
+    EXPECT_EQ(topology.sinkNodes[0], d);
+    EXPECT_EQ(topology.branchNodes[0], a);
+    EXPECT_EQ(topology.joinNodes[0], d);
+}
+
+TEST(GraphTest, AnalyzeTopology_DetectsBasicForkJoinGroup) {
+    Graph graph;
+    graph.AddEdge(a, b);
+    graph.AddEdge(a, c);
+    graph.AddEdge(b, d);
+    graph.AddEdge(c, d);
+
+    auto topology = graph.AnalyzeTopology();
+
+    ASSERT_EQ(topology.forkJoinGroups.size(), 1u);
+    const auto& group = topology.forkJoinGroups[0];
+    ASSERT_NE(group.forkNode, nullptr);
+    ASSERT_NE(group.joinNode, nullptr);
+    ASSERT_EQ(group.paths.size(), 2u);
+    ASSERT_EQ(group.paths[0].nodes.size(), 3u);
+    EXPECT_EQ(group.forkNode, a);
+    EXPECT_EQ(group.joinNode, d);
+    EXPECT_EQ(group.paths[0].nodes.front(), a);
+    EXPECT_EQ(group.paths[0].nodes.back(), d);
+}
+
 /**
  *  DAG (Directed Acyclic Graph) Visualization:
  *           a

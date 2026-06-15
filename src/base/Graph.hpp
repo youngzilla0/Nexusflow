@@ -1,6 +1,7 @@
 #pragma once
 
 #include "nexusflow/Config.hpp"
+#include <nexusflow/TopologyTypes.hpp>
 #include <cassert>
 #include <cstddef>
 #include <memory>
@@ -89,6 +90,9 @@ public:
 
     // Checks if a given node has multiple incoming edges.
     bool IsConvergeNode(const std::shared_ptr<GraphNode>& node) const;
+
+    // Summarizes the role of each node in the topology.
+    GraphTopologyInfo AnalyzeTopology() const;
 
 public:
     // Checks if the graph is empty.

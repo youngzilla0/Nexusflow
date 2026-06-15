@@ -36,6 +36,7 @@ public:
     std::shared_ptr<executor::Executor> executor; ///< 运行时调度与路由核心。
 
     std::vector<std::shared_ptr<ModuleNode>> moduleNodes; ///< 物化后的模块节点列表，按拓扑顺序保存。
+    GraphTopologyInfo topologyInfo; ///< 由 Graph 派生出的拓扑分析结果。
 
     /**
      * @brief 执行 Pipeline 初始化。
@@ -104,6 +105,12 @@ public:
      * @return Pipeline 名称。
      */
     std::string GetPipelineName() const;
+
+    /**
+     * @brief 获取当前 Pipeline 的拓扑分析结果。
+     * @return 拓扑分析结果快照。
+     */
+    const GraphTopologyInfo& GetTopologyInfo() const;
 
 private:
     /**

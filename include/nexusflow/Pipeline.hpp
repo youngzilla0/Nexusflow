@@ -4,19 +4,17 @@
 #include <nexusflow/Error.hpp>
 #include <nexusflow/PipelineEvents.hpp>
 #include <nexusflow/PipelineConfig.hpp>
+#include <nexusflow/TopologyTypes.hpp>
 #include <nexusflow/StatisticsTypes.hpp>
 
 #include <memory>
 #include <string>
 #include <vector>
 
-// Forward declaration
 class Graph;
-namespace nexusflow {
-class PipelineBuilder;
-}
 
 namespace nexusflow {
+class PipelineBuilder;
 
 /**
  * @brief Pipeline
@@ -37,6 +35,8 @@ public:
     void AddObserver(const std::shared_ptr<IPipelineObserver>& observer);
 
     void RemoveObserver(const std::shared_ptr<IPipelineObserver>& observer);
+
+    GraphTopologyInfo GetTopologyInfo() const;
 
     std::vector<PortStats> GetPortStats() const;
     std::vector<NodeStats> GetNodeStats() const;
