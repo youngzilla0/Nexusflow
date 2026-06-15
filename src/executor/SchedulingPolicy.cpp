@@ -20,6 +20,9 @@ public:
         plan.executionMode = ResolveExecutionMode(context);
         // 单 worker 场景优先保证公平性，默认每次只跑一个 step，避免某个 actor 长时间独占线程。
         plan.maxStepsPerTask = context.isSourceActor ? kSourceStepsPerTask : 1;
+        if (!context.isSourceActor && context.forkJoinGroupCount > 0) {
+            plan.maxStepsPerTask = 1;
+        }
         return plan;
     }
 
@@ -74,6 +77,9 @@ public:
         plan.executionMode = ResolveExecutionMode(context);
         // 多 worker 场景允许更大的步数预算，以降低重复入队开销。
         plan.maxStepsPerTask = context.isSourceActor ? kSourceStepsPerTask : kParallelInputStepsPerTask;
+        if (context.forkJoinGroupCount > 0) {
+            plan.maxStepsPerTask = std::max<std::size_t>(plan.maxStepsPerTask / 2, 8);
+        }
         return plan;
     }
 

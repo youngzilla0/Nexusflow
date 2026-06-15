@@ -2,10 +2,12 @@
 #define NEXUSFLOW_PIPELINE_CONTEXT_HPP
 
 #include <nexusflow/PipelineConfig.hpp>
+#include <nexusflow/TopologyTypes.hpp>
 #include <nexusflow/StatisticsOptions.hpp>
 
 #include <cstddef>
 #include <string>
+#include <utility>
 
 namespace nexusflow {
 
@@ -23,6 +25,8 @@ public:
     const PipelineConfig& GetConfig() const { return m_config; }
 
     const StatisticsOptions& GetStatisticsOptions() const { return m_statisticsOptions; }
+
+    const GraphTopologyInfo& GetTopologyInfo() const { return m_topologyInfo; }
 
     bool IsStatisticsEnabled() const { return m_statisticsOptions.enableStatistics; }
 
@@ -48,6 +52,8 @@ public:
         m_config.statistics = statisticsOptions;
     }
 
+    void SetTopologyInfo(GraphTopologyInfo topologyInfo) { m_topologyInfo = std::move(topologyInfo); }
+
 private:
     friend class ModuleNode;
     friend class Pipeline;
@@ -61,6 +67,7 @@ private:
     std::string m_pipelineName;
     PipelineConfig m_config;
     StatisticsOptions m_statisticsOptions;
+    GraphTopologyInfo m_topologyInfo;
     size_t m_executorThreadCount = 0;
 };
 

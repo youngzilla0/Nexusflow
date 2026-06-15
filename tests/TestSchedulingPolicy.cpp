@@ -70,4 +70,21 @@ TEST(SchedulingPolicyTest, MultiWorkerPolicy_UsesJoinModeAndSourceIdleBackoff) {
     EXPECT_TRUE(policy->ShouldReschedule(sourceContext, busyFeedback));
 }
 
+TEST(SchedulingPolicyTest, ForkJoinTopology_ReducesPerTaskBudget) {
+    auto policy = CreateSchedulingPolicy(4);
+    ASSERT_NE(policy, nullptr);
+
+    SchedulingContext context;
+    context.isSourceActor = false;
+    context.triggerPolicy = Module::TriggerPolicy::OnAnyInput;
+    GraphTopologyInfo topology;
+    topology.forkJoinGroups.push_back(GraphTopologyInfo::ForkJoinGroup{});
+    context.topologyInfo = &topology;
+    context.forkJoinGroupCount = topology.forkJoinGroups.size();
+
+    const auto plan = policy->Plan(context);
+    EXPECT_EQ(plan.executionMode, TaskExecutionMode::OnAnyInput);
+    EXPECT_EQ(plan.maxStepsPerTask, 32u);
+}
+
 } // namespace

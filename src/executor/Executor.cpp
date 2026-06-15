@@ -298,6 +298,12 @@ SchedulingContext Executor::BuildSchedulingContext(const NodeStateRegistry::Node
     context.sourcePolicy = state.module != nullptr ? state.module->GetSourcePolicy() : Module::SourcePolicy::Polling;
     context.triggerPolicy = state.module != nullptr ? state.module->GetTriggerPolicy() : Module::TriggerPolicy::Auto;
     context.idleWaitUs = state.runtimeConfig.idleWaitUs;
+    if (m_pipelineContext) {
+        context.topologyInfo = &m_pipelineContext->GetTopologyInfo();
+        context.branchCount = context.topologyInfo->branchNodes.size();
+        context.joinCount = context.topologyInfo->joinNodes.size();
+        context.forkJoinGroupCount = context.topologyInfo->forkJoinGroups.size();
+    }
     return context;
 }
 

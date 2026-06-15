@@ -2,6 +2,7 @@
 #define NEXUSFLOW_EXECUTOR_SCHEDULING_POLICY_HPP
 
 #include <nexusflow/Module.hpp>
+#include <nexusflow/TopologyTypes.hpp>
 
 #include <chrono>
 #include <cstddef>
@@ -31,6 +32,10 @@ struct SchedulingContext {
     Module::SourcePolicy sourcePolicy = Module::SourcePolicy::Polling;
     Module::TriggerPolicy triggerPolicy = Module::TriggerPolicy::Auto;
     std::size_t idleWaitUs = 0;
+    const GraphTopologyInfo* topologyInfo = nullptr;
+    std::size_t branchCount = 0;
+    std::size_t joinCount = 0;
+    std::size_t forkJoinGroupCount = 0;
 };
 
 /**

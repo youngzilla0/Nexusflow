@@ -289,6 +289,9 @@ void Pipeline::Impl::ApplyTopologyPolicies() {
     if (!graph) return;
 
     topologyInfo = graph->AnalyzeTopology();
+    if (pipelineContext) {
+        pipelineContext->SetTopologyInfo(topologyInfo);
+    }
     LOG_DEBUG("Topology analysis: source={}, sink={}, branch={}, join={}",
               topologyInfo.sourceNodes.size(),
               topologyInfo.sinkNodes.size(),
