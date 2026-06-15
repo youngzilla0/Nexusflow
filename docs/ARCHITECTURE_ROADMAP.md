@@ -1,365 +1,201 @@
-# NexusFlow Architecture Roadmap
+# NexusFlow Roadmap
 
-This document turns the current architecture review into a staged refactoring plan.
-It is intentionally pragmatic: each phase should improve one layer boundary without
-forcing a full rewrite of the runtime.
+This document defines the development path for NexusFlow under semantic versioning.
 
-## 1. Current Architectural Pressure Points
+Version format: `major.minor.patch`
 
-The current runtime is functional and benchmarkable, but several boundaries are still
-too soft:
+- `patch`: bug fixes, refactors, documentation, tests
+- `minor`: backward-compatible features and internal architecture upgrades
+- `major`: breaking API or model changes
 
-- pipeline construction, validation, and runtime initialization are still coupled
-- `Graph` still mixes topology concerns with module-instantiation concerns
-- `Pipeline::Impl` still needs to understand concrete graph node kinds
-- actor lifecycle order is not modeled explicitly as a topological sequence
-- `Executor` owns too many responsibilities at once
-- `OnAllInputs` join semantics are hard-coded to `messageId`
-- `PipelineBuilder` is not yet a clearly first-class construction path
-- `ModuleFactory` still assumes one narrow module creation model
+The current codebase is treated as the `1.0.0` baseline. From this point on, we will
+plan work by roadmap and ship versions in order.
 
-The roadmap below addresses these issues in the order that gives the best
-stability-to-effort ratio.
+## 1. Current Focus
 
-## 2. Guiding Principles
+The codebase is already usable, but several areas still need tightening:
 
-All phases below follow the same design direction:
+- runtime semantics are still broader than the public API language
+- scheduling policy is present, but not yet fully polished as a first-class concept
+- streaming behavior needs better fairness, timeout handling, and backpressure clarity
+- join/branch topology support is still not complete enough for richer DAGs
+- observability is good, but pipeline-level reporting can still be cleaner
 
-- `Graph` should describe topology, not runtime materialization policy
-- runtime planning should happen before runtime execution starts
-- lifecycle order should be explicit and reproducible
-- scheduling policy should be configurable instead of hidden in task plumbing
-- synchronization semantics should be extensible beyond the current benchmark cases
-- public API and internal runtime API should be separated more clearly over time
+## 2. Versioning Rules
 
-## 3. v0.4 Stabilize Boundaries
+### 2.1 Patch Releases
 
-Status: partially implemented on branch/tag `v0.4-architecture-boundaries`
+Patch releases are for non-breaking work only:
 
-### 3.1 Goal
+- bug fixes
+- timeout and fairness fixes
+- naming cleanup
+- comment and documentation cleanup
+- example updates
+- benchmark report updates
 
-Make the current architecture easier to reason about without changing the public
-programming model too aggressively.
+### 2.2 Minor Releases
 
-### 3.2 Main Changes
+Minor releases can add new capabilities as long as the public API remains compatible:
 
-#### A. Split pipeline creation into explicit phases
+- new runtime modes
+- new scheduling or synchronization policies
+- new statistics or observability surfaces
+- new graph/node capabilities
+- new builder options
 
-Today, `CreateFromYaml()` and `InitWithGraph()` quickly drift from parsing into runtime
-materialization. In v0.4, the build path should be conceptually split into:
+### 2.3 Major Releases
 
-1. `GraphSpec` construction
-2. `GraphValidator` checks
-3. `ExecutionPlan` generation
-4. `PipelineRuntime` creation
+Major releases are reserved for breaking changes:
 
-Suggested intermediate shape:
+- public API renames
+- graph/model restructuring
+- module runtime model redesign
+- incompatible configuration format changes
 
-```text
-Yaml / Builder
-  -> GraphSpec
-  -> GraphValidator
-  -> ExecutionPlan
-  -> Pipeline
-```
+## 3. 1.0.x Stabilization
 
-This does not require renaming every class immediately. The main objective is to stop
-blending "topology description" and "runtime activation" into the same step.
+Status: current baseline
 
-#### B. Make actor lifecycle order explicit
+### Goal
 
-Replace address-ordered actor storage with an explicit topological order:
+Stabilize the public API and remove remaining ambiguity in names, ownership, and
+lifecycle behavior.
 
-- `std::vector<std::shared_ptr<ModuleNode>> moduleTopoOrder`
-- `std::unordered_map<std::string, std::shared_ptr<ModuleNode>> moduleByName`
+### Main Work
 
-Expected lifecycle semantics:
+- keep `Error` as the unified error type
+- keep lifecycle methods returning `Error`
+- keep `WithContext` as the preferred builder entry for runtime context
+- finish naming cleanup for `Node`, `GraphNode`, `ModuleNode`, and statistics types
+- simplify examples and comments
+- keep include headers in English, implementation comments in Chinese where helpful
 
-- `Init()` in topological order
-- `Start()` in topological order
-- `Stop()` in reverse topological order
-- `DeInit()` in reverse topological order
+### Exit Criteria
 
-This makes runtime behavior deterministic and easier to debug.
+- public API is consistent and readable
+- examples compile and match the current naming scheme
+- benchmark and report docs align with the implementation
 
-#### C. Narrow `Graph` responsibility
+## 4. 1.1.0 Runtime Refinement
 
-In this phase, `Graph` does not need a full rewrite. The immediate target is simpler:
+### Goal
 
-- keep `Graph` responsible for nodes, edges, and ports
-- move module instantiation intent into a separate `NodeSpec` layer
-- reduce direct runtime dependence on `Graph` node subclasses
+Improve execution fairness and make stream behavior more predictable.
 
-Possible transitional model:
+### Main Work
 
-```cpp
-struct NodeSpec {
-    std::string nodeName;
-    std::string moduleClassName;
-    Config config;
-    std::shared_ptr<Module> moduleInstance;
-};
-```
+- fix single-worker timeout behavior
+- refine thread-pool scheduling fairness
+- keep FIFO behavior where it prevents starvation
+- make stream mode scheduling easier to reason about
+- reduce light-load overhead in streaming pipelines
 
-The exact final structure can still evolve, but v0.4 should establish the boundary.
+### Deliverables
 
-#### D. Introduce join-key abstraction
+- stable single-worker execution
+- clearer scheduler policy abstraction
+- better stream-mode latency under light workloads
 
-`OnAllInputs` currently assumes correlation by `messageId`. That is fine for some
-fan-out/fan-in cases, but too restrictive for general stream processing.
+### Exit Criteria
 
-v0.4 should add the ability to resolve a join key via:
+- no starvation in known light-load cases
+- timeout behavior is deterministic
+- stream mode remains stable under repeated start/stop cycles
 
-- default: `messageId`
-- optional metadata key
-- optional custom join-key extractor
+## 5. 1.2.0 Topology Expansion
 
-This can begin as configuration and later evolve into a richer policy model.
+### Goal
 
-### 3.3 Suggested Deliverables
+Extend the graph model beyond a simple linear pipeline.
 
-- pipeline build path split into parse/validate/plan/runtime steps
-- explicit actor topological order container
-- initial `NodeSpec` abstraction or equivalent transition layer
-- configurable join key selection for `OnAllInputs`
+### Main Work
 
-### 3.4 Acceptance Criteria
+- add join structures
+- add branch-oriented graph support
+- clarify how `GraphNode` maps to runtime `ModuleNode`
+- keep module creation separated from pure topology description
+- improve sync semantics for fork-join paths
 
-- pipeline initialization fails early and clearly when graph/spec validation fails
-- actor lifecycle order is deterministic across runs
-- runtime no longer depends directly on raw topology-only `GraphNode`
-- `OnAllInputs` can correlate by something other than `messageId`
+### Deliverables
 
-Implemented so far:
+- join nodes supported in the builder and runtime
+- branch pipelines supported without awkward naming
+- graph layer no longer leaks module-layer concerns
 
-- pipeline initialization now performs explicit graph validation before runtime materialization
-- runtime assembly now flows through a lightweight build-plan step
-- actor lifecycle order is stored explicitly in topological order instead of pointer-ordered storage
-- lifecycle order is covered by runtime tests
+### Exit Criteria
 
-## 4. v0.5 Decouple Runtime Components
+- fork-join pipelines are first-class
+- graph construction stays topology-only
+- runtime materialization remains a separate step
 
-Status: implemented on branch/tag `v0.5-runtime-semantics`
+## 6. 1.3.0 Observability
 
-### 4.1 Goal
+### Goal
 
-Reduce the size and responsibility concentration of `Executor`, while preserving the
-current `Module` processing model.
+Make performance and behavior measurable at pipeline, node, and port level.
 
-### 4.2 Main Changes
+### Main Work
 
-#### A. Split `Executor` into internal components
+- add pipeline-level latency, P99, and drop-rate summaries
+- keep node-level and port-level statistics consistent
+- improve event-style observability callbacks
+- generate clearer benchmark and report output
 
-Current `Executor` responsibilities should be separated into smaller units:
+### Deliverables
 
-- `ActorRegistry`
-- `Scheduler`
-- `PortRouter`
-- `JoinStateStore`
-- `Statistics`
+- pipeline summary statistics
+- better example output formatting
+- report text that can be reused directly in docs
 
-The public `Executor` type may still remain as a facade, but its internal structure
-should stop being a single coordination blob.
+### Exit Criteria
 
-#### B. Make scheduling policy explicit
+- pipeline-level metrics can be consumed directly by examples and reports
+- observability output stays readable under long names and wide graphs
 
-The current thread-pool and actor task logic encode fairness, continuation behavior,
-and polling behavior indirectly. v0.5 should define a real scheduling-policy layer.
+## 7. 1.4.0 Configuration and Construction
 
-Useful first policy modes:
+### Goal
 
-- low-latency
-- throughput-oriented
-- deterministic single-worker
+Make pipeline construction easier to extend and easier to reproduce.
 
-This does not require exposing all of them publicly at once, but the runtime should
-be organized so that policy changes do not require rewriting actor execution logic.
+### Main Work
 
-#### C. Move statistics further off the hot path
+- keep `PipelineBuilder` and YAML/config construction aligned
+- improve runtime context injection
+- simplify module construction paths
+- make graph-spec import/export clearer
 
-Runtime stats are useful and should stay, but the core scheduler path should not need
-to know too much about snapshot aggregation.
+### Deliverables
 
-Direction:
+- builder and config-driven construction share the same internal path
+- runtime context is a first-class input
+- module instantiation rules are easier to understand
 
-- scheduler emits runtime events
-- stats collector consumes events or state snapshots
+### Exit Criteria
 
-The immediate target is better separation, not necessarily a fully asynchronous metrics
-pipeline yet.
+- builder and config are consistent
+- construction logic is not duplicated across entry points
 
-#### D. Make `PipelineBuilder` a real first-class entry point
+## 8. 2.0.0 Breaking Release
 
-The builder should become a canonical way to create a pipeline in code, not just an
-API shell. Its outputs should align with the same internal build path as YAML.
+### Goal
 
-Expected long-term behavior:
+Only introduce this when the public model really needs a reset.
 
-- YAML and builder both produce the same `GraphSpec`
-- both pass through the same validator and plan generator
-- both end in the same pipeline runtime creation path
+### Candidate Changes
 
-### 4.3 Suggested Deliverables
+- public API renames that are not worth compatibility shims
+- module/graph/runtime separation rewrite
+- configuration format migration
+- deeper scheduler or execution-model redesign
 
-- smaller executor internals with clearer responsibilities
-- formal scheduling policy interface or internal strategy layer
-- stats collection separated from core dispatch logic
-- fully wired `PipelineBuilder`
+## 9. Release Rule
 
-### 4.4 Acceptance Criteria
+We do not tag every experiment. A tag should only be created when:
 
-- `Executor` no longer owns all state transitions directly
-- scheduling tweaks do not require editing unrelated routing or join code
-- YAML and builder pipelines share one internal construction pipeline
+- the target roadmap item is complete
+- tests are green
+- examples are updated
+- the release is meant to be consumed externally
 
-Implemented so far:
-
-- `OnAllInputs` join correlation is no longer hard-coded to `messageId`
-- runtime config now supports `JoinKeyPolicy`
-- timestamp-based join correlation is covered by tests
-- `Pipeline::CreateFromYaml()` now loads the optional top-level `runtime:` block
-- YAML runtime config coverage now includes executor threads, queue size, and statistics disablement
-- `PipelineBuilder` and YAML graph creation now share one internal graph assembly and validation helper
-- runtime statistics state/snapshot logic now lives in a dedicated `Statistics`
-- pending `OnAllInputs` join state now lives in a dedicated `JoinStateStore`
-- actor reschedule rules and per-task step budgets now flow through an internal `SchedulingPolicy`
-- output subscriber tables and edge dispatch logic now live in a dedicated `PortRouter`
-- node runtime registration, input bindings, and state lookup now live in a dedicated `NodeRegistry`
-- `Executor` now primarily acts as a scheduling facade over `NodeRegistry`, `PortRouter`, `JoinStateStore`, `SchedulingPolicy`, and `Statistics`
-
-## 5. v1.0 Expand Runtime Semantics
-
-Status: partially implemented on branch/tag `v1.0-module-build-context`
-
-### 5.1 Goal
-
-Turn NexusFlow from a solid benchmarkable runtime into a more extensible stream/dataflow
-framework.
-
-### 5.2 Main Changes
-
-#### A. Upgrade module instantiation model
-
-The current `ModuleFactory` is intentionally simple, but long-term it should support:
-
-- richer creator registration
-- injected runtime services
-- test-friendly dependency hooks
-- potentially plugin-backed module discovery
-
-Example direction:
-
-```cpp
-struct ModuleBuildContext {
-    std::string moduleName;
-    Config config;
-    PipelineContext& pipelineContext;
-    RuntimeServices& services;
-};
-```
-
-#### B. Formalize `ExecutionPlan`
-
-Introduce a runtime plan object that captures:
-
-- actor list
-- input/output bindings
-- queue layout
-- trigger policies
-- join policies
-- scheduling hints
-
-This becomes the bridge between graph description and runtime execution.
-
-#### C. Support richer stream coordination
-
-The current `OnAllInputs` model should evolve toward reusable synchronization semantics:
-
-- custom join keys
-- barrier-style synchronization
-- time-window joins
-- watermark-aware processing
-- keyed multi-stream joins
-
-This does not mean all of these must ship at once, but the architecture should stop
-assuming that "join = same `messageId`".
-
-#### D. Sharpen public vs internal API boundaries
-
-By v1.0, a cleaner separation should exist between:
-
-- stable user-facing headers in `include/nexusflow`
-- internal runtime and planner implementation under `src`
-- optional advanced or experimental APIs
-
-That will make future compatibility decisions much easier.
-
-### 5.3 Suggested Deliverables
-
-- richer module build context
-- explicit execution-plan representation
-- extensible join/sync semantics
-- clearer supported public API surface
-
-### 5.4 Acceptance Criteria
-
-- new runtime features can be added without rewriting `Graph` or `Executor`
-- module instantiation can support richer real-world dependencies
-- synchronization semantics are no longer tied to one implicit correlation rule
-
-Implemented so far:
-
-- module materialization can now flow through `ModuleBuildContext`
-- the legacy `CreateModule(className, moduleName, config)` path remains as a compatibility wrapper
-- `ExecutionPlan` now carries stable node ordering plus explicit queue-binding metadata, so runtime materialization no longer re-derives node relationships from graph edges
-- node-level runtime semantics such as pipeline config snapshot, join policy inputs, and trigger/source policy are now being captured in `ExecutionPlan` instead of being left implicit in the materialization path
-
-## 5.5 Current In-Progress Slice
-
-The current branch continues beyond the three tagged milestones in one additional area:
-
-- make `PipelineBuilder` more like a first-class construction path
-- add explicit builder naming via `WithName(...)`
-- fail fast on duplicate module names
-- fail fast on connections that reference missing modules
-
-These changes are intended to reduce hidden builder-time errors before the broader
-YAML/builder unification work is finished.
-
-## 6. Recommended Implementation Order
-
-If only a few changes can happen soon, prioritize these first:
-
-1. make actor lifecycle order explicit
-2. split pipeline build/validate/plan/runtime phases
-3. abstract join key selection away from raw `messageId`
-
-These three steps provide the best leverage for the least disruption.
-
-## 7. Mapping To Current Files
-
-The roadmap mainly touches these areas:
-
-- [src/base/Graph.hpp](/Users/yang/Code/Nexusflow/src/base/Graph.hpp)
-- [src/base/Graph.cpp](/Users/yang/Code/Nexusflow/src/base/Graph.cpp)
-- [src/base/GraphUtils.cpp](/Users/yang/Code/Nexusflow/src/base/GraphUtils.cpp)
-- [src/pipeline/Pipeline.cpp](/Users/yang/Code/Nexusflow/src/pipeline/Pipeline.cpp)
-- [src/pipeline/impl/PipelineImpl.hpp](/Users/yang/Code/Nexusflow/src/pipeline/impl/PipelineImpl.hpp)
-- [src/pipeline/impl/PipelineImpl.cpp](/Users/yang/Code/Nexusflow/src/pipeline/impl/PipelineImpl.cpp)
-- [src/executor/Executor.hpp](/Users/yang/Code/Nexusflow/src/executor/Executor.hpp)
-- [src/executor/Executor.cpp](/Users/yang/Code/Nexusflow/src/executor/Executor.cpp)
-- [src/executor/ThreadPool.hpp](/Users/yang/Code/Nexusflow/src/executor/ThreadPool.hpp)
-- [include/nexusflow/PipelineBuilder.hpp](/Users/yang/Code/Nexusflow/include/nexusflow/PipelineBuilder.hpp)
-- [include/nexusflow/ModuleFactory.hpp](/Users/yang/Code/Nexusflow/include/nexusflow/ModuleFactory.hpp)
-
-## 8. What This Roadmap Is Not
-
-This roadmap does not recommend a rewrite. The framework already has useful pieces:
-
-- a clean `Module::Process(inputs, outputs)` model
-- explicit trigger policies
-- clear queue-level statistics
-- benchmark coverage for latency, depth scaling, backpressure, and join behavior
-
-The goal is to preserve those strengths while cleaning up the boundaries that will
-otherwise slow future evolution.
