@@ -561,6 +561,204 @@ TEST(PipelineRuntimeTest, PipelineObserver_AggregatesEdgeDropsToActors) {
     EXPECT_EQ(pipeline->DeInit(), ErrorCode::SUCCESS);
 }
 
+TEST(PipelineRuntimeTest, PipelineObserverSummary_ComputesDropRateFromPorts) {
+    auto source = std::make_shared<ManualSourceModule>("Source");
+    auto sink = std::make_shared<CollectSinkModule>("Sink");
+
+    PipelineConfig config;
+    config.queueSize = 1;
+    config.idleWaitUs = 10;
+    config.nonBlockingQueueFullPolicy = QueueFullPolicy::DropTail;
+
+    auto pipeline = PipelineBuilder().AddModule(source).AddModule(sink).Connect("Source", "Sink").WithConfig(config).Build();
+
+    ASSERT_NE(pipeline, nullptr);
+    ASSERT_EQ(pipeline->Init(), ErrorCode::SUCCESS);
+
+    source->Send(1, false);
+    source->Send(2, false);
+    source->Send(3, false);
+
+    PipelineObserver observer(*pipeline);
+    const auto observation = observer.Snapshot();
+
+    EXPECT_EQ(observation.summary.totalPushAttempts, 3u);
+    EXPECT_EQ(observation.summary.totalEnqueueCount, 1u);
+    EXPECT_EQ(observation.summary.totalDropCount, 2u);
+    EXPECT_EQ(observation.summary.totalRejectCount, 0u);
+    EXPECT_DOUBLE_EQ(observation.summary.dropRate, 2.0 / 3.0);
+    EXPECT_DOUBLE_EQ(observation.summary.rejectRate, 0.0);
+
+    EXPECT_EQ(pipeline->DeInit(), ErrorCode::SUCCESS);
+}
+
+TEST(PipelineRuntimeTest, PipelineObserverSummary_CollectsSinkLatencySamples) {
+    auto source = std::make_shared<ManualSourceModule>("Source");
+    auto pass = std::make_shared<ForwardModule>("Pass");
+    auto sink = std::make_shared<CollectSinkModule>("Sink");
+
+    PipelineConfig config;
+    config.executorThreadCount = 2;
+    config.queueSize = 8;
+    config.idleWaitUs = 10;
+
+    auto pipeline =
+        PipelineBuilder().AddModule(source).AddModule(pass).AddModule(sink).Connect("Source", "Pass").Connect("Pass", "Sink").WithConfig(config).Build();
+
+    ASSERT_NE(pipeline, nullptr);
+    ASSERT_EQ(pipeline->Init(), ErrorCode::SUCCESS);
+    ASSERT_EQ(pipeline->Start(), ErrorCode::SUCCESS);
+
+    auto message = MakeMessage(7, source->GetModuleName());
+    const auto nowMs = static_cast<std::uint64_t>(
+        std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count());
+    message.MetaData().timestamp = nowMs > 20 ? nowMs - 20 : 0;
+    source->SendMessage(std::move(message), true);
+
+    ASSERT_TRUE(sink->WaitForCount(1, 500ms));
+
+    PipelineObserver observer(*pipeline);
+    const auto observation = observer.Snapshot();
+    EXPECT_GE(observation.summary.sinkReceiveCount, 1u);
+    EXPECT_GE(observation.summary.latencySampleCount, 1u);
+    EXPECT_GE(observation.summary.latencyP50Ms, 1u);
+    EXPECT_GE(observation.summary.latencyP99Ms, observation.summary.latencyP50Ms);
+    EXPECT_GE(observation.summary.latencyMaxMs, observation.summary.latencyP99Ms);
+
+    EXPECT_EQ(pipeline->Stop(), ErrorCode::SUCCESS);
+    EXPECT_EQ(pipeline->DeInit(), ErrorCode::SUCCESS);
+}
+
+TEST(PipelineRuntimeTest, PipelineObserverEvents_LifecycleCallbacksFireInOrder) {
+    auto source = std::make_shared<ManualSourceModule>("Source");
+    auto sink = std::make_shared<CollectSinkModule>("Sink");
+
+    auto pipeline =
+        PipelineBuilder().WithName("LifecyclePipeline").AddModule(source).AddModule(sink).Connect("Source", "Sink").Build();
+
+    ASSERT_NE(pipeline, nullptr);
+
+    auto observer = std::make_shared<CallbackPipelineObserver>();
+    std::mutex mutex;
+    std::vector<std::string> events;
+    observer->OnInitialized([&](const std::string& pipelineName) {
+        std::lock_guard<std::mutex> lock(mutex);
+        events.push_back("init:" + pipelineName);
+    });
+    observer->OnStarted([&](const std::string& pipelineName) {
+        std::lock_guard<std::mutex> lock(mutex);
+        events.push_back("start:" + pipelineName);
+    });
+    observer->OnStopped([&](const std::string& pipelineName) {
+        std::lock_guard<std::mutex> lock(mutex);
+        events.push_back("stop:" + pipelineName);
+    });
+    observer->OnDeInitialized([&](const std::string& pipelineName) {
+        std::lock_guard<std::mutex> lock(mutex);
+        events.push_back("deinit:" + pipelineName);
+    });
+
+    pipeline->AddObserver(observer);
+
+    EXPECT_EQ(pipeline->Init(), ErrorCode::SUCCESS);
+    EXPECT_EQ(pipeline->Start(), ErrorCode::SUCCESS);
+    EXPECT_EQ(pipeline->Stop(), ErrorCode::SUCCESS);
+    EXPECT_EQ(pipeline->DeInit(), ErrorCode::SUCCESS);
+
+    const std::vector<std::string> expected = {
+        "init:LifecyclePipeline",
+        "start:LifecyclePipeline",
+        "stop:LifecyclePipeline",
+        "deinit:LifecyclePipeline",
+    };
+
+    std::lock_guard<std::mutex> lock(mutex);
+    EXPECT_EQ(events, expected);
+}
+
+TEST(PipelineRuntimeTest, PipelineObserverEvents_DropEventIsDelivered) {
+    auto source = std::make_shared<ManualSourceModule>("Source");
+    auto sink = std::make_shared<CollectSinkModule>("Sink");
+
+    PipelineConfig config;
+    config.queueSize = 1;
+    config.idleWaitUs = 10;
+    config.nonBlockingQueueFullPolicy = QueueFullPolicy::DropTail;
+
+    auto pipeline = PipelineBuilder().WithName("DropEventPipeline").AddModule(source).AddModule(sink).Connect("Source", "Sink").WithConfig(config).Build();
+
+    ASSERT_NE(pipeline, nullptr);
+    ASSERT_EQ(pipeline->Init(), ErrorCode::SUCCESS);
+
+    auto observer = std::make_shared<CallbackPipelineObserver>();
+    std::mutex mutex;
+    std::vector<PipelineMessageEvent> messageEvents;
+    observer->OnMessage([&](const PipelineMessageEvent& event) {
+        std::lock_guard<std::mutex> lock(mutex);
+        messageEvents.push_back(event);
+    });
+    pipeline->AddObserver(observer);
+
+    source->Send(1, false);
+    source->Send(2, false);
+
+    std::lock_guard<std::mutex> lock(mutex);
+    ASSERT_EQ(messageEvents.size(), 1u);
+    EXPECT_EQ(messageEvents[0].pipelineName, "DropEventPipeline");
+    EXPECT_EQ(messageEvents[0].type, PipelineMessageEventType::Dropped);
+    EXPECT_EQ(messageEvents[0].srcNodeName, "Source");
+    EXPECT_EQ(messageEvents[0].srcPortName, kDefaultOutputPort);
+    EXPECT_EQ(messageEvents[0].dstNodeName, "Sink");
+    EXPECT_EQ(messageEvents[0].dstInputPortName, kDefaultInputPort);
+    EXPECT_EQ(messageEvents[0].affectedCount, 1u);
+    EXPECT_FALSE(messageEvents[0].blocking);
+    EXPECT_EQ(messageEvents[0].reason, "drop tail overflow");
+
+    EXPECT_EQ(pipeline->DeInit(), ErrorCode::SUCCESS);
+}
+
+TEST(PipelineRuntimeTest, PipelineObserverEvents_DropHeadEventReportsEvictedMessage) {
+    auto source = std::make_shared<ManualSourceModule>("Source");
+    auto sink = std::make_shared<CollectSinkModule>("Sink");
+
+    PipelineConfig config;
+    config.queueSize = 1;
+    config.idleWaitUs = 10;
+    config.nonBlockingQueueFullPolicy = QueueFullPolicy::DropHead;
+
+    auto pipeline =
+        PipelineBuilder().WithName("DropHeadEventPipeline").AddModule(source).AddModule(sink).Connect("Source", "Sink").WithConfig(config).Build();
+
+    ASSERT_NE(pipeline, nullptr);
+    ASSERT_EQ(pipeline->Init(), ErrorCode::SUCCESS);
+
+    auto observer = std::make_shared<CallbackPipelineObserver>();
+    std::mutex mutex;
+    std::vector<PipelineMessageEvent> messageEvents;
+    observer->OnMessage([&](const PipelineMessageEvent& event) {
+        std::lock_guard<std::mutex> lock(mutex);
+        messageEvents.push_back(event);
+    });
+    pipeline->AddObserver(observer);
+
+    source->Send(1, false);
+    source->Send(2, false);
+
+    std::lock_guard<std::mutex> lock(mutex);
+    ASSERT_EQ(messageEvents.size(), 1u);
+    EXPECT_EQ(messageEvents[0].pipelineName, "DropHeadEventPipeline");
+    EXPECT_EQ(messageEvents[0].type, PipelineMessageEventType::Dropped);
+    EXPECT_EQ(messageEvents[0].srcNodeName, "Source");
+    EXPECT_EQ(messageEvents[0].srcPortName, kDefaultOutputPort);
+    EXPECT_EQ(messageEvents[0].dstNodeName, "Sink");
+    EXPECT_EQ(messageEvents[0].dstInputPortName, kDefaultInputPort);
+    EXPECT_EQ(messageEvents[0].affectedCount, 1u);
+    EXPECT_FALSE(messageEvents[0].blocking);
+    EXPECT_EQ(messageEvents[0].reason, "drop head overflow");
+
+    EXPECT_EQ(pipeline->DeInit(), ErrorCode::SUCCESS);
+}
+
 TEST(PipelineRuntimeTest, PortStatsState_CurrentDepthDoesNotLeakWhenDequeueWinsRace) {
     executor::Executor::PortStatsState stats("Source", "out", "Sink", "in");
 

@@ -1,4 +1,4 @@
-#include "executor/Statistics.hpp"
+#include "statistics/Statistics.hpp"
 
 #include <algorithm>
 #include <utility>
@@ -6,10 +6,10 @@
 namespace nexusflow { namespace executor {
 
 /**
- * @brief 构造一份边级统计状态。
- * @param srcModuleNameValue 源模块名称。
+ * @brief 构造一条边的统计状态。
+ * @param srcModuleNameValue 源节点名称。
  * @param srcPortNameValue 源输出端口名称。
- * @param dstModuleNameValue 目标模块名称。
+ * @param dstModuleNameValue 目标节点名称。
  * @param dstPortNameValue 目标输入端口名称。
  */
 Statistics::PortStatsState::PortStatsState(std::string srcModuleNameValue, std::string srcPortNameValue,
@@ -19,7 +19,10 @@ Statistics::PortStatsState::PortStatsState(std::string srcModuleNameValue, std::
       dstModuleName(std::move(dstModuleNameValue)),
       dstPortName(std::move(dstPortNameValue)) {}
 
-/** @brief 记录一次 push 尝试。 */
+/**
+ * @brief 记录一次 push 尝试。
+ * @param blocking 本次 push 是否为阻塞模式。
+ */
 void Statistics::PortStatsState::RecordPushAttempt(bool blocking) {
     pushAttempts.fetch_add(1, std::memory_order_relaxed);
     if (blocking) {
@@ -30,9 +33,9 @@ void Statistics::PortStatsState::RecordPushAttempt(bool blocking) {
 }
 
 /**
- * @brief 记录一次成功 push，并更新队列深度统计。
+ * @brief 记录一次成功 push，并更新当前深度与峰值深度。
  * @param enqueuedCount 本次成功入队的消息数量。
- * @param droppedToMakeRoom 为腾出空间而被丢弃的旧消息数量。
+ * @param droppedToMakeRoom 为腾出容量而被淘汰的旧消息数量。
  */
 void Statistics::PortStatsState::RecordPushAccepted(std::size_t enqueuedCount, std::size_t droppedToMakeRoom) {
     enqueueCount.fetch_add(1, std::memory_order_relaxed);
@@ -61,12 +64,16 @@ void Statistics::PortStatsState::RecordPushDropped(std::size_t dropCountValue) {
     dropCount.fetch_add(static_cast<std::uint64_t>(dropCountValue), std::memory_order_relaxed);
 }
 
-/** @brief 记录一次 push 拒绝。 */
+/**
+ * @brief 记录一次 push 被拒绝。
+ */
 void Statistics::PortStatsState::RecordPushRejected() {
     rejectCount.fetch_add(1, std::memory_order_relaxed);
 }
 
-/** @brief 记录一次 dequeue。 */
+/**
+ * @brief 记录一次成功 dequeue。
+ */
 void Statistics::PortStatsState::RecordDequeue() {
     dequeueCount.fetch_add(1, std::memory_order_relaxed);
     depthSubtractions.fetch_add(1, std::memory_order_relaxed);
@@ -74,7 +81,7 @@ void Statistics::PortStatsState::RecordDequeue() {
 
 /**
  * @brief 生成当前边级统计快照。
- * @return 当前边级统计快照。
+ * @return 当前边的只读统计快照。
  */
 PortStats Statistics::PortStatsState::Snapshot() const {
     PortStats snapshot;
@@ -125,16 +132,18 @@ void Statistics::RegisterPortStats(const PortStatsStatePtr& stats) {
  * @brief 注册一个节点的统计状态。
  * @param nodeName 节点名称。
  * @param stats 节点统计状态对象。
- * @param pendingJoinGroupCountFn 用于查询 pending join group 数量的回调。
+ * @param pendingJoinGroupCountFn 查询 pending join group 数量的回调。
+ * @param isSinkNode 当前节点是否为 sink 节点。
  */
 void Statistics::RegisterNode(std::string nodeName, const NodeStatsStatePtr& stats,
-                              PendingJoinGroupCountFn pendingJoinGroupCountFn) {
+                              PendingJoinGroupCountFn pendingJoinGroupCountFn,
+                              bool isSinkNode) {
     if (!m_enabled || stats == nullptr) {
         return;
     }
 
     std::lock_guard<std::mutex> lock(m_mutex);
-    m_nodeRegistrations.push_back(NodeRegistration{std::move(nodeName), stats, std::move(pendingJoinGroupCountFn)});
+    m_nodeRegistrations.push_back(NodeRegistration{std::move(nodeName), stats, std::move(pendingJoinGroupCountFn), isSinkNode});
 }
 
 /**
@@ -190,6 +199,73 @@ std::vector<NodeStats> Statistics::SnapshotNodes() const {
         snapshots.push_back(std::move(snapshot));
     }
     return snapshots;
+}
+
+/**
+ * @brief 为 sink 节点记录一条端到端时延样本。
+ * @param nodeName sink 节点名称。
+ * @param latencyMs 端到端时延，单位毫秒。
+ */
+void Statistics::RecordSinkLatency(const std::string& nodeName, std::uint64_t latencyMs) {
+    if (!m_enabled) {
+        return;
+    }
+
+    std::lock_guard<std::mutex> lock(m_mutex);
+    for (auto& registration : m_nodeRegistrations) {
+        if (registration.nodeName != nodeName || registration.stats == nullptr) {
+            continue;
+        }
+
+        registration.stats->sinkReceiveCount.fetch_add(1, std::memory_order_relaxed);
+        std::lock_guard<std::mutex> latencyLock(registration.stats->latencyMutex);
+        registration.stats->sinkLatencySamplesMs.push_back(latencyMs);
+        return;
+    }
+}
+
+/**
+ * @brief 聚合全部 sink 节点的时延样本。
+ * @return sink 节点时延样本列表。
+ */
+std::vector<std::uint64_t> Statistics::SnapshotSinkLatencies() const {
+    if (!m_enabled) {
+        return {};
+    }
+
+    std::lock_guard<std::mutex> lock(m_mutex);
+    std::vector<std::uint64_t> samples;
+    for (const auto& registration : m_nodeRegistrations) {
+        if (!registration.isSinkNode || registration.stats == nullptr) {
+            continue;
+        }
+
+        std::lock_guard<std::mutex> latencyLock(registration.stats->latencyMutex);
+        samples.insert(samples.end(),
+                       registration.stats->sinkLatencySamplesMs.begin(),
+                       registration.stats->sinkLatencySamplesMs.end());
+    }
+    return samples;
+}
+
+/**
+ * @brief 返回全部 sink 节点累计接收的消息数。
+ * @return sink 节点累计接收数。
+ */
+std::uint64_t Statistics::SnapshotSinkReceiveCount() const {
+    if (!m_enabled) {
+        return 0;
+    }
+
+    std::lock_guard<std::mutex> lock(m_mutex);
+    std::uint64_t count = 0;
+    for (const auto& registration : m_nodeRegistrations) {
+        if (!registration.isSinkNode || registration.stats == nullptr) {
+            continue;
+        }
+        count += registration.stats->sinkReceiveCount.load(std::memory_order_relaxed);
+    }
+    return count;
 }
 
 }} // namespace nexusflow::executor

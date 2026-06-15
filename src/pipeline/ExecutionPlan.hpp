@@ -38,6 +38,7 @@ struct ExecutionPlan {
     struct PlannedNodeRuntimeProfile {
         PipelineConfig runtimeConfig = PipelineConfig::Default();
         bool isSourceNode = false;
+        bool isSinkNode = false;
         bool statisticsEnabled = false;
         Module::TriggerPolicy triggerPolicy = Module::TriggerPolicy::Auto;
         Module::SourcePolicy sourcePolicy = Module::SourcePolicy::Polling;

@@ -2,8 +2,8 @@
 
 这个示例演示两件事：
 
-1. 如何开启并读取 Pipeline 的运行时统计。
-2. 如何使用 `PipelineObserver` 聚合查看节点和边的观测结果。
+1. 如何开启并读取 Pipeline 的运行时统计快照。
+2. 如何使用事件型 `CallbackPipelineObserver` 监听消息丢弃事件。
 
 ## 示例拓扑
 
@@ -36,18 +36,32 @@ cmake --build build --target nexusflow_observability_example -j 8
 
 程序会输出三部分内容：
 
-- `PipelineObserver::Describe()`
-  - 这是面向人阅读的聚合摘要。
-- `Node Stats`
-  - 观察每个节点的 `process`、`incomingDequeue`、`outgoingDrop`。
-- `Port Stats`
-  - 观察每条边的 `enqueue`、`drop`、`dequeue`、`peak`。
+- `Event`
+  - Shows drop / reject notifications when a queue overflows.
+- `Overview`
+  - Summarizes pipeline-level attempts, drop rate, reject rate, sink count, and end-to-end latency.
+- `Node Stats / Port Stats`
+  - Uses short multi-line blocks so the terminal output stays readable.
 
 如果输出类似下面这样，就说明可观测性链路工作正常：
 
 ```text
-Source: outgoingEnqueue=2 outgoingDrop=6
-Source:out -> SlowPass:in enqueue=2 drop=6 dequeue=2 peak=2
+[Event] Message Dropped
+  Path: Source:out -> SlowPass:in
+  Count: 1
+  Reason: drop tail overflow
+================ Overview ================
+Attempts:   11
+Enqueued:   6
+Dropped:    5
+Rejected:   0
+Drop Rate:  45%
+Reject Rate:0%
+Sink Count: 3
+Latency Samples: 3
+Latency P50: 81 ms
+Latency P99: 131 ms
+Latency Max: 131 ms
 ```
 
 这表示：

@@ -38,6 +38,20 @@ struct NodeStats {
     std::uint64_t joinOverflowDropCount = 0;
 };
 
+struct PipelineSummaryStats {
+    std::uint64_t totalPushAttempts = 0;
+    std::uint64_t totalEnqueueCount = 0;
+    std::uint64_t totalDropCount = 0;
+    std::uint64_t totalRejectCount = 0;
+    std::uint64_t sinkReceiveCount = 0;
+    std::uint64_t latencySampleCount = 0;
+    std::uint64_t latencyP50Ms = 0;
+    std::uint64_t latencyP99Ms = 0;
+    std::uint64_t latencyMaxMs = 0;
+    double dropRate = 0.0;
+    double rejectRate = 0.0;
+};
+
 } // namespace nexusflow
 
 #endif // NEXUSFLOW_STATISTICS_TYPES_HPP

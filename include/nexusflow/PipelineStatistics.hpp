@@ -19,6 +19,7 @@ class Pipeline;
 struct PipelineStatisticsSnapshot {
     std::vector<NodeStats> nodes;
     std::vector<PortStats> ports;
+    PipelineSummaryStats summary;
 };
 
 /**

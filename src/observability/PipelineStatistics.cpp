@@ -14,6 +14,7 @@ PipelineStatisticsSnapshot PipelineStatisticsCollector::Snapshot() const {
     PipelineStatisticsSnapshot snapshot;
     snapshot.nodes = m_pipeline.GetNodeStats();
     snapshot.ports = m_pipeline.GetPortStats();
+    snapshot.summary = m_pipeline.GetSummaryStats();
 
     std::unordered_map<std::string, std::size_t> nodeIndex;
     nodeIndex.reserve(snapshot.nodes.size());
@@ -52,6 +53,17 @@ PipelineStatisticsSnapshot PipelineStatisticsCollector::Snapshot() const {
 std::string PipelineStatisticsCollector::Describe() const {
     const auto snapshot = Snapshot();
     std::ostringstream oss;
+
+    oss << "Overview\n";
+    oss << "  attempts=" << snapshot.summary.totalPushAttempts
+        << " enqueued=" << snapshot.summary.totalEnqueueCount
+        << " dropped=" << snapshot.summary.totalDropCount
+        << " rejected=" << snapshot.summary.totalRejectCount
+        << " sinkCount=" << snapshot.summary.sinkReceiveCount
+        << " latencySamples=" << snapshot.summary.latencySampleCount
+        << " latencyP50Ms=" << snapshot.summary.latencyP50Ms
+        << " latencyP99Ms=" << snapshot.summary.latencyP99Ms
+        << " latencyMaxMs=" << snapshot.summary.latencyMaxMs << "\n";
 
     oss << "Nodes\n";
     for (const auto& node : snapshot.nodes) {

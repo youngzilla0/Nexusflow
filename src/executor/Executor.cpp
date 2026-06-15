@@ -77,7 +77,8 @@ Executor::Executor(const std::shared_ptr<PipelineContext>& pipelineContext)
           },
           [this](const std::string& nodeName) {
               NotifyNodeReady(m_nodeRegistry.Find(nodeName));
-          }),
+          },
+          [](const PipelineMessageEvent&) {}),
       m_pipelineContext(pipelineContext) {}
 
 /**
@@ -92,8 +93,9 @@ Executor::~Executor() { Stop(); }
  * @param runtimeConfig actor 对应的运行时配置。
  */
 void Executor::RegisterNode(const std::string& actorName, const std::shared_ptr<Module>& module,
-                             const PipelineConfig& runtimeConfig) {
-    m_nodeRegistry.RegisterNode(actorName, module, runtimeConfig, m_statsCollector);
+                            const PipelineConfig& runtimeConfig,
+                            bool isSinkNode) {
+    m_nodeRegistry.RegisterNode(actorName, module, runtimeConfig, m_statsCollector, isSinkNode);
 }
 
 /**
@@ -136,6 +138,11 @@ void Executor::AddOutputQueue(const std::string& actorName, const std::string& o
 /** @brief 设置 Executor 的线程数配置。 */
 void Executor::SetThreadCount(std::size_t threadCount) { m_threadCount = threadCount; }
 
+/** @brief 设置消息投递异常事件回调。 */
+void Executor::SetMessageEventCallback(PortRouter::MessageEventCallback callback) {
+    m_portRouter.SetMessageEventCallback(std::move(callback));
+}
+
 /** @brief 生成全部边级统计快照。 */
 std::vector<PortStats> Executor::GetPortStats() const {
     return m_statsCollector.SnapshotPorts();
@@ -144,6 +151,40 @@ std::vector<PortStats> Executor::GetPortStats() const {
 /** @brief 生成全部节点级统计快照。 */
 std::vector<NodeStats> Executor::GetNodeStats() const {
     return m_statsCollector.SnapshotNodes();
+}
+
+PipelineSummaryStats Executor::GetSummaryStats() const {
+    PipelineSummaryStats summary;
+    const auto ports = m_statsCollector.SnapshotPorts();
+    for (const auto& port : ports) {
+        summary.totalPushAttempts += port.pushAttempts;
+        summary.totalEnqueueCount += port.enqueueCount;
+        summary.totalDropCount += port.dropCount;
+        summary.totalRejectCount += port.rejectCount;
+    }
+
+    summary.sinkReceiveCount = m_statsCollector.SnapshotSinkReceiveCount();
+
+    auto latencySamples = m_statsCollector.SnapshotSinkLatencies();
+    summary.latencySampleCount = static_cast<std::uint64_t>(latencySamples.size());
+    if (!latencySamples.empty()) {
+        std::sort(latencySamples.begin(), latencySamples.end());
+        const auto p50Index = (latencySamples.size() - 1) * 50 / 100;
+        const auto p99Index = (latencySamples.size() - 1) * 99 / 100;
+        summary.latencyP50Ms = latencySamples[p50Index];
+        summary.latencyP99Ms = latencySamples[p99Index];
+        summary.latencyMaxMs = latencySamples.back();
+    }
+
+    const auto totalOutcomes = summary.totalEnqueueCount + summary.totalDropCount + summary.totalRejectCount;
+    if (totalOutcomes > 0) {
+        summary.dropRate =
+            static_cast<double>(summary.totalDropCount) / static_cast<double>(totalOutcomes);
+        summary.rejectRate =
+            static_cast<double>(summary.totalRejectCount) / static_cast<double>(totalOutcomes);
+    }
+
+    return summary;
 }
 
 /**
@@ -215,7 +256,7 @@ void Executor::PrimeNodesOnStart() {
  * @brief 将 actor 提交给线程池执行。
  * @param state 目标 actor 的调度状态。
  */
-void Executor::SubmitNodeTask(const NodeRegistry::NodeStatePtr& state) {
+void Executor::SubmitNodeTask(const NodeStateRegistry::NodeStatePtr& state) {
     if (!state || !m_threadPool || !m_started.load(std::memory_order_acquire) ||
         m_stopFlag.load(std::memory_order_acquire)) {
         return;
@@ -233,7 +274,7 @@ void Executor::SubmitNodeTask(const NodeRegistry::NodeStatePtr& state) {
  * @brief 标记 actor 就绪，并在必要时触发任务提交。
  * @param state 目标 actor 的调度状态。
  */
-void Executor::NotifyNodeReady(const NodeRegistry::NodeStatePtr& state) {
+void Executor::NotifyNodeReady(const NodeStateRegistry::NodeStatePtr& state) {
     if (!state) {
         return;
     }
@@ -251,7 +292,7 @@ bool Executor::StatisticsEnabled() const {
  * @param state 当前 actor 的调度状态。
  * @return 当前 actor 的调度上下文。
  */
-SchedulingContext Executor::BuildSchedulingContext(const NodeRegistry::NodeState& state) const {
+SchedulingContext Executor::BuildSchedulingContext(const NodeStateRegistry::NodeState& state) const {
     SchedulingContext context;
     context.isSourceActor = state.inputQueues.empty();
     context.sourcePolicy = state.module != nullptr ? state.module->GetSourcePolicy() : Module::SourcePolicy::Polling;
@@ -266,7 +307,7 @@ SchedulingContext Executor::BuildSchedulingContext(const NodeRegistry::NodeState
  * @param message 待解析消息。
  * @return 当前消息对应的 join key。
  */
-std::uint64_t Executor::ResolveJoinKey(const NodeRegistry::NodeState& state, const Message& message) const {
+std::uint64_t Executor::ResolveJoinKey(const NodeStateRegistry::NodeState& state, const Message& message) const {
     switch (state.runtimeConfig.joinKeyPolicy) {
         case JoinKeyPolicy::Timestamp: return message.GetMetaData().timestamp;
         case JoinKeyPolicy::MessageId:
@@ -279,7 +320,7 @@ std::uint64_t Executor::ResolveJoinKey(const NodeRegistry::NodeState& state, con
  * @param state 当前 actor 的调度状态。
  * @return 若仍有工作可继续处理，则返回 true。
  */
-bool Executor::HasPendingWork(const NodeRegistry::NodeStatePtr& state) const {
+bool Executor::HasPendingWork(const NodeStateRegistry::NodeStatePtr& state) const {
     if (!state) {
         return false;
     }
@@ -305,7 +346,7 @@ bool Executor::HasPendingWork(const NodeRegistry::NodeStatePtr& state) const {
  * - 汇总执行反馈
  * - 依据调度策略决定是否续调度
  */
-void Executor::RunNodeTask(const NodeRegistry::NodeStatePtr& state) {
+void Executor::RunNodeTask(const NodeStateRegistry::NodeStatePtr& state) {
     if (!state || !state->module) {
         LOG_ERROR("Invalid node state for '{}'", state ? state->nodeName : std::string("<null>"));
         return;
@@ -365,7 +406,7 @@ void Executor::RunNodeTask(const NodeRegistry::NodeStatePtr& state) {
  * @param state 当前 actor 的调度状态。
  * @return 当前 step 的执行结果。
  */
-Executor::StepResult Executor::RunSourceStep(const NodeRegistry::NodeStatePtr& state) {
+Executor::StepResult Executor::RunSourceStep(const NodeStateRegistry::NodeStatePtr& state) {
     std::vector<PortMessage> inputs;
     PortInputsView inputView(inputs);
     PortOutputs outputs;
@@ -383,7 +424,7 @@ Executor::StepResult Executor::RunSourceStep(const NodeRegistry::NodeStatePtr& s
  * @param state 当前 actor 的调度状态。
  * @return 当前 step 的执行结果。
  */
-Executor::StepResult Executor::RunOnAnyInputStep(const NodeRegistry::NodeStatePtr& state) {
+Executor::StepResult Executor::RunOnAnyInputStep(const NodeStateRegistry::NodeStatePtr& state) {
     PortMessage portMessage;
     if (!TryPopAnyInput(state, portMessage)) {
         return StepResult{};
@@ -391,6 +432,7 @@ Executor::StepResult Executor::RunOnAnyInputStep(const NodeRegistry::NodeStatePt
 
     std::vector<PortMessage> inputs;
     inputs.push_back(std::move(portMessage));
+    RecordSinkLatencyIfNeeded(state, inputs.front().message);
 
     PortInputsView inputView(inputs);
     PortOutputs outputs;
@@ -408,7 +450,7 @@ Executor::StepResult Executor::RunOnAnyInputStep(const NodeRegistry::NodeStatePt
  * @param state 当前 actor 的调度状态。
  * @return 当前 step 的执行结果。
  */
-Executor::StepResult Executor::RunOnAllInputsStep(const NodeRegistry::NodeStatePtr& state) {
+Executor::StepResult Executor::RunOnAllInputsStep(const NodeStateRegistry::NodeStatePtr& state) {
     bool receivedInput = false;
     const bool statisticsEnabled = StatisticsEnabled();
 
@@ -450,6 +492,8 @@ Executor::StepResult Executor::RunOnAllInputsStep(const NodeRegistry::NodeStateP
         return StepResult{receivedInput, false};
     }
 
+    RecordSinkLatencyIfNeeded(state, inputs);
+
     PortInputsView inputView(inputs);
     PortOutputs outputs;
     state->module->Process(inputView, outputs);
@@ -467,7 +511,7 @@ Executor::StepResult Executor::RunOnAllInputsStep(const NodeRegistry::NodeStateP
  * @param portMessage 输出参数，用于接收提取到的端口消息。
  * @return 成功提取一条消息时返回 true。
  */
-bool Executor::TryPopAnyInput(const NodeRegistry::NodeStatePtr& state, PortMessage& portMessage) {
+bool Executor::TryPopAnyInput(const NodeStateRegistry::NodeStatePtr& state, PortMessage& portMessage) {
     if (state->inputQueues.empty()) {
         return false;
     }
@@ -494,6 +538,35 @@ bool Executor::TryPopAnyInput(const NodeRegistry::NodeStatePtr& state, PortMessa
     }
 
     return false;
+}
+
+void Executor::RecordSinkLatencyIfNeeded(const NodeStateRegistry::NodeStatePtr& state, const Message& message) {
+    if (!StatisticsEnabled() || !state || !state->isSinkNode) {
+        return;
+    }
+
+    const auto nowMs = GetCurrentSystemTimeMs();
+    const auto messageTimestampMs = message.GetMetaData().timestamp;
+    const auto latencyMs = nowMs >= messageTimestampMs ? nowMs - messageTimestampMs : 0;
+    m_statsCollector.RecordSinkLatency(state->nodeName, latencyMs);
+}
+
+void Executor::RecordSinkLatencyIfNeeded(const NodeStateRegistry::NodeStatePtr& state,
+                                         const std::vector<PortMessage>& inputs) {
+    if (!StatisticsEnabled() || !state || !state->isSinkNode || inputs.empty()) {
+        return;
+    }
+
+    const auto nowMs = GetCurrentSystemTimeMs();
+    std::uint64_t maxLatencyMs = 0;
+    for (const auto& input : inputs) {
+        const auto messageTimestampMs = input.message.GetMetaData().timestamp;
+        const auto latencyMs = nowMs >= messageTimestampMs ? nowMs - messageTimestampMs : 0;
+        if (latencyMs > maxLatencyMs) {
+            maxLatencyMs = latencyMs;
+        }
+    }
+    m_statsCollector.RecordSinkLatency(state->nodeName, maxLatencyMs);
 }
 
 /**

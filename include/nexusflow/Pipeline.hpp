@@ -2,6 +2,7 @@
 #define NEXUSFLOW_PIPELINE_HPP
 
 #include <nexusflow/ErrorCode.hpp>
+#include <nexusflow/PipelineEvents.hpp>
 #include <nexusflow/PipelineConfig.hpp>
 #include <nexusflow/StatisticsTypes.hpp>
 
@@ -33,8 +34,13 @@ public:
 
     ErrorCode DeInit();
 
+    void AddObserver(const std::shared_ptr<IPipelineObserver>& observer);
+
+    void RemoveObserver(const std::shared_ptr<IPipelineObserver>& observer);
+
     std::vector<PortStats> GetPortStats() const;
     std::vector<NodeStats> GetNodeStats() const;
+    PipelineSummaryStats GetSummaryStats() const;
 
     ~Pipeline();
 

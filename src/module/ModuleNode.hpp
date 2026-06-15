@@ -16,7 +16,9 @@ namespace nexusflow {
  * - 作为 Pipeline 生命周期中的模块节点包装对象存在
  *
  * 当前代码中它更接近“运行时模块句柄”，而不是独立调度状态本体。
- * 真正由 Executor 调度的内部状态位于 NodeRegistry::NodeState。
+ * 真正由 Executor 调度的内部状态位于 NodeStateRegistry::NodeState。
+ *
+ * 你可以把它看成 Module 和 Executor 之间的适配层。
  */
 class ModuleNode {
 public:
@@ -24,11 +26,13 @@ public:
      * @brief 构造一个 ModuleNode。
      * @param module 业务模块实例。
      * @param runtimeConfig 该模块对应的运行时配置。
+     * @param isSinkNode 该模块在当前拓扑中是否为 sink 节点。
      * @param pipelineContext 所属 Pipeline 的共享上下文。
      * @param executor 所属 Pipeline 的共享 Executor。
      */
     ModuleNode(const std::shared_ptr<Module>& module,
                const PipelineConfig& runtimeConfig,
+               bool isSinkNode,
                const std::shared_ptr<PipelineContext>& pipelineContext,
                const std::shared_ptr<executor::Executor>& executor);
 
@@ -40,6 +44,8 @@ public:
      * @param portName 输入端口名。
      * @param queue 关联消息队列。
      * @param stats 该边的统计状态。
+     *
+     * 该函数只做绑定透传，不参与队列管理策略。
      */
     void AddInputQueue(const std::string& portName, ViewPtr<MessageQueue> queue,
                        const executor::Executor::PortStatsStatePtr& stats) {
@@ -53,6 +59,8 @@ public:
      * @param dstInputPortName 目标输入端口名。
      * @param queue 关联消息队列。
      * @param stats 该边的统计状态。
+     *
+     * 该函数同样只负责转发到 Executor。
      */
     void AddOutputQueue(const std::string& outputPortName, const std::string& dstActorName, const std::string& dstInputPortName,
                         ViewPtr<MessageQueue> queue, const executor::Executor::PortStatsStatePtr& stats) {
@@ -78,8 +86,8 @@ public:
     ErrorCode Stop();
 
 private:
-    std::shared_ptr<Module> m_module;
-    std::shared_ptr<executor::Executor> m_executor;
+    std::shared_ptr<Module> m_module; ///< 实际业务模块实例。
+    std::shared_ptr<executor::Executor> m_executor; ///< 所属 Pipeline 的共享 Executor。
 };
 } // namespace nexusflow
 

@@ -28,6 +28,11 @@ void Pipeline::InitWithGraph(std::unique_ptr<Graph> graph, const PipelineConfig&
     LOG_DEBUG("Initializing pipeline with graph, graph={}", graph->ToString());
     m_pImpl->pipelineContext = std::shared_ptr<PipelineContext>(new PipelineContext(graph->GetName(), config));
     m_pImpl->executor = std::make_shared<executor::Executor>(m_pImpl->pipelineContext);
+    m_pImpl->executor->SetMessageEventCallback([this](const PipelineMessageEvent& event) {
+        if (m_pImpl) {
+            m_pImpl->NotifyMessageEvent(event);
+        }
+    });
     m_pImpl->graph = std::move(graph);
     m_pImpl->config = config;
     auto initResult = m_pImpl->Init();
@@ -50,11 +55,13 @@ ErrorCode Pipeline::Init() {
         ErrorCode errCode = moduleNode->Init();
         if (errCode != ErrorCode::SUCCESS) {
             LOG_ERROR("Init module failed, nodeName={}", moduleNode->GetModuleName());
+            m_pImpl->NotifyPipelineError(errCode, "Init", moduleNode->GetModuleName(), "Module initialization failed.");
             return errCode;
         } else {
             LOG_DEBUG("Init module success, nodeName={}", moduleNode->GetModuleName());
         }
     }
+    m_pImpl->NotifyPipelineInitialized();
     return ErrorCode::SUCCESS;
 }
 
@@ -70,6 +77,7 @@ ErrorCode Pipeline::DeInit() {
         ErrorCode errCode = moduleNode->DeInit();
         if (errCode != ErrorCode::SUCCESS) {
             LOG_ERROR("DeInit module failed, nodeName={}", moduleNode->GetModuleName());
+            m_pImpl->NotifyPipelineError(errCode, "DeInit", moduleNode->GetModuleName(), "Module de-initialization failed.");
             return errCode;
         } else {
             LOG_DEBUG("DeInit module success, nodeName={}", moduleNode->GetModuleName());
@@ -77,6 +85,7 @@ ErrorCode Pipeline::DeInit() {
     }
 
     LOG_DEBUG("Pipeline de-initialized successfully.");
+    m_pImpl->NotifyPipelineDeInitialized();
     return ErrorCode::SUCCESS;
 }
 
@@ -91,12 +100,14 @@ ErrorCode Pipeline::Start() {
         ErrorCode errCode = moduleNode->Start();
         if (errCode != ErrorCode::SUCCESS) {
             LOG_ERROR("Start worker failed, nodeName={}", moduleNode->GetModuleName());
+            m_pImpl->NotifyPipelineError(errCode, "Start", moduleNode->GetModuleName(), "Module start failed.");
             return errCode;
         } else {
             LOG_DEBUG("Start module success, nodeName={}", moduleNode->GetModuleName());
         }
     }
     LOG_DEBUG("Pipeline started successfully.");
+    m_pImpl->NotifyPipelineStarted();
     return ErrorCode::SUCCESS;
 }
 
@@ -115,13 +126,29 @@ ErrorCode Pipeline::Stop() {
         errCode = moduleNode->Stop();
         if (errCode != ErrorCode::SUCCESS) {
             LOG_ERROR("Stop worker failed, nodeName={}", moduleNode->GetModuleName());
+            m_pImpl->NotifyPipelineError(errCode, "Stop", moduleNode->GetModuleName(), "Module stop failed.");
             return errCode;
         } else {
             LOG_DEBUG("Stop module success, nodeName={}", moduleNode->GetModuleName());
         }
     }
     LOG_DEBUG("Pipeline stopped successfully.");
+    m_pImpl->NotifyPipelineStopped();
     return ErrorCode::SUCCESS;
+}
+
+void Pipeline::AddObserver(const std::shared_ptr<IPipelineObserver>& observer) {
+    if (!m_pImpl) {
+        return;
+    }
+    m_pImpl->AddObserver(observer);
+}
+
+void Pipeline::RemoveObserver(const std::shared_ptr<IPipelineObserver>& observer) {
+    if (!m_pImpl) {
+        return;
+    }
+    m_pImpl->RemoveObserver(observer);
 }
 
 std::vector<PortStats> Pipeline::GetPortStats() const {
@@ -136,6 +163,13 @@ std::vector<NodeStats> Pipeline::GetNodeStats() const {
         return {};
     }
     return m_pImpl->executor->GetNodeStats();
+}
+
+PipelineSummaryStats Pipeline::GetSummaryStats() const {
+    if (!m_pImpl || !m_pImpl->executor) {
+        return {};
+    }
+    return m_pImpl->executor->GetSummaryStats();
 }
 
 }; // namespace nexusflow
