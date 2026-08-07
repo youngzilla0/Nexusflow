@@ -429,6 +429,8 @@ bool Graph::IsConvergeNode(const std::shared_ptr<GraphNode>& node) const {
         if (incomingCount >= 2) {
             info.joinNodes.push_back(node);
         }
+
+        info.nodeDegrees.push_back(::GraphTopologyInfo::NodeDegree{node, incomingCount, outgoingCount});
     }
 
     for (const auto& joinNode : info.joinNodes) {

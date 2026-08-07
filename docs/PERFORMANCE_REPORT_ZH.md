@@ -275,6 +275,152 @@ Benchmark：`BM_ReportPipelineDiamondJoinLatency_Blocking`，2K samples，blocki
 - Diamond join latency 会随着 branch count 增加而稳定上升：P50 从 2 branches 的 8.50 us 增加到 16 branches 的 41.08 us。
 - Max latency 比 percentile latency 更容易受噪声影响，发布时应同时附带环境说明。
 
+### 4.10 Topology Compare
+
+为了解答“`DiamondJoin` 相比 `Linear` 到底多了多少框架损耗”这个问题，benchmark 现已新增一组专门的拓扑对照测试：
+
+- `BM_ReportPipelineTopologyCompare_LinearTimestamp_Blocking`
+- `BM_ReportPipelineTopologyCompare_DiamondTimestamp_BlockingJoin`
+- `BM_ReportPipelineTopologyCompare_LinearPayload1KiB_Blocking`
+- `BM_ReportPipelineTopologyCompare_DiamondPayload1KiB_BlockingJoin`
+
+这组 benchmark 的设计目标不是替代现有 depth、latency、scaling benchmark，而是提供一套**同口径的拓扑对照基线**：
+
+- 使用统一的 queue size、worker 数和 join pending group 上限
+- 使用统一的 source send count
+- 同时保留 timestamp 小消息路径与 1 KiB shared payload 路径
+- 统一输出 `ElapsedUs`、`PerMessageElapsedUs`、`Throughput`、`PortEnqueued/Dequeued`、`DeliveryTimedOut`、`DrainTimedOut`
+
+当前配置：
+
+| 项目 | 配置 |
+|------|------|
+| Source message count | 10 K |
+| Queue size | 10 K |
+| Executor workers | 8 |
+| Max pending join groups | 20 K |
+| Timestamp case | `uint64_t` send timestamp |
+| Payload case | `shared_ptr<vector<char>>`，1 KiB |
+
+对照维度：
+
+| 维度 | Linear | DiamondJoin |
+|------|--------|-------------|
+| 小消息路径 | depth = 1, 2, 4, 8, 16 | branches = 2, 4, 8, 16 |
+| 共享 payload 路径 | depth = 1, 2, 4, 8 | branches = 2, 4, 8 |
+
+阅读方式：
+
+- `Linear` 数据用于观察线性深度带来的纯链式调度成本。
+- `DiamondJoin` 数据用于观察 fan-out、额外 queue traffic 与 `OnAllInputs` 同步带来的附加成本。
+- `PerMessageElapsedUs` 适合做拓扑间摊销成本对照。
+- `PortEnqueued` / `PortDequeued` 适合解释为何 branch 增加后吞吐会下降。
+
+当前状态说明：
+
+- benchmark 已完成接入并注册到 `nexusflow_benchmarks`。
+- 在当前本地环境中，这组 benchmark 更适合作为**离线报告矩阵**，而不是每次改动后的全量 smoke。
+- `DiamondJoin` 高分支档位在负载较高时会明显拉长总运行时间，因此开发期建议只抽样运行关键档位，而完整矩阵留给正式报告阶段。
+
+建议的正式填表顺序：
+
+1. 先运行 timestamp 路径，补齐 `Linear` 与 `DiamondJoin` 的小消息对照表。
+2. 再运行 1 KiB shared payload 路径，补齐 payload 对照表。
+3. 最后再根据 `DeliveryTimedOut` / `DrainTimedOut` 标记决定是否需要降载或重跑。
+
+#### 4.10.1 Timestamp 拓扑对照表
+
+Benchmark：
+
+- `BM_ReportPipelineTopologyCompare_LinearTimestamp_Blocking`
+- `BM_ReportPipelineTopologyCompare_DiamondTimestamp_BlockingJoin`
+
+建议记录字段：
+
+- `ElapsedUs`
+- `PerMessageElapsedUs`
+- `Throughput`
+- `PortEnqueued`
+- `PortDequeued`
+- `MaxPortPeakDepth`
+- `DeliveryTimedOut`
+- `DrainTimedOut`
+
+| Topology | Parameter | Elapsed time | Avg elapsed / msg | Throughput | Port enqueued | Port dequeued | Peak depth | Delivery timeout | Drain timeout |
+|----------|-----------|--------------|-------------------|------------|---------------|---------------|------------|------------------|---------------|
+| Linear | depth = 1 | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD |
+| Linear | depth = 2 | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD |
+| Linear | depth = 4 | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD |
+| Linear | depth = 8 | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD |
+| Linear | depth = 16 | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD |
+| DiamondJoin | branches = 2 | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD |
+| DiamondJoin | branches = 4 | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD |
+| DiamondJoin | branches = 8 | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD |
+| DiamondJoin | branches = 16 | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD |
+
+分析提示：
+
+- 看 `Avg elapsed / msg`，判断 `DiamondJoin` 相比 `Linear` 多出来的摊销成本。
+- 看 `PortEnqueued/Dequeued`，解释 branch 增加后额外 queue traffic 的增长幅度。
+- 看 `Peak depth` 与 timeout 标记，判断当前参数是否过于激进。
+
+#### 4.10.2 1 KiB Shared Payload 拓扑对照表
+
+Benchmark：
+
+- `BM_ReportPipelineTopologyCompare_LinearPayload1KiB_Blocking`
+- `BM_ReportPipelineTopologyCompare_DiamondPayload1KiB_BlockingJoin`
+
+建议记录字段：
+
+- `ElapsedUs`
+- `PerMessageElapsedUs`
+- `Throughput`
+- `EffectivePayloadMiBps`
+- `PortEnqueued`
+- `PortDequeued`
+- `DeliveryTimedOut`
+- `DrainTimedOut`
+
+| Topology | Parameter | Elapsed time | Avg elapsed / msg | Throughput | Effective payload rate | Port enqueued | Port dequeued | Delivery timeout | Drain timeout |
+|----------|-----------|--------------|-------------------|------------|------------------------|---------------|---------------|------------------|---------------|
+| Linear | depth = 1 | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD |
+| Linear | depth = 2 | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD |
+| Linear | depth = 4 | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD |
+| Linear | depth = 8 | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD |
+| DiamondJoin | branches = 2 | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD |
+| DiamondJoin | branches = 4 | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD |
+| DiamondJoin | branches = 8 | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD |
+
+分析提示：
+
+- 如果 1 KiB 路径与 timestamp 路径趋势接近，说明当前主要成本仍在调度和同步，而不是 payload bytes 搬运。
+- `Effective payload rate` 只用于表示逻辑有效吞吐，不应被当作物理内存带宽。
+- 如果 payload 路径的 `DiamondJoin` 损耗远高于 timestamp 路径，应优先排查 message handling 和 join 同步过程，而不是先怀疑真实拷贝成本。
+
+#### 4.10.3 正式报告建议结论模板
+
+正式跑完后，可以按下面这个模板回填结论：
+
+- `DiamondJoin` 在 `branches = X` 时，相比 `Linear depth = Y` 的 `Avg elapsed / msg` 增加约 `Zx`。
+- queue traffic 从 `A` 增长到 `B`，说明额外开销主要来自 `fan-out + multi-input synchronization`。
+- 在 1 KiB shared payload 路径下，趋势与 timestamp 路径 `一致 / 不一致`，表明当前瓶颈主要在 `调度同步 / payload handling`。
+- 在当前参数下，`DeliveryTimedOut` 与 `DrainTimedOut` 为 `0 / 非0`，说明该组数据 `可直接发布 / 仅适合作为调优过程参考`。
+
+建议的开发期 smoke 组合：
+
+- `LinearTimestamp / depth=4`
+- `DiamondTimestamp / branches=4`
+- `DiamondTimestamp / branches=8`
+- `LinearPayload1KiB / depth=4`
+- `DiamondPayload1KiB / branches=4`
+
+建议的正式报告组合：
+
+- 完整运行全部 `TopologyCompare` benchmark
+- 与 `LinearDepth`、`DiamondJoinLatency`、`WorkerScaling` 结果交叉引用
+- 在报告中同时展示 `拓扑参数`、`消息规模`、`payload 类型` 与 `timeout 标记`
+
 ## 5. 运行时优势
 
 ### 5.1 低成本 Message Sharing

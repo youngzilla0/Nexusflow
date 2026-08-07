@@ -129,6 +129,14 @@ Extend the graph model beyond a simple linear pipeline.
 - graph construction stays topology-only
 - runtime materialization remains a separate step
 
+### Migration Alignment
+
+This stage maps to migration plan `P0-3` and `P1-2`:
+
+- make `DiamondJoin` a first-class benchmark topic rather than a correctness-only case
+- keep `OnAllInputs` semantics stable while clarifying join-state transitions
+- make fork-join overhead measurable and explainable
+
 ## 6. 1.3.0 Observability
 
 ### Goal
@@ -152,6 +160,14 @@ Make performance and behavior measurable at pipeline, node, and port level.
 
 - pipeline-level metrics can be consumed directly by examples and reports
 - observability output stays readable under long names and wide graphs
+
+### Migration Alignment
+
+This stage maps to migration plan `P0-1`, `P0-2`, and `P1-3`:
+
+- standardize benchmark/report structure
+- lock pipeline summary metrics around latency, drop, reject, and sink receive counts
+- make report text directly reusable in release notes and docs
 
 ## 7. 1.4.0 Configuration and Construction
 
@@ -177,7 +193,36 @@ Make pipeline construction easier to extend and easier to reproduce.
 - builder and config are consistent
 - construction logic is not duplicated across entry points
 
-## 8. 2.0.0 Breaking Release
+## 8. 1.5.0 Scheduler and Join Efficiency
+
+### Goal
+
+Reduce topology-related execution overhead without weakening runtime semantics.
+
+### Main Work
+
+- evolve scheduling from thread-count-only tuning toward topology-aware decisions
+- improve join hot-path efficiency while preserving `OnAllInputs` semantics
+- keep `Linear` and `DiamondJoin` performance comparisons visible in the benchmark suite
+- make queue-path versus pipeline-path performance boundaries explicit in docs
+
+### Deliverables
+
+- clearer topology-aware scheduling inputs
+- measurable `DiamondJoin` versus `Linear` comparison tables
+- lower and better-explained join-path overhead
+
+### Exit Criteria
+
+- join benchmarks show stable, reproducible trends
+- no correctness regression in existing join tests
+- scheduler behavior is easier to explain from topology and workload shape
+
+### Migration Alignment
+
+This stage maps to migration plan `P1-1`, `P2-1`, `P2-2`, and `P2-3`.
+
+## 9. 2.0.0 Breaking Release
 
 ### Goal
 
@@ -190,7 +235,7 @@ Only introduce this when the public model really needs a reset.
 - configuration format migration
 - deeper scheduler or execution-model redesign
 
-## 9. Release Rule
+## 10. Release Rule
 
 We do not tag every experiment. A tag should only be created when:
 
@@ -198,4 +243,3 @@ We do not tag every experiment. A tag should only be created when:
 - tests are green
 - examples are updated
 - the release is meant to be consumed externally
-

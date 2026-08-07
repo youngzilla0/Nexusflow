@@ -33,6 +33,11 @@ struct SchedulingContext {
     Module::TriggerPolicy triggerPolicy = Module::TriggerPolicy::Auto;
     std::size_t idleWaitUs = 0;
     const GraphTopologyInfo* topologyInfo = nullptr;
+    bool isBranchActor = false;
+    bool isJoinActor = false;
+    bool isForkJoinActor = false;
+    std::size_t localBranchFanOut = 0;
+    std::size_t localJoinFanIn = 0;
     std::size_t branchCount = 0;
     std::size_t joinCount = 0;
     std::size_t forkJoinGroupCount = 0;

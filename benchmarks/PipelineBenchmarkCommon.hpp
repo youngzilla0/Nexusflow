@@ -341,6 +341,86 @@ private:
     std::vector<std::uint64_t> m_latenciesNs;
 };
 
+class CountingJoinSinkModule : public Module {
+public:
+    explicit CountingJoinSinkModule(std::string name, std::vector<std::string> inputPorts)
+        : Module(std::move(name)), m_inputPorts(std::move(inputPorts)) {
+        SetTriggerPolicy(TriggerPolicy::OnAllInputs);
+    }
+
+    void Process(const PortInputsView& inputs, PortOutputs& outputs) override {
+        (void)outputs;
+        if (m_inputPorts.empty()) {
+            return;
+        }
+
+        if (inputs.Get<Message>(m_inputPorts.front()) == nullptr &&
+            inputs.Get<std::shared_ptr<std::vector<char>>>(m_inputPorts.front()) == nullptr &&
+            inputs.OnlyMessage() == nullptr) {
+            return;
+        }
+
+        m_messageCount++;
+    }
+
+    std::uint64_t GetMessageCount() const { return m_messageCount.load(); }
+
+    void Reset() { m_messageCount = 0; }
+
+private:
+    std::vector<std::string> m_inputPorts;
+    std::atomic<std::uint64_t> m_messageCount{0};
+};
+
+class TimedPayloadJoinLatencySinkModule : public Module {
+public:
+    explicit TimedPayloadJoinLatencySinkModule(std::string name, std::vector<std::string> inputPorts)
+        : Module(std::move(name)), m_inputPorts(std::move(inputPorts)) {
+        SetTriggerPolicy(TriggerPolicy::OnAllInputs);
+    }
+
+    void Process(const PortInputsView& inputs, PortOutputs& outputs) override {
+        (void)outputs;
+
+        const auto now = GetNowNs();
+        if (!m_inputPorts.empty()) {
+            if (auto* timedPayload = inputs.Get<TimedSharedPayload>(m_inputPorts.front())) {
+                std::lock_guard<std::mutex> lock(m_mutex);
+                m_latenciesNs.push_back(now - timedPayload->startNs);
+            }
+        }
+        m_messageCount++;
+    }
+
+    std::uint64_t GetMessageCount() const { return m_messageCount.load(); }
+
+    std::vector<std::uint64_t> LatenciesSnapshot() const {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        return m_latenciesNs;
+    }
+
+    std::uint64_t GetTotalLatencyNs() const {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        std::uint64_t total = 0;
+        for (const auto latency : m_latenciesNs) {
+            total += latency;
+        }
+        return total;
+    }
+
+    void Reset() {
+        m_messageCount = 0;
+        std::lock_guard<std::mutex> lock(m_mutex);
+        m_latenciesNs.clear();
+    }
+
+private:
+    std::vector<std::string> m_inputPorts;
+    std::atomic<std::uint64_t> m_messageCount{0};
+    mutable std::mutex m_mutex;
+    std::vector<std::uint64_t> m_latenciesNs;
+};
+
 inline std::uint64_t SumCurrentDepth(const Pipeline& pipeline) {
     std::uint64_t currentDepth = 0;
     for (const auto& stats : pipeline.GetPortStats()) {
@@ -523,6 +603,30 @@ inline std::unique_ptr<Pipeline> BuildTimedPayloadPipeline(const std::shared_ptr
     return builder.Build();
 }
 
+inline std::unique_ptr<Pipeline> BuildDiamondJoinTimedPayloadLatencyPipeline(
+    const std::shared_ptr<TimedPayloadSourceModule>& source,
+    const std::shared_ptr<TimedPayloadJoinLatencySinkModule>& join,
+    int branches,
+    const PipelineConfig& config,
+    bool blocking,
+    int simulateLatencyUs = 0) {
+    PipelineBuilder builder;
+    builder.AddModule(source);
+    builder.AddModule(join);
+
+    for (int i = 0; i < branches; ++i) {
+        auto pass =
+            std::make_shared<PassThroughModule>("TimedPayloadBranch" + std::to_string(i), blocking, simulateLatencyUs);
+        const auto joinPort = "b" + std::to_string(i);
+        builder.AddModule(pass);
+        builder.Connect(source->GetModuleName(), pass->GetModuleName());
+        builder.Connect(pass->GetModuleName(), kDefaultOutputPort, join->GetModuleName(), joinPort);
+    }
+
+    builder.WithConfig(config);
+    return builder.Build();
+}
+
 inline std::unique_ptr<Pipeline> BuildDiamondJoinPipeline(const std::shared_ptr<SourceModule>& source,
                                                           const std::shared_ptr<JoinSinkModule>& join,
                                                           int branches,
@@ -557,6 +661,28 @@ inline std::unique_ptr<Pipeline> BuildDiamondJoinLatencyPipeline(const std::shar
 
     for (int i = 0; i < branches; ++i) {
         auto pass = std::make_shared<PassThroughModule>("LatencyBranch" + std::to_string(i), blocking, simulateLatencyUs);
+        const auto joinPort = "b" + std::to_string(i);
+        builder.AddModule(pass);
+        builder.Connect(source->GetModuleName(), pass->GetModuleName());
+        builder.Connect(pass->GetModuleName(), kDefaultOutputPort, join->GetModuleName(), joinPort);
+    }
+
+    builder.WithConfig(config);
+    return builder.Build();
+}
+
+inline std::unique_ptr<Pipeline> BuildDiamondJoinPayloadPipeline(const std::shared_ptr<PayloadSourceModule>& source,
+                                                                 const std::shared_ptr<CountingJoinSinkModule>& join,
+                                                                 int branches,
+                                                                 const PipelineConfig& config,
+                                                                 bool blocking,
+                                                                 int simulateLatencyUs = 0) {
+    PipelineBuilder builder;
+    builder.AddModule(source);
+    builder.AddModule(join);
+
+    for (int i = 0; i < branches; ++i) {
+        auto pass = std::make_shared<PassThroughModule>("PayloadBranch" + std::to_string(i), blocking, simulateLatencyUs);
         const auto joinPort = "b" + std::to_string(i);
         builder.AddModule(pass);
         builder.Connect(source->GetModuleName(), pass->GetModuleName());

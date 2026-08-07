@@ -7,9 +7,81 @@ namespace nexusflow { namespace executor {
 
 namespace {
 
-constexpr std::size_t kSingleWorkerInputStepsPerTask = 16;
 constexpr std::size_t kParallelInputStepsPerTask = 64;
 constexpr std::size_t kSourceStepsPerTask = 1;
+constexpr std::size_t kForkJoinInputStepsPerTask = 32;
+constexpr std::size_t kJoinOrBranchInputStepsPerTask = 32;
+constexpr std::size_t kForkJoinMixedInputStepsPerTask = 16;
+constexpr std::size_t kBranchJoinInputStepsPerTask = 16;
+constexpr std::size_t kForkJoinBranchJoinInputStepsPerTask = 8;
+
+TaskExecutionMode ResolveExecutionMode(const SchedulingContext& context) {
+    if (context.isSourceActor) {
+        return TaskExecutionMode::Source;
+    }
+
+    const auto triggerPolicy =
+        context.triggerPolicy == Module::TriggerPolicy::Auto ? Module::TriggerPolicy::OnAnyInput : context.triggerPolicy;
+    return triggerPolicy == Module::TriggerPolicy::OnAllInputs ? TaskExecutionMode::OnAllInputs
+                                                               : TaskExecutionMode::OnAnyInput;
+}
+
+bool IsJoinLikeActor(const SchedulingContext& context) {
+    return context.isJoinActor || context.localJoinFanIn >= 2 || context.joinCount > 0;
+}
+
+bool IsWideBranchActor(const SchedulingContext& context) {
+    if (context.isBranchActor) {
+        return context.localBranchFanOut >= 4;
+    }
+    return context.branchCount >= 4;
+}
+
+bool IsForkJoinSensitiveActor(const SchedulingContext& context) {
+    return context.isForkJoinActor || context.forkJoinGroupCount > 0;
+}
+
+struct ActorRoleProfile {
+    bool isSource = false;
+    bool isJoinLike = false;
+    bool isWideBranch = false;
+    bool isForkJoinSensitive = false;
+};
+
+ActorRoleProfile BuildActorRoleProfile(const SchedulingContext& context) {
+    ActorRoleProfile profile;
+    profile.isSource = context.isSourceActor;
+    profile.isJoinLike = IsJoinLikeActor(context);
+    profile.isWideBranch = IsWideBranchActor(context);
+    profile.isForkJoinSensitive = IsForkJoinSensitiveActor(context);
+    return profile;
+}
+
+std::size_t ResolveThroughputInputBudget(const SchedulingContext& context) {
+    const auto profile = BuildActorRoleProfile(context);
+    if (profile.isSource) {
+        return kSourceStepsPerTask;
+    }
+
+    // 预算按节点角色分档，而不是按条件逐步相乘，便于直接解释：
+    // Linear(64) -> Branch/Join/ForkJoin(32) -> 组合敏感角色(16) -> ForkJoin+Branch+Join(8)。
+    if (profile.isForkJoinSensitive && profile.isJoinLike && profile.isWideBranch) {
+        return kForkJoinBranchJoinInputStepsPerTask;
+    }
+    if (profile.isForkJoinSensitive && (profile.isJoinLike || profile.isWideBranch)) {
+        return kForkJoinMixedInputStepsPerTask;
+    }
+    if (profile.isJoinLike && profile.isWideBranch) {
+        return kBranchJoinInputStepsPerTask;
+    }
+    if (profile.isForkJoinSensitive) {
+        return kForkJoinInputStepsPerTask;
+    }
+    if (profile.isJoinLike || profile.isWideBranch) {
+        return kJoinOrBranchInputStepsPerTask;
+    }
+    return kParallelInputStepsPerTask;
+}
 
 class DeterministicSingleWorkerPolicy final : public SchedulingPolicy {
 public:
@@ -17,10 +89,10 @@ public:
 
     TaskExecutionPlan Plan(const SchedulingContext& context) const override {
         TaskExecutionPlan plan;
-        plan.executionMode = ResolveExecutionMode(context);
+        plan.executionMode = ::nexusflow::executor::ResolveExecutionMode(context);
         // 单 worker 场景优先保证公平性，默认每次只跑一个 step，避免某个 actor 长时间独占线程。
         plan.maxStepsPerTask = context.isSourceActor ? kSourceStepsPerTask : 1;
-        if (!context.isSourceActor && context.forkJoinGroupCount > 0) {
+        if (!context.isSourceActor && IsForkJoinSensitiveActor(context)) {
             plan.maxStepsPerTask = 1;
         }
         return plan;
@@ -54,18 +126,6 @@ public:
         }
         return feedback.hasPendingSignals || feedback.hasPendingWork;
     }
-
-private:
-    TaskExecutionMode ResolveExecutionMode(const SchedulingContext& context) const {
-        if (context.isSourceActor) {
-            return TaskExecutionMode::Source;
-        }
-        // Auto 当前内部统一映射为 OnAnyInput。
-        const auto triggerPolicy =
-            context.triggerPolicy == Module::TriggerPolicy::Auto ? Module::TriggerPolicy::OnAnyInput : context.triggerPolicy;
-        return triggerPolicy == Module::TriggerPolicy::OnAllInputs ? TaskExecutionMode::OnAllInputs
-                                                                   : TaskExecutionMode::OnAnyInput;
-    }
 };
 
 class ThroughputOrientedPolicy final : public SchedulingPolicy {
@@ -74,12 +134,9 @@ public:
 
     TaskExecutionPlan Plan(const SchedulingContext& context) const override {
         TaskExecutionPlan plan;
-        plan.executionMode = ResolveExecutionMode(context);
+        plan.executionMode = ::nexusflow::executor::ResolveExecutionMode(context);
         // 多 worker 场景允许更大的步数预算，以降低重复入队开销。
-        plan.maxStepsPerTask = context.isSourceActor ? kSourceStepsPerTask : kParallelInputStepsPerTask;
-        if (context.forkJoinGroupCount > 0) {
-            plan.maxStepsPerTask = std::max<std::size_t>(plan.maxStepsPerTask / 2, 8);
-        }
+        plan.maxStepsPerTask = context.isSourceActor ? kSourceStepsPerTask : ResolveThroughputInputBudget(context);
         return plan;
     }
 
@@ -107,17 +164,6 @@ public:
             return true;
         }
         return feedback.hasPendingSignals || feedback.hasPendingWork;
-    }
-
-private:
-    TaskExecutionMode ResolveExecutionMode(const SchedulingContext& context) const {
-        if (context.isSourceActor) {
-            return TaskExecutionMode::Source;
-        }
-        const auto triggerPolicy =
-            context.triggerPolicy == Module::TriggerPolicy::Auto ? Module::TriggerPolicy::OnAnyInput : context.triggerPolicy;
-        return triggerPolicy == Module::TriggerPolicy::OnAllInputs ? TaskExecutionMode::OnAllInputs
-                                                                   : TaskExecutionMode::OnAnyInput;
     }
 };
 

@@ -8,6 +8,12 @@
 class GraphNode;
 
 struct GraphTopologyInfo {
+    struct NodeDegree {
+        std::shared_ptr<GraphNode> node;
+        std::size_t incomingCount = 0;
+        std::size_t outgoingCount = 0;
+    };
+
     struct Path {
         std::vector<std::shared_ptr<GraphNode>> nodes;
     };
@@ -23,6 +29,7 @@ struct GraphTopologyInfo {
     std::vector<std::shared_ptr<GraphNode>> branchNodes;
     std::vector<std::shared_ptr<GraphNode>> joinNodes;
     std::vector<ForkJoinGroup> forkJoinGroups;
+    std::vector<NodeDegree> nodeDegrees;
 };
 
 #endif // NEXUSFLOW_TOPOLOGY_TYPES_HPP

@@ -87,4 +87,119 @@ TEST(SchedulingPolicyTest, ForkJoinTopology_ReducesPerTaskBudget) {
     EXPECT_EQ(plan.maxStepsPerTask, 32u);
 }
 
+TEST(SchedulingPolicyTest, JoinAndHighBranchTopology_FurtherReduceTaskBudget) {
+    auto policy = CreateSchedulingPolicy(4);
+    ASSERT_NE(policy, nullptr);
+
+    SchedulingContext context;
+    context.isSourceActor = false;
+    context.triggerPolicy = Module::TriggerPolicy::OnAllInputs;
+    context.branchCount = 4;
+    context.joinCount = 1;
+
+    const auto plan = policy->Plan(context);
+    EXPECT_EQ(plan.executionMode, TaskExecutionMode::OnAllInputs);
+    EXPECT_EQ(plan.maxStepsPerTask, 16u);
+}
+
+TEST(SchedulingPolicyTest, LocalJoinRole_ReducesBudgetEvenWithoutGlobalCounts) {
+    auto policy = CreateSchedulingPolicy(4);
+    ASSERT_NE(policy, nullptr);
+
+    SchedulingContext context;
+    context.isSourceActor = false;
+    context.triggerPolicy = Module::TriggerPolicy::OnAllInputs;
+    context.isJoinActor = true;
+    context.localJoinFanIn = 2;
+
+    const auto plan = policy->Plan(context);
+    EXPECT_EQ(plan.executionMode, TaskExecutionMode::OnAllInputs);
+    EXPECT_EQ(plan.maxStepsPerTask, 32u);
+}
+
+TEST(SchedulingPolicyTest, LocalBranchFanOut_ReducesBudgetForBranchActor) {
+    auto policy = CreateSchedulingPolicy(4);
+    ASSERT_NE(policy, nullptr);
+
+    SchedulingContext context;
+    context.isSourceActor = false;
+    context.triggerPolicy = Module::TriggerPolicy::OnAnyInput;
+    context.isBranchActor = true;
+    context.localBranchFanOut = 4;
+
+    const auto plan = policy->Plan(context);
+    EXPECT_EQ(plan.executionMode, TaskExecutionMode::OnAnyInput);
+    EXPECT_EQ(plan.maxStepsPerTask, 32u);
+}
+
+TEST(SchedulingPolicyTest, SourceActor_DoesNotUseTopologyBudgetReduction) {
+    auto policy = CreateSchedulingPolicy(4);
+    ASSERT_NE(policy, nullptr);
+
+    SchedulingContext context;
+    context.isSourceActor = true;
+    context.sourcePolicy = Module::SourcePolicy::Polling;
+    context.triggerPolicy = Module::TriggerPolicy::OnAllInputs;
+    context.isJoinActor = true;
+    context.isBranchActor = true;
+    context.isForkJoinActor = true;
+    context.localBranchFanOut = 8;
+    context.localJoinFanIn = 8;
+
+    const auto plan = policy->Plan(context);
+    EXPECT_EQ(plan.executionMode, TaskExecutionMode::Source);
+    EXPECT_EQ(plan.maxStepsPerTask, 1u);
+}
+
+TEST(SchedulingPolicyTest, BranchJoinCombination_UsesIntermediateBudgetTier) {
+    auto policy = CreateSchedulingPolicy(4);
+    ASSERT_NE(policy, nullptr);
+
+    SchedulingContext context;
+    context.isSourceActor = false;
+    context.triggerPolicy = Module::TriggerPolicy::OnAllInputs;
+    context.isBranchActor = true;
+    context.isJoinActor = true;
+    context.localBranchFanOut = 4;
+    context.localJoinFanIn = 2;
+
+    const auto plan = policy->Plan(context);
+    EXPECT_EQ(plan.executionMode, TaskExecutionMode::OnAllInputs);
+    EXPECT_EQ(plan.maxStepsPerTask, 16u);
+}
+
+TEST(SchedulingPolicyTest, ForkJoinJoinCombination_UsesMoreConservativeBudgetTier) {
+    auto policy = CreateSchedulingPolicy(4);
+    ASSERT_NE(policy, nullptr);
+
+    SchedulingContext context;
+    context.isSourceActor = false;
+    context.triggerPolicy = Module::TriggerPolicy::OnAllInputs;
+    context.isForkJoinActor = true;
+    context.isJoinActor = true;
+    context.localJoinFanIn = 2;
+
+    const auto plan = policy->Plan(context);
+    EXPECT_EQ(plan.executionMode, TaskExecutionMode::OnAllInputs);
+    EXPECT_EQ(plan.maxStepsPerTask, 16u);
+}
+
+TEST(SchedulingPolicyTest, ForkJoinBranchJoinCombination_UsesLowestBudgetTier) {
+    auto policy = CreateSchedulingPolicy(4);
+    ASSERT_NE(policy, nullptr);
+
+    SchedulingContext context;
+    context.isSourceActor = false;
+    context.triggerPolicy = Module::TriggerPolicy::OnAllInputs;
+    context.isForkJoinActor = true;
+    context.isBranchActor = true;
+    context.isJoinActor = true;
+    context.localBranchFanOut = 4;
+    context.localJoinFanIn = 2;
+
+    const auto plan = policy->Plan(context);
+    EXPECT_EQ(plan.executionMode, TaskExecutionMode::OnAllInputs);
+    EXPECT_EQ(plan.maxStepsPerTask, 8u);
+}
+
 } // namespace

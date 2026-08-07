@@ -14,6 +14,35 @@ Useful filters:
 ./benchmarks/nexusflow_benchmarks --benchmark_filter=BM_LockBaseQueue
 ./benchmarks/nexusflow_benchmarks --benchmark_filter=BM_PipelineLinear_Throughput_Blocking
 ./benchmarks/nexusflow_benchmarks --benchmark_filter='BM_PipelineLinear_Throughput_Blocking|BM_PipelineDiamond_Throughput_BlockingWarm'
+./benchmarks/nexusflow_benchmarks --benchmark_filter='BM_ReportPipelineTopologyCompare_.*'
+./benchmarks/nexusflow_benchmarks --benchmark_filter='BM_ReportPipelineTopologyCompare_.*Latency.*'
+```
+
+Topology compare report workflow:
+
+```bash
+./build/benchmarks/nexusflow_benchmarks \
+  --benchmark_filter='BM_ReportPipelineTopologyCompare_.*Timestamp.*' \
+  --benchmark_out=/tmp/topology_timestamp.json \
+  --benchmark_out_format=json
+
+./build/benchmarks/nexusflow_benchmarks \
+  --benchmark_filter='BM_ReportPipelineTopologyCompare_.*Payload1KiB.*' \
+  --benchmark_out=/tmp/topology_payload.json \
+  --benchmark_out_format=json
+
+python3 tools/render_topology_compare_tables.py \
+  /tmp/topology_timestamp.json \
+  /tmp/topology_payload.json \
+  /tmp/topology_compare_tables.md
+```
+
+Topology compare latency smoke run:
+
+```bash
+./build/benchmarks/nexusflow_benchmarks \
+  --benchmark_filter='BM_ReportPipelineTopologyCompare_(Linear|Diamond).*(Timestamp|Payload1KiB)Latency.*' \
+  --benchmark_min_time=0.01s
 ```
 
 ## What The Benchmarks Cover
@@ -21,7 +50,13 @@ Useful filters:
 - `BenchmarkMessage.cpp`: `Message` creation, borrow/mutate, and COW overhead
 - `BenchmarkLockBaseQueue.cpp`: lock-based queue behavior
 - `BenchmarkLockFreeQueue.cpp`: experimental lock-free queue behavior
-- `BenchmarkPipeline.cpp`: end-to-end pipeline throughput and latency
+- `BenchmarkPipelineBaseline.cpp`: baseline end-to-end pipeline throughput
+- `BenchmarkPipelineTopology.cpp`: same-config `Linear` vs `DiamondJoin` topology comparison for throughput and latency
+- `BenchmarkPipelineDepth.cpp`: linear depth scaling
+- `BenchmarkPipelineLatency.cpp`: latency percentile distributions
+- `BenchmarkPipelineScaling.cpp`: worker and branch scaling
+- `BenchmarkPipelinePayload.cpp`: payload-size sensitivity
+- `BenchmarkPipelineBackpressure.cpp`: overload and queue-capacity behavior
 
 The names now follow a compact `BM_<Component>_<Payload>_<Scenario>` pattern for queue tests, while keeping the more descriptive message and pipeline names where it helps readability.
 
@@ -74,6 +109,13 @@ Pipeline benchmarks now wait for queue drain before sampling final counters and 
 
 - `DeliveryTimedOut`
 - `DrainTimedOut`
+
+Topology comparison benchmarks additionally keep `Linear` and `DiamondJoin` on the same runtime configuration so that:
+
+- `PerMessageElapsedUs` can be compared directly across topologies
+- `P50/P90/P99` latency distributions can be compared directly across topologies
+- queue traffic growth can be correlated with branch count
+- shared-payload and timestamp cases can be contrasted under the same worker/queue setup
 
 Queue benchmark summary chart:
 

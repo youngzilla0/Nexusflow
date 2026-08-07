@@ -1,5 +1,6 @@
 #include "executor/Executor.hpp"
 
+#include "base/Graph.hpp"
 #include "utils/logging.hpp"
 
 #include <algorithm>
@@ -303,6 +304,31 @@ SchedulingContext Executor::BuildSchedulingContext(const NodeStateRegistry::Node
         context.branchCount = context.topologyInfo->branchNodes.size();
         context.joinCount = context.topologyInfo->joinNodes.size();
         context.forkJoinGroupCount = context.topologyInfo->forkJoinGroups.size();
+
+        for (const auto& nodeDegree : context.topologyInfo->nodeDegrees) {
+            if (!nodeDegree.node || nodeDegree.node->name != state.nodeName) {
+                continue;
+            }
+            context.localBranchFanOut = nodeDegree.outgoingCount;
+            context.localJoinFanIn = nodeDegree.incomingCount;
+            context.isBranchActor = nodeDegree.outgoingCount >= 2;
+            context.isJoinActor = nodeDegree.incomingCount >= 2;
+            break;
+        }
+
+        for (const auto& group : context.topologyInfo->forkJoinGroups) {
+            if ((group.forkNode && group.forkNode->name == state.nodeName) ||
+                (group.joinNode && group.joinNode->name == state.nodeName)) {
+                context.isForkJoinActor = true;
+            }
+
+            if (group.forkNode && group.forkNode->name == state.nodeName) {
+                context.localBranchFanOut = std::max<std::size_t>(context.localBranchFanOut, group.paths.size());
+            }
+            if (group.joinNode && group.joinNode->name == state.nodeName) {
+                context.localJoinFanIn = std::max<std::size_t>(context.localJoinFanIn, group.paths.size());
+            }
+        }
     }
     return context;
 }
@@ -459,8 +485,12 @@ Executor::StepResult Executor::RunOnAnyInputStep(const NodeStateRegistry::NodeSt
 Executor::StepResult Executor::RunOnAllInputsStep(const NodeStateRegistry::NodeStatePtr& state) {
     bool receivedInput = false;
     const bool statisticsEnabled = StatisticsEnabled();
+    std::vector<std::string> expectedInputPorts;
+    expectedInputPorts.reserve(state->inputQueues.size());
 
     for (const auto& inputQueue : state->inputQueues) {
+        expectedInputPorts.push_back(inputQueue.inputPortName);
+
         Message message;
         if (!inputQueue.queue->TryPop(message)) {
             continue;
@@ -478,23 +508,17 @@ Executor::StepResult Executor::RunOnAllInputsStep(const NodeStateRegistry::NodeS
     }
 
     const auto currentTimeMs = GetCurrentSystemTimeMs();
-    if (StatisticsEnabled() && state->stats != nullptr) {
-        state->stats->joinTimeoutDropCount.fetch_add(
-            state->joinState.EvictExpired(currentTimeMs, state->runtimeConfig.fusionTimeoutMs), std::memory_order_relaxed);
-        state->stats->joinOverflowDropCount.fetch_add(
-            state->joinState.EnforceLimit(state->runtimeConfig.maxPendingJoinGroups), std::memory_order_relaxed);
-    } else {
-        state->joinState.EvictExpired(currentTimeMs, state->runtimeConfig.fusionTimeoutMs);
-        state->joinState.EnforceLimit(state->runtimeConfig.maxPendingJoinGroups);
+    std::vector<PortMessage> inputs;
+    const auto sweepResult = state->joinState.SweepAndTakeCompleteInputs(
+        expectedInputPorts, currentTimeMs, state->runtimeConfig.fusionTimeoutMs,
+        state->runtimeConfig.maxPendingJoinGroups, inputs);
+
+    if (statisticsEnabled && state->stats != nullptr) {
+        state->stats->joinTimeoutDropCount.fetch_add(sweepResult.expiredGroupCount, std::memory_order_relaxed);
+        state->stats->joinOverflowDropCount.fetch_add(sweepResult.overflowGroupCount, std::memory_order_relaxed);
     }
 
-    std::vector<PortMessage> inputs;
-    std::vector<std::string> expectedInputPorts;
-    expectedInputPorts.reserve(state->inputQueues.size());
-    for (const auto& inputQueue : state->inputQueues) {
-        expectedInputPorts.push_back(inputQueue.inputPortName);
-    }
-    if (!state->joinState.TakeCompleteInputs(expectedInputPorts, inputs)) {
+    if (!sweepResult.tookCompleteGroup) {
         return StepResult{receivedInput, false};
     }
 

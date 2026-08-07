@@ -1,0 +1,63 @@
+{
+  "context": {
+    "date": "2026-06-19T00:00:00+08:00"
+  },
+  "benchmarks": [
+    {
+      "name": "BM_ReportPipelineTopologyCompare_LinearTimestamp_Blocking/1",
+      "run_type": "iteration",
+      "counters": {
+        "ElapsedUs": 12.5,
+        "PerMessageElapsedUs": 1.25,
+        "Throughput": 800000.0,
+        "PortEnqueued": 20000.0,
+        "PortDequeued": 20000.0,
+        "MaxPortPeakDepth": 64.0,
+        "DeliveryTimedOut": 0.0,
+        "DrainTimedOut": 0.0
+      }
+    },
+    {
+      "name": "BM_ReportPipelineTopologyCompare_DiamondTimestamp_BlockingJoin/2",
+      "run_type": "iteration",
+      "counters": {
+        "ElapsedUs": 41.0,
+        "PerMessageElapsedUs": 4.10,
+        "Throughput": 243000.0,
+        "PortEnqueued": 40000.0,
+        "PortDequeued": 40000.0,
+        "MaxPortPeakDepth": 128.0,
+        "DeliveryTimedOut": 0.0,
+        "DrainTimedOut": 0.0
+      }
+    },
+    {
+      "name": "BM_ReportPipelineTopologyCompare_LinearPayload1KiB_Blocking/1",
+      "run_type": "iteration",
+      "counters": {
+        "ElapsedUs": 15.0,
+        "PerMessageElapsedUs": 1.50,
+        "Throughput": 666000.0,
+        "EffectivePayloadMiBps": 650.0,
+        "PortEnqueued": 20000.0,
+        "PortDequeued": 20000.0,
+        "DeliveryTimedOut": 0.0,
+        "DrainTimedOut": 0.0
+      }
+    },
+    {
+      "name": "BM_ReportPipelineTopologyCompare_DiamondPayload1KiB_BlockingJoin/2",
+      "run_type": "iteration",
+      "counters": {
+        "ElapsedUs": 55.0,
+        "PerMessageElapsedUs": 5.50,
+        "Throughput": 181000.0,
+        "EffectivePayloadMiBps": 177.0,
+        "PortEnqueued": 40000.0,
+        "PortDequeued": 40000.0,
+        "DeliveryTimedOut": 0.0,
+        "DrainTimedOut": 0.0
+      }
+    }
+  ]
+}

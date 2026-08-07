@@ -184,11 +184,31 @@ TEST(GraphTest, AnalyzeTopology_ReportsSourcesBranchesJoinsAndSinks) {
     ASSERT_EQ(topology.sinkNodes.size(), 1u);
     ASSERT_EQ(topology.branchNodes.size(), 1u);
     ASSERT_EQ(topology.joinNodes.size(), 1u);
+    ASSERT_EQ(topology.nodeDegrees.size(), 4u);
 
     EXPECT_EQ(topology.sourceNodes[0], a);
     EXPECT_EQ(topology.sinkNodes[0], d);
     EXPECT_EQ(topology.branchNodes[0], a);
     EXPECT_EQ(topology.joinNodes[0], d);
+
+    const auto findDegree = [&](const std::shared_ptr<GraphNode>& node) -> const GraphTopologyInfo::NodeDegree* {
+        for (const auto& degree : topology.nodeDegrees) {
+            if (degree.node == node) {
+                return &degree;
+            }
+        }
+        return nullptr;
+    };
+
+    const auto* branchDegree = findDegree(a);
+    ASSERT_NE(branchDegree, nullptr);
+    EXPECT_EQ(branchDegree->incomingCount, 0u);
+    EXPECT_EQ(branchDegree->outgoingCount, 2u);
+
+    const auto* joinDegree = findDegree(d);
+    ASSERT_NE(joinDegree, nullptr);
+    EXPECT_EQ(joinDegree->incomingCount, 2u);
+    EXPECT_EQ(joinDegree->outgoingCount, 0u);
 }
 
 TEST(GraphTest, AnalyzeTopology_DetectsBasicForkJoinGroup) {
