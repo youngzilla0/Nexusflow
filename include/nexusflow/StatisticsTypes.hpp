@@ -27,8 +27,15 @@ struct NodeStats {
     std::string nodeName;
     std::uint64_t processCount = 0;
     std::uint64_t inputMessageCount = 0;
+    std::uint64_t taskSubmitCount = 0;
+    std::uint64_t taskRunCount = 0;
+    std::uint64_t readySignalCount = 0;
+    std::uint64_t rescheduleCount = 0;
+    std::uint64_t idleBackoffCount = 0;
     std::uint64_t emittedBroadcastCount = 0;
     std::uint64_t emittedRouteCount = 0;
+    std::uint64_t joinInsertCount = 0;
+    std::uint64_t joinCompleteGroupCount = 0;
     std::uint64_t incomingDequeueCount = 0;
     std::uint64_t outgoingEnqueueCount = 0;
     std::uint64_t outgoingDropCount = 0;
@@ -36,6 +43,7 @@ struct NodeStats {
     std::uint64_t pendingJoinGroupCount = 0;
     std::uint64_t joinTimeoutDropCount = 0;
     std::uint64_t joinOverflowDropCount = 0;
+    std::uint64_t sinkReceiveCount = 0;
 };
 
 struct PipelineSummaryStats {

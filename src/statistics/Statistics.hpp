@@ -104,8 +104,15 @@ public:
     struct NodeStatsState {
         std::atomic<std::uint64_t> processCount{0}; ///< 节点实际执行 Process 的次数。
         std::atomic<std::uint64_t> inputMessageCount{0}; ///< 节点成功消费的输入消息总数。
+        std::atomic<std::uint64_t> taskSubmitCount{0}; ///< 节点被提交到线程池执行的次数。
+        std::atomic<std::uint64_t> taskRunCount{0}; ///< 节点实际开始执行的次数。
+        std::atomic<std::uint64_t> readySignalCount{0}; ///< 节点收到的 ready 信号总数。
+        std::atomic<std::uint64_t> rescheduleCount{0}; ///< 节点执行后触发的重调度次数。
+        std::atomic<std::uint64_t> idleBackoffCount{0}; ///< 节点执行空转退避的次数。
         std::atomic<std::uint64_t> emittedBroadcastCount{0}; ///< 节点发出的广播输出次数。
         std::atomic<std::uint64_t> emittedRouteCount{0}; ///< 节点发出的定向路由输出次数。
+        std::atomic<std::uint64_t> joinInsertCount{0}; ///< join 状态插入输入消息的次数。
+        std::atomic<std::uint64_t> joinCompleteGroupCount{0}; ///< join 状态拼齐并取走完整组的次数。
         std::atomic<std::uint64_t> joinTimeoutDropCount{0}; ///< join 状态因超时被淘汰的输入组数量。
         std::atomic<std::uint64_t> joinOverflowDropCount{0}; ///< join 状态因容量上限被淘汰的输入组数量。
         std::atomic<std::uint64_t> sinkReceiveCount{0}; ///< sink 节点累计接收到的消息数量。

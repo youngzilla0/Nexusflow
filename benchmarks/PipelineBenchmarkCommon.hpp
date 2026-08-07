@@ -38,6 +38,24 @@ struct PortStatsSummary {
     std::uint64_t maxPeakDepth = 0;
 };
 
+struct NodeStatsSummary {
+    std::uint64_t processCount = 0;
+    std::uint64_t inputMessageCount = 0;
+    std::uint64_t taskSubmitCount = 0;
+    std::uint64_t taskRunCount = 0;
+    std::uint64_t readySignalCount = 0;
+    std::uint64_t rescheduleCount = 0;
+    std::uint64_t idleBackoffCount = 0;
+    std::uint64_t emittedBroadcastCount = 0;
+    std::uint64_t emittedRouteCount = 0;
+    std::uint64_t joinInsertCount = 0;
+    std::uint64_t joinCompleteGroupCount = 0;
+    std::uint64_t joinTimeoutDropCount = 0;
+    std::uint64_t joinOverflowDropCount = 0;
+    std::uint64_t pendingJoinGroupCount = 0;
+    std::uint64_t sinkReceiveCount = 0;
+};
+
 struct LatencySummary {
     double p50Us = 0.0;
     double p90Us = 0.0;
@@ -441,6 +459,28 @@ inline PortStatsSummary SummarizePortStats(const Pipeline& pipeline) {
     return summary;
 }
 
+inline NodeStatsSummary SummarizeNodeStats(const Pipeline& pipeline) {
+    NodeStatsSummary summary;
+    for (const auto& stats : pipeline.GetNodeStats()) {
+        summary.processCount += stats.processCount;
+        summary.inputMessageCount += stats.inputMessageCount;
+        summary.taskSubmitCount += stats.taskSubmitCount;
+        summary.taskRunCount += stats.taskRunCount;
+        summary.readySignalCount += stats.readySignalCount;
+        summary.rescheduleCount += stats.rescheduleCount;
+        summary.idleBackoffCount += stats.idleBackoffCount;
+        summary.emittedBroadcastCount += stats.emittedBroadcastCount;
+        summary.emittedRouteCount += stats.emittedRouteCount;
+        summary.joinInsertCount += stats.joinInsertCount;
+        summary.joinCompleteGroupCount += stats.joinCompleteGroupCount;
+        summary.joinTimeoutDropCount += stats.joinTimeoutDropCount;
+        summary.joinOverflowDropCount += stats.joinOverflowDropCount;
+        summary.pendingJoinGroupCount += stats.pendingJoinGroupCount;
+        summary.sinkReceiveCount += stats.sinkReceiveCount;
+    }
+    return summary;
+}
+
 inline PortStatsSummary DiffPortStats(const PortStatsSummary& before, const PortStatsSummary& after) {
     PortStatsSummary diff;
     diff.enqueueCount = after.enqueueCount - before.enqueueCount;
@@ -525,6 +565,24 @@ inline void PublishReportCounters(benchmark::State& state, std::uint64_t sourceS
         sinkReceived == 0 ? 0.0 : (static_cast<double>(elapsedNs) / 1000.0) / static_cast<double>(sinkReceived);
     state.counters["AvgElapsedUsPerMessage"] = avgElapsedUsPerMessage;
     state.counters["PerMessageElapsedUs"] = avgElapsedUsPerMessage;
+}
+
+inline void PublishNodeCounters(benchmark::State& state, const NodeStatsSummary& nodeStats) {
+    state.counters["NodeProcessCount"] = static_cast<double>(nodeStats.processCount);
+    state.counters["NodeInputCount"] = static_cast<double>(nodeStats.inputMessageCount);
+    state.counters["TaskSubmitCount"] = static_cast<double>(nodeStats.taskSubmitCount);
+    state.counters["TaskRunCount"] = static_cast<double>(nodeStats.taskRunCount);
+    state.counters["ReadySignalCount"] = static_cast<double>(nodeStats.readySignalCount);
+    state.counters["RescheduleCount"] = static_cast<double>(nodeStats.rescheduleCount);
+    state.counters["IdleBackoffCount"] = static_cast<double>(nodeStats.idleBackoffCount);
+    state.counters["NodeEmittedBroadcastCount"] = static_cast<double>(nodeStats.emittedBroadcastCount);
+    state.counters["NodeEmittedRouteCount"] = static_cast<double>(nodeStats.emittedRouteCount);
+    state.counters["JoinInsertCount"] = static_cast<double>(nodeStats.joinInsertCount);
+    state.counters["JoinCompleteGroupCount"] = static_cast<double>(nodeStats.joinCompleteGroupCount);
+    state.counters["JoinTimeoutDropCount"] = static_cast<double>(nodeStats.joinTimeoutDropCount);
+    state.counters["JoinOverflowDropCount"] = static_cast<double>(nodeStats.joinOverflowDropCount);
+    state.counters["PendingJoinGroupCount"] = static_cast<double>(nodeStats.pendingJoinGroupCount);
+    state.counters["SinkReceiveCount"] = static_cast<double>(nodeStats.sinkReceiveCount);
 }
 
 inline void PublishLatencyCounters(benchmark::State& state, const std::vector<std::uint64_t>& latenciesNs) {

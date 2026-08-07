@@ -47,10 +47,12 @@ void RunTopologyIteration(benchmark::State& state,
 
     const auto elapsedNs = std::chrono::duration_cast<std::chrono::nanoseconds>(endTime - startTime).count();
     const auto portStatsAfter = SummarizePortStats(pipeline);
+    const auto nodeStats = SummarizeNodeStats(pipeline);
 
     PublishReportCounters(state, sourceCountFn(), sinkCountFn(), latencyTotalFn(),
                           static_cast<std::uint64_t>(elapsedNs), DiffPortStats(portStatsBefore, portStatsAfter),
                           delivered, drained);
+    PublishNodeCounters(state, nodeStats);
 }
 
 template <typename LatenciesFn>
@@ -80,11 +82,13 @@ void RunTopologyLatencyIteration(benchmark::State& state,
 
     const auto elapsedNs = std::chrono::duration_cast<std::chrono::nanoseconds>(endTime - startTime).count();
     const auto portStatsAfter = SummarizePortStats(pipeline);
+    const auto nodeStats = SummarizeNodeStats(pipeline);
 
     PublishReportCounters(state, sourceCountFn(), sinkCountFn(), latencyTotalFn(),
                           static_cast<std::uint64_t>(elapsedNs), DiffPortStats(portStatsBefore, portStatsAfter),
                           delivered, drained);
     PublishLatencyCounters(state, latenciesFn());
+    PublishNodeCounters(state, nodeStats);
 }
 
 void PublishTopologyShapeCounters(benchmark::State& state, TopologyKind topologyKind, int depth, int branches) {

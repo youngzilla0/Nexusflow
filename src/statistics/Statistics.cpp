@@ -189,10 +189,18 @@ std::vector<NodeStats> Statistics::SnapshotNodes() const {
         snapshot.nodeName = registration.nodeName;
         snapshot.processCount = registration.stats->processCount.load(std::memory_order_relaxed);
         snapshot.inputMessageCount = registration.stats->inputMessageCount.load(std::memory_order_relaxed);
+        snapshot.taskSubmitCount = registration.stats->taskSubmitCount.load(std::memory_order_relaxed);
+        snapshot.taskRunCount = registration.stats->taskRunCount.load(std::memory_order_relaxed);
+        snapshot.readySignalCount = registration.stats->readySignalCount.load(std::memory_order_relaxed);
+        snapshot.rescheduleCount = registration.stats->rescheduleCount.load(std::memory_order_relaxed);
+        snapshot.idleBackoffCount = registration.stats->idleBackoffCount.load(std::memory_order_relaxed);
         snapshot.emittedBroadcastCount = registration.stats->emittedBroadcastCount.load(std::memory_order_relaxed);
         snapshot.emittedRouteCount = registration.stats->emittedRouteCount.load(std::memory_order_relaxed);
+        snapshot.joinInsertCount = registration.stats->joinInsertCount.load(std::memory_order_relaxed);
+        snapshot.joinCompleteGroupCount = registration.stats->joinCompleteGroupCount.load(std::memory_order_relaxed);
         snapshot.joinTimeoutDropCount = registration.stats->joinTimeoutDropCount.load(std::memory_order_relaxed);
         snapshot.joinOverflowDropCount = registration.stats->joinOverflowDropCount.load(std::memory_order_relaxed);
+        snapshot.sinkReceiveCount = registration.stats->sinkReceiveCount.load(std::memory_order_relaxed);
         if (registration.pendingJoinGroupCountFn) {
             snapshot.pendingJoinGroupCount = registration.pendingJoinGroupCountFn();
         }

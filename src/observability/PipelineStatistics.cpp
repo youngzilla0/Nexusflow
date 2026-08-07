@@ -70,12 +70,19 @@ std::string PipelineStatisticsCollector::Describe() const {
         oss << "  " << node.nodeName << ":"
             << " process=" << node.processCount
             << " input=" << node.inputMessageCount
+            << " taskSubmit=" << node.taskSubmitCount
+            << " taskRun=" << node.taskRunCount
+            << " readySignal=" << node.readySignalCount
+            << " reschedule=" << node.rescheduleCount
+            << " idleBackoff=" << node.idleBackoffCount
             << " incomingDequeue=" << node.incomingDequeueCount
             << " outgoingEnqueue=" << node.outgoingEnqueueCount
             << " outgoingDrop=" << node.outgoingDropCount
             << " outgoingReject=" << node.outgoingRejectCount
             << " emitBroadcast=" << node.emittedBroadcastCount
             << " emitRoute=" << node.emittedRouteCount
+            << " joinInsert=" << node.joinInsertCount
+            << " joinComplete=" << node.joinCompleteGroupCount
             << " pendingJoins=" << node.pendingJoinGroupCount
             << " joinTimeoutDrop=" << node.joinTimeoutDropCount
             << " joinOverflowDrop=" << node.joinOverflowDropCount << "\n";

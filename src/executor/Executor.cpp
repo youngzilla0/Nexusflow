@@ -267,6 +267,9 @@ void Executor::SubmitNodeTask(const NodeStateRegistry::NodeStatePtr& state) {
     if (!state->taskScheduled.compare_exchange_strong(expected, true, std::memory_order_acq_rel)) {
         return;
     }
+    if (StatisticsEnabled() && state->stats != nullptr) {
+        state->stats->taskSubmitCount.fetch_add(1, std::memory_order_relaxed);
+    }
 
     m_threadPool->Submit([this, state]() { RunNodeTask(state); });
 }
@@ -280,6 +283,9 @@ void Executor::NotifyNodeReady(const NodeStateRegistry::NodeStatePtr& state) {
         return;
     }
     state->pendingRunSignals.fetch_add(1, std::memory_order_relaxed);
+    if (StatisticsEnabled() && state->stats != nullptr) {
+        state->stats->readySignalCount.fetch_add(1, std::memory_order_relaxed);
+    }
     SubmitNodeTask(state);
 }
 
@@ -385,6 +391,9 @@ void Executor::RunNodeTask(const NodeStateRegistry::NodeStatePtr& state) {
     }
 
     state->pendingRunSignals.store(0, std::memory_order_release);
+    if (StatisticsEnabled() && state->stats != nullptr) {
+        state->stats->taskRunCount.fetch_add(1, std::memory_order_relaxed);
+    }
 
     const auto schedulingContext = BuildSchedulingContext(*state);
     const auto executionPlan =
@@ -415,6 +424,9 @@ void Executor::RunNodeTask(const NodeStateRegistry::NodeStatePtr& state) {
         const auto idleBackoff = m_schedulingPolicy ? m_schedulingPolicy->IdleBackoff(schedulingContext, feedback)
                                                     : std::chrono::microseconds(schedulingContext.idleWaitUs);
         if (idleBackoff.count() > 0) {
+            if (StatisticsEnabled() && state->stats != nullptr) {
+                state->stats->idleBackoffCount.fetch_add(1, std::memory_order_relaxed);
+            }
             std::this_thread::sleep_for(idleBackoff);
         }
     }
@@ -429,6 +441,9 @@ void Executor::RunNodeTask(const NodeStateRegistry::NodeStatePtr& state) {
     const bool needsReschedule = m_schedulingPolicy ? m_schedulingPolicy->ShouldReschedule(schedulingContext, feedback)
                                                     : feedback.hasPendingSignals || feedback.hasPendingWork;
     if (needsReschedule) {
+        if (StatisticsEnabled() && state->stats != nullptr) {
+            state->stats->rescheduleCount.fetch_add(1, std::memory_order_relaxed);
+        }
         SubmitNodeTask(state);
     }
 }
@@ -502,6 +517,7 @@ Executor::StepResult Executor::RunOnAllInputsStep(const NodeStateRegistry::NodeS
         }
         if (statisticsEnabled && state->stats != nullptr) {
             state->stats->inputMessageCount.fetch_add(1, std::memory_order_relaxed);
+            state->stats->joinInsertCount.fetch_add(1, std::memory_order_relaxed);
         }
 
         state->joinState.Insert(ResolveJoinKey(*state, message), inputQueue.inputPortName, std::move(message));
@@ -520,6 +536,9 @@ Executor::StepResult Executor::RunOnAllInputsStep(const NodeStateRegistry::NodeS
 
     if (!sweepResult.tookCompleteGroup) {
         return StepResult{receivedInput, false};
+    }
+    if (statisticsEnabled && state->stats != nullptr) {
+        state->stats->joinCompleteGroupCount.fetch_add(1, std::memory_order_relaxed);
     }
 
     RecordSinkLatencyIfNeeded(state, inputs);

@@ -552,6 +552,58 @@ TEST(PipelineRuntimeTest, OnAllInputsJoinLimit_EvictsOldestPendingGroup) {
     EXPECT_EQ(pipeline->DeInit(), Error::Ok());
 }
 
+TEST(PipelineRuntimeTest, OnAllInputsJoin_TracksSchedulingAndJoinCounters) {
+    auto leftSource = std::make_shared<ManualSourceModule>("Left");
+    auto rightSource = std::make_shared<ManualSourceModule>("Right");
+    auto join = std::make_shared<JoinSumModule>("Join");
+    auto sink = std::make_shared<CollectSinkModule>("Sink");
+
+    PipelineConfig config;
+    config.queueSize = 8;
+    config.idleWaitUs = 10;
+    config.maxPendingJoinGroups = 4;
+
+    auto pipeline = PipelineBuilder()
+                        .AddModule(leftSource)
+                        .AddModule(rightSource)
+                        .AddModule(join)
+                        .AddModule(sink)
+                        .Connect("Left", "out", "Join", "left")
+                        .Connect("Right", "out", "Join", "right")
+                        .Connect("Join", "Sink")
+                        .WithConfig(config)
+                        .Build();
+
+    ASSERT_NE(pipeline, nullptr);
+    ASSERT_EQ(pipeline->Init(), Error::Ok());
+
+    auto sendTagged = [](const std::shared_ptr<ManualSourceModule>& source, int value, std::uint64_t messageId) {
+        auto message = MakeMessage(value, source->GetModuleName());
+        message.MetaData().messageId = messageId;
+        source->SendMessage(std::move(message), true);
+    };
+
+    sendTagged(leftSource, 10, 7);
+    ASSERT_EQ(pipeline->Start(), Error::Ok());
+    std::this_thread::sleep_for(20ms);
+    sendTagged(rightSource, 20, 7);
+
+    ASSERT_TRUE(sink->WaitForCount(1, 2s));
+
+    PipelineObserver observer(*pipeline);
+    const auto observation = observer.Snapshot();
+    const auto* joinStats = FindNodeStats(observation, "Join");
+    ASSERT_NE(joinStats, nullptr);
+    EXPECT_GE(joinStats->taskSubmitCount, 1u);
+    EXPECT_GE(joinStats->taskRunCount, 1u);
+    EXPECT_GE(joinStats->readySignalCount, 1u);
+    EXPECT_GE(joinStats->joinInsertCount, 2u);
+    EXPECT_GE(joinStats->joinCompleteGroupCount, 1u);
+
+    EXPECT_EQ(pipeline->Stop(), Error::Ok());
+    EXPECT_EQ(pipeline->DeInit(), Error::Ok());
+}
+
 TEST(PipelineRuntimeTest, OnAllInputs_CanCorrelateByTimestamp) {
     auto leftSource = std::make_shared<ManualSourceModule>("Left");
     auto rightSource = std::make_shared<ManualSourceModule>("Right");
